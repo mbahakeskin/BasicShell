@@ -322,6 +322,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             shell.tabs.append(tab)
         }
         if select { self.select(tab) }
+        Session.touch()
     }
 
     func open(_ url: URL, from tab: Tab?, select: Bool) {
@@ -385,6 +386,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             }
         }
         tab.lastSeen = Date()
+        Session.touch()
         window.title = tab.name
         if omnibox == nil { window.makeFirstResponder(web) }
     }
@@ -413,6 +415,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         // unpinned to the start of the rest.
         let boundary = shell.tabs.firstIndex { !$0.pinned } ?? shell.tabs.count
         shell.tabs.insert(tab, at: boundary)
+        Session.touch()
     }
 
     /// Unload now, from the sidebar's menu.
@@ -430,6 +433,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             select(next)
         }
         tab.discard()
+        Session.touch()
     }
 
     /// The window's title is the page's, for the Window menu and Mission Control.
@@ -444,6 +448,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         group.move(fromOffsets: source, toOffset: destination)
         let other = shell.tabs.filter { $0.pinned != pinned }
         shell.tabs = pinned ? group + other : other + group
+        Session.touch()
     }
 
     // MARK: - the address field
@@ -614,6 +619,9 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         layout(animated: false)
     }
 
+    func windowDidMove(_ notification: Notification) { Session.touch() }
+    func windowDidEndLiveResize(_ notification: Notification) { Session.touch() }
+
     func windowDidResignKey(_ notification: Notification) {
         guard !shell.editingAddress else { return }
         shell.sidebarShown = false
@@ -627,6 +635,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         for tab in shell.tabs { tab.discard() }
         shell.tabs = []
         Windows.closed(self)
+        Session.touch()
     }
 }
 

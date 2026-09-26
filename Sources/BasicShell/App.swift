@@ -16,8 +16,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Shield.shared.start()
         Sleep.start()
         NSApp.mainMenu = Menus.build()
+        if !Session.restored { Session.restore() }
         if Windows.all.isEmpty { Windows.open() }
         NSApp.activate()
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        Session.saveBeforeQuitting { NSApp.reply(toApplicationShouldTerminate: true) }
+        return .terminateLater
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
@@ -29,6 +35,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Links from other apps, and files dropped on the Dock icon.
     func application(_ application: NSApplication, open urls: [URL]) {
+        // A link that launched the app comes before the last session is back.
+        if !Session.restored { Session.restore() }
         let window = Windows.front ?? Windows.open(empty: true)
         for url in urls { window.open(url, select: true) }
         window.window?.makeKeyAndOrderFront(nil)

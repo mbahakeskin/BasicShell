@@ -97,9 +97,26 @@ final class Tab: NSObject, Identifiable {
             web.interactionState = savedState
             self.savedState = nil
             scrollBack = scrolled
+        } else if isUnloaded, let url {
+            // Restored without its history: the page it was on, at least.
+            web.load(URLRequest(url: url))
+            scrollBack = scrolled
         }
         isUnloaded = false
         return web
+    }
+
+    /// Its back-forward list, to be written down (see Session.swift).
+    var historyState: Data? {
+        (webView?.interactionState ?? savedState) as? Data
+    }
+
+    /// Made from a saved session: unloaded, with what it takes to come back.
+    func restore(url: URL?, title: String, state: Data?) {
+        self.url = url
+        self.title = title
+        savedState = state
+        isUnloaded = true
     }
 
     private func watch(_ web: WKWebView) {
@@ -116,6 +133,7 @@ final class Tab: NSObject, Identifiable {
                     guard let self, let url = web.url else { return }
                     if url.host() != self.url?.host() { self.icon = nil }
                     self.url = url
+                    if !self.isPrivate { Session.touch() }
                 }
             },
             web.observe(\.isLoading) { [weak self] web, _ in
