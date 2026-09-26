@@ -23,6 +23,21 @@ if [ "$CONFIG" = "release" ]; then
   strip -x "$APP/Contents/MacOS/$NAME"
 fi
 
+# The ad blocker's rules: EasyList and EasyPrivacy, turned into WebKit
+# content rule lists (Tools/BlockLists.swift). Without Lists/ the app falls
+# back to the short list built into Shield.swift.
+[ -f Lists/easylist.txt ] || ./lists.sh || echo "no filter lists, using the built-in one" >&2
+if [ -f Lists/easylist.txt ]; then
+  mkdir -p .build/tools "$APP/Contents/Resources/Shield"
+  if [ ! -x .build/tools/BlockLists ] || [ Tools/BlockLists.swift -nt .build/tools/BlockLists ]; then
+    swiftc -O Tools/BlockLists.swift -o .build/tools/BlockLists
+  fi
+  .build/tools/BlockLists Lists/easylist.txt "$APP/Contents/Resources/Shield/ads.json"
+  if [ -f Lists/easyprivacy.txt ]; then
+    .build/tools/BlockLists Lists/easyprivacy.txt "$APP/Contents/Resources/Shield/privacy.json"
+  fi
+fi
+
 # WebKit builds Accept-Language from the languages the app is localized in, so
 # the bundle declares the ones the Mac is likely to prefer.
 for lang in en tr; do

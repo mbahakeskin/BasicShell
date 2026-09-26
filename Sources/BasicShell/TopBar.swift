@@ -29,6 +29,12 @@ struct TopBarView: View {
             Spacer(minLength: 12)
             address.frame(maxWidth: 640)
             Spacer(minLength: 12)
+            if let host = tab?.url?.host() {
+                let off = Shield.shared.isPaused(on: host)
+                IconButton(symbol: off ? "shield.slash" : "shield") { window.toggleShield(nil) }
+                    .foregroundStyle(off ? Color.secondary : Color.primary)
+                    .help(off ? "Block Ads on This Site" : "Allow Ads on This Site")
+            }
             IconButton(symbol: "link", enabled: tab?.url != nil) { window.copyAddress(nil) }
                 .help("Copy Address (⇧⌘C)")
             IconButton(symbol: "plus") { window.ask(.newTab(privately: false)) }

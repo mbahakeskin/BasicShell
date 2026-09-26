@@ -453,6 +453,15 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         say("Link copied")
     }
 
+    /// The blocker off, or back on, for this tab's site, and the page again
+    /// so it takes effect.
+    @objc func toggleShield(_ sender: Any?) {
+        guard let web = shell.selected?.webView, let host = web.url?.host() else { return }
+        Shield.shared.pause(host, !Shield.shared.isPaused(on: host))
+        Shield.shared.tune(web.configuration.userContentController, for: host)
+        web.reload()
+    }
+
     @objc func reload(_ sender: Any?) {
         guard let web = shell.selected?.webView else { return }
         if web.isLoading { web.stopLoading() } else { web.reload() }
