@@ -1,7 +1,10 @@
 // Turns Adblock Plus filter lists (EasyList, EasyPrivacy) into WebKit content
 // rule lists. Run by build.sh; the app never reads the original lists.
 //
-//   BlockLists <input.txt> <output.json>
+//   BlockLists <input.txt> <output.json.lzfse>
+//
+// The JSON is written LZFSE-compressed: it is about ten times smaller that
+// way, and the app only reads it the once WebKit compiles it.
 //
 // Only what WebKit can express faithfully is converted. A rule that would need
 // a regular expression WebKit lacks, a redirect, a CSP header, or an extended
@@ -22,7 +25,7 @@ typealias Rule = [String: Any]
 
 let arguments = CommandLine.arguments
 guard arguments.count == 3, let text = try? String(contentsOfFile: arguments[1], encoding: .utf8) else {
-    FileHandle.standardError.write(Data("usage: BlockLists <list.txt> <out.json>\n".utf8))
+    FileHandle.standardError.write(Data("usage: BlockLists <list.txt> <out.json.lzfse>\n".utf8))
     exit(1)
 }
 
@@ -262,5 +265,5 @@ if rules.count > limit {
 }
 
 let data = try JSONSerialization.data(withJSONObject: rules, options: [.sortedKeys])
-try data.write(to: URL(fileURLWithPath: arguments[2]))
+try (data as NSData).compressed(using: .lzfse).write(to: URL(fileURLWithPath: arguments[2]))
 print("\(URL(fileURLWithPath: arguments[1]).lastPathComponent): \(rules.count) rules, \(dropped) dropped")

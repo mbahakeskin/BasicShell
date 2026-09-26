@@ -7,7 +7,7 @@ import WebKit
 // pages run.
 //
 // The rules are EasyList and EasyPrivacy, converted at build time
-// (Tools/BlockLists.swift) and shipped in the app as Resources/Shield/*.json.
+// (Tools/BlockLists.swift) and shipped in the app as Resources/Shield/*.json.lzfse.
 // Each is compiled by WebKit once, the first time the app sees that version,
 // and looked up from WebKit's own store after that. Without them, a short
 // built-in list of ad and tracking networks is used. Adapted from Search's
@@ -91,8 +91,12 @@ final class Shield {
         guard let folder = Bundle.main.resourceURL?.appendingPathComponent("Shield"),
               let files = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
         else { return [] }
-        return files.filter { $0.pathExtension == "json" }.sorted { $0.path < $1.path }.compactMap { file in
-            (try? String(contentsOf: file, encoding: .utf8)).map { (file.deletingPathExtension().lastPathComponent, $0) }
+        return files.filter { $0.lastPathComponent.hasSuffix(".json.lzfse") }.sorted { $0.path < $1.path }.compactMap { file in
+            guard let packed = try? Data(contentsOf: file),
+                  let json = try? (packed as NSData).decompressed(using: .lzfse)
+            else { return nil }
+            let name = file.lastPathComponent.replacingOccurrences(of: ".json.lzfse", with: "")
+            return (name, String(decoding: json as Data, as: UTF8.self))
         }
     }
 

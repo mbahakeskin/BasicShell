@@ -32,9 +32,9 @@ if [ -f Lists/easylist.txt ]; then
   if [ ! -x .build/tools/BlockLists ] || [ Tools/BlockLists.swift -nt .build/tools/BlockLists ]; then
     swiftc -O Tools/BlockLists.swift -o .build/tools/BlockLists
   fi
-  .build/tools/BlockLists Lists/easylist.txt "$APP/Contents/Resources/Shield/ads.json"
+  .build/tools/BlockLists Lists/easylist.txt "$APP/Contents/Resources/Shield/ads.json.lzfse"
   if [ -f Lists/easyprivacy.txt ]; then
-    .build/tools/BlockLists Lists/easyprivacy.txt "$APP/Contents/Resources/Shield/privacy.json"
+    .build/tools/BlockLists Lists/easyprivacy.txt "$APP/Contents/Resources/Shield/privacy.json.lzfse"
   fi
 fi
 
