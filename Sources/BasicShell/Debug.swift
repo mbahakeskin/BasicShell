@@ -73,7 +73,8 @@ final class Debug {
     // MARK: - pages
 
     /// Put in ordinary pages while logging is on: what they ask of
-    /// geolocation and what they get back.
+    /// geolocation and what they get back. In the page's own world, since
+    /// that is where the page's navigator is.
     static let pageScript = WKUserScript(source: """
     (() => {
       const post = (m) => { try { webkit.messageHandlers.basicShellDebug.postMessage(String(m)); } catch (e) {} };
@@ -92,7 +93,7 @@ final class Debug {
       wrap("getCurrentPosition");
       wrap("watchPosition");
     })();
-    """, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .defaultClient)
+    """, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page)
 
     final class Handler: NSObject, WKScriptMessageHandler {
         static let shared = Handler()
@@ -105,7 +106,7 @@ final class Debug {
     static func attach(to config: WKWebViewConfiguration) {
         guard enabled else { return }
         config.userContentController.addUserScript(pageScript)
-        config.userContentController.add(Handler.shared, contentWorld: .defaultClient, name: "basicShellDebug")
+        config.userContentController.add(Handler.shared, contentWorld: .page, name: "basicShellDebug")
     }
 
     // MARK: - extensions' reports

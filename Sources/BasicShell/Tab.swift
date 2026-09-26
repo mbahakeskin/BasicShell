@@ -34,6 +34,8 @@ final class Tab: NSObject, Identifiable {
     /// comes back where it was when the tab is next shown.
     private(set) var isUnloaded = false
 
+    /// Location answers given in this tab, by site (see Permissions.swift).
+    @ObservationIgnored var locationAnswers: [String: Bool] = [:]
     /// Its page is suspended (see Freeze in Sleep.swift).
     @ObservationIgnored var isFrozen = false
     /// When it was last on screen.

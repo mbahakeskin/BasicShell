@@ -170,8 +170,12 @@ struct ExtensionButton: View {
         let action = context.action(for: target)
         let icon = action?.icon(for: CGSize(width: 16, height: 16)) ?? context.webExtension.icon(for: CGSize(width: 16, height: 16))
         Button {
-            Debug.log("extension", "\(context.webExtension.displayName ?? "extension") button pressed; popup: \(action?.presentsPopup == true ? "yes" : "no"), enabled: \(action?.isEnabled ?? false)")
+            Debug.log("extension", "\(context.webExtension.displayName ?? "extension") button pressed; popup: \(action?.presentsPopup == true ? "yes" : "no"), enabled: \(action?.isEnabled ?? false), popover exists: \(action?.popupPopover != nil), shown: \(action?.popupPopover?.isShown ?? false), popup page: \(action?.popupWebView?.url?.lastPathComponent ?? "none"), loading: \(action?.popupWebView?.isLoading ?? false)")
             context.performAction(for: target)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                let after = context.action(for: target)
+                Debug.log("extension", "3 s later: popover shown: \(after?.popupPopover?.isShown ?? false), popup page: \(after?.popupWebView?.url?.absoluteString ?? "none"), loading: \(after?.popupWebView?.isLoading ?? false)")
+            }
         } label: {
             Group {
                 if let icon { Image(nsImage: icon).resizable().frame(width: 16, height: 16) }
