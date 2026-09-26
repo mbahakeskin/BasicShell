@@ -569,10 +569,12 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             if !bar.isFlipped { rect.origin.y = bar.bounds.height - rect.maxY }
             popover.behavior = .transient
             popover.show(relativeTo: rect, of: bar, preferredEdge: bar.isFlipped ? .maxY : .minY)
+            Debug.log("extension", "popup on screen: \(popover.isShown), size \(Int(popover.contentSize.width))×\(Int(popover.contentSize.height))")
             if let old = self.popupWatch { NotificationCenter.default.removeObserver(old) }
             self.popupWatch = NotificationCenter.default.addObserver(forName: NSPopover.didCloseNotification, object: popover, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }
+                    Debug.log("extension", "popup closed")
                     if let watch = self.popupWatch { NotificationCenter.default.removeObserver(watch) }
                     self.popupWatch = nil
                     self.shell.popupOpen = false

@@ -25,7 +25,9 @@ extension Tab {
     /// a near miss compiles, and WebKit, finding no answer, denies every page.
     @objc func webView(_ webView: WKWebView, requestGeolocationPermissionFor origin: WKSecurityOrigin, initiatedByFrame frame: WKFrameInfo, decisionHandler: @escaping @MainActor (WKPermissionDecision) -> Void) {
         let site = origin.host.isEmpty ? "this page" : origin.host
+        Debug.log("location", "\(site) asks (frame \(frame.isMainFrame ? "main" : "sub") of \(webView.url?.host() ?? "?")); macOS: \(CLLocationStatus.describe())")
         if !isPrivate, let known = Permissions.shared.location[site] {
+            Debug.log("location", "\(site): remembered \(known ? "allow" : "deny")")
             return known ? LocationAccess.ensure { decisionHandler($0 ? .grant : .deny) } : decisionHandler(.deny)
         }
         let alert = NSAlert()
@@ -37,11 +39,16 @@ extension Tab {
             alert.showsSuppressionButton = true
             alert.suppressionButton?.title = "Remember for this site"
         }
+        Debug.log("location", "\(site): asking you")
         Dialogs.show(alert, over: webView) { [weak self] answer in
             let allowed = answer == .alertFirstButtonReturn
+            Debug.log("location", "\(site): you said \(allowed ? "allow" : "don't allow")")
             if self?.isPrivate == false, alert.suppressionButton?.state == .on { Permissions.shared.set(site, allowed) }
             guard allowed else { return decisionHandler(.deny) }
-            LocationAccess.ensure { decisionHandler($0 ? .grant : .deny) }
+            LocationAccess.ensure { granted in
+                Debug.log("location", "\(site): WebKit told \(granted ? "grant" : "deny")")
+                decisionHandler(granted ? .grant : .deny)
+            }
         }
     }
 }
@@ -64,11 +71,15 @@ final class LocationAccess: NSObject, CLLocationManagerDelegate {
     }
 
     private func ensure(_ done: @escaping (Bool) -> Void) {
+        Debug.log("location", "macOS permission: \(CLLocationStatus.describe())")
         switch manager.authorizationStatus {
         case .authorizedAlways, .authorized: done(true)
         case .notDetermined:
             waiting.append(done)
-            if waiting.count == 1 { manager.requestWhenInUseAuthorization() }
+            if waiting.count == 1 {
+                Debug.log("location", "asking macOS for Location Services")
+                manager.requestWhenInUseAuthorization()
+            }
         default:
             done(false)
             LocationAccess.explainDenied()
@@ -76,6 +87,7 @@ final class LocationAccess: NSObject, CLLocationManagerDelegate {
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        Debug.log("location", "macOS permission changed: \(CLLocationStatus.describe())")
         guard manager.authorizationStatus != .notDetermined else { return }
         let allowed = [.authorizedAlways, .authorized].contains(manager.authorizationStatus)
         let callbacks = waiting

@@ -56,6 +56,7 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
         Task {
             for item in installed {
                 do { try await load(item.id) } catch {
+                    Debug.log("extension", "\(item.id) didn't load: \(error.localizedDescription)")
                     NSLog("BasicShell: extension %@ didn't load: %@", item.id, error.localizedDescription)
                 }
             }
@@ -74,6 +75,13 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
         for pattern in found.allRequestedMatchPatterns { context.setPermissionStatus(.grantedExplicitly, for: pattern) }
         try controller.load(context)
         contexts.append(context)
+        Debug.log("extension", "loaded \(found.displayName ?? id) \(found.version ?? "")")
+        for error in found.errors { Debug.log("extension", "\(found.displayName ?? id) manifest: \(error.localizedDescription)") }
+        NotificationCenter.default.addObserver(forName: WKWebExtensionContext.errorsDidUpdateNotification, object: context, queue: .main) { _ in
+            MainActor.assumeIsolated {
+                for error in context.errors.suffix(3) { Debug.log("extension", "\(found.displayName ?? id): \(error.localizedDescription)") }
+            }
+        }
         for window in Windows.all { context.didOpenWindow(window) }
     }
 
@@ -171,25 +179,36 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     /// first. WebKit also hands out a new wrapper for `chrome.runtime` and
     /// its events on every read, so they are pinned to keep what is set on
     /// them. (After Search's ExtensionShims.swift, Office Commun, MIT.)
-    private static let marker = "/* BasicShell: extension fixes 2 */"
+    /// Which version of the fixes a file carries; with the debug log on, a
+    /// version that also reports to it (see Debug.swift).
+    private static var marker: String { "/* BasicShell: extension fixes 6\(Debug.enabled ? " debug" : "") */" }
     /// One line, so a later version can take this one's place.
-    private static let fixes = (marker + #"""
+    private static var fixes: String { (marker + #"""
     (()=>{for(const n of["dispose","asyncDispose"]){if(typeof Symbol[n]!=="symbol")Object.defineProperty(Symbol,n,{value:Symbol.for("Symbol."+n)})}
-    const worker=typeof ServiceWorkerGlobalScope!=="undefined"&&self instanceof ServiceWorkerGlobalScope;
-    if(!worker||self.__basicShellLate)return;Object.defineProperty(self,"__basicShellLate",{value:true});
     const pin=(o,k)=>{let v;try{v=o[k]}catch(e){return}if(v==null)return v;try{Object.defineProperty(o,k,{value:v,configurable:true,writable:true,enumerable:true})}catch(e){}return v};
+    const mend=(sender)=>{if(!sender||typeof sender!=="object"||sender.origin||typeof sender.url!=="string")return sender;const m=/^([a-z][a-z0-9+.-]*:\/\/[^/?#]*)/i.exec(sender.url);if(!m)return sender;try{Object.defineProperty(sender,"origin",{value:m[1],configurable:true,enumerable:true})}catch(e){try{sender={...sender,origin:m[1]}}catch(e2){}}return sender};
+    const mendArgs=(args,message)=>{if(message){args[1]=mend(args[1])}else{const port=args[0];if(port&&port.sender&&!port.sender.origin){const fixed=mend(port.sender);if(fixed!==port.sender)try{Object.defineProperty(port,"sender",{value:fixed,configurable:true})}catch(e){}}}return args};
+    const DEBUG=__DEBUG__;const L=DEBUG?(...a)=>{try{fetch("http://127.0.0.1:__PORT__/log?c=ext&m="+encodeURIComponent((self.document?location.pathname:"worker")+" "+a.map(x=>{try{if(x&&typeof x==="object"&&("message" in x||x instanceof Error))return (x.name?x.name+": ":"")+x.message+(x.stack?" @"+String(x.stack).split("\n")[0]:"");return typeof x==="object"?JSON.stringify(x):String(x)}catch(e){return String(x)}}).join(" ").slice(0,500)))}catch(e){}}:()=>{};
+    if(DEBUG&&!self.__basicShellDebug){Object.defineProperty(self,"__basicShellDebug",{value:true});self.addEventListener("error",e=>L("error",e.message,(e.filename||"")+":"+e.lineno));self.addEventListener("unhandledrejection",e=>L("unhandled rejection",e.reason));for(const lv of["error","warn"]){const o=console[lv];console[lv]=(...a)=>{L("console."+lv,...a);return o.apply(console,a)}}L("started")}
+    for(const ns of["chrome","browser"]){const space=pin(self,ns);const scripting=space&&pin(space,"scripting");if(scripting&&!scripting.ExecutionWorld)try{Object.defineProperty(scripting,"ExecutionWorld",{value:Object.freeze({ISOLATED:"ISOLATED",MAIN:"MAIN"}),configurable:true})}catch(e){}}
+    const worker=typeof ServiceWorkerGlobalScope!=="undefined"&&self instanceof ServiceWorkerGlobalScope;
+    if(!worker){for(const ns of["chrome","browser"]){const space=pin(self,ns);const runtime=space&&pin(space,"runtime");if(!runtime)continue;for(const name of["onMessage","onConnect"]){const event=pin(runtime,name);if(!event||typeof event.addListener!=="function")continue;const add=event.addListener.bind(event),remove=event.removeListener.bind(event),wrapped=new Map(),message=name==="onMessage";try{Object.defineProperty(event,"addListener",{value:l=>{const w=(...args)=>l(...mendArgs(args,message));wrapped.set(l,w);return add(w)},configurable:true,writable:true});Object.defineProperty(event,"removeListener",{value:l=>{const w=wrapped.get(l);wrapped.delete(l);return remove(w||l)},configurable:true,writable:true});Object.defineProperty(event,"hasListener",{value:l=>wrapped.has(l),configurable:true,writable:true})}catch(e){}}}}
+    if(!worker&&DEBUG){try{const rt=pin(pin(self,"chrome"),"runtime");const cn=rt.connect.bind(rt);Object.defineProperty(rt,"connect",{value:(...a)=>{const p=cn(...a);L("connect",a);try{p.onDisconnect.addListener(()=>L("disconnected",a,chrome.runtime.lastError&&chrome.runtime.lastError.message))}catch(e){}return p},configurable:true,writable:true})}catch(e){L("wrapfail",e.message)}}
+    if(!worker||self.__basicShellLate)return;Object.defineProperty(self,"__basicShellLate",{value:true});
     for(const ns of["chrome","browser"]){const space=pin(self,ns);const runtime=space&&pin(space,"runtime");if(!runtime)continue;
     for(const name of["onMessage","onConnect","onMessageExternal","onConnectExternal"]){const event=pin(runtime,name);if(!event||typeof event.addListener!=="function")continue;
     const listeners=new Set(),waiting=[],message=name.startsWith("onMessage");
-    const deliver=(l,args)=>{try{return l(...args)}catch(e){console.error(e)}};
-    const dispatch=(...args)=>{if(!listeners.size){if(message){waiting.push(args);setTimeout(()=>{const i=waiting.indexOf(args);if(i>=0){waiting.splice(i,1);try{args[2](undefined)}catch(e){}}},15000);return true}waiting.push(args);return}
+    const deliver=(l,args)=>{try{return l(...mendArgs(args,message))}catch(e){console.error(e)}};
+    const dispatch=(...args)=>{if(!message)L(ns+".runtime."+name,"port",args[0]&&args[0].name,"to",listeners.size,"listeners");if(!listeners.size){if(message){waiting.push(args);setTimeout(()=>{const i=waiting.indexOf(args);if(i>=0){waiting.splice(i,1);try{args[2](undefined)}catch(e){}}},15000);return true}waiting.push(args);return}
     if(!message){for(const l of[...listeners])deliver(l,args);return}
     let keep=false;for(const l of[...listeners]){const r=deliver(l,args);if(r===true)keep=true;else if(r&&typeof r.then==="function"){keep=true;r.then(v=>{try{args[2](v)}catch(e){}},()=>{try{args[2](undefined)}catch(e){}})}}return keep};
     event.addListener(dispatch);
     const set=(k,v)=>{try{Object.defineProperty(event,k,{value:v,configurable:true,writable:true})}catch(e){}};
     set("addListener",l=>{listeners.add(l);if(listeners.size===1&&waiting.length)for(const args of waiting.splice(0)){const r=deliver(l,args);if(message&&r&&typeof r.then==="function")r.then(v=>{try{args[2](v)}catch(e){}},()=>{})}});
     set("removeListener",l=>{listeners.delete(l)});set("hasListener",l=>listeners.has(l));set("hasListeners",()=>listeners.size>0)}}})();
-    """#).replacingOccurrences(of: "\n", with: "") + "\n"
+    """#).replacingOccurrences(of: "\n", with: "")
+        .replacingOccurrences(of: "__DEBUG__", with: Debug.enabled ? "true" : "false")
+        .replacingOccurrences(of: "__PORT__", with: String(Debug.port)) + "\n" }
 
     /// Puts the fixes first in every script the extension ships, replacing
     /// an older version of them.
@@ -260,6 +279,7 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
 
     func webExtensionController(_ controller: WKWebExtensionController, promptForPermissions permissions: Set<WKWebExtension.Permission>, in tab: (any WKWebExtensionTab)?, for extensionContext: WKWebExtensionContext, completionHandler: @escaping (Set<WKWebExtension.Permission>, Date?) -> Void) {
         let name = extensionContext.webExtension.displayName ?? "An extension"
+        Debug.log("extension", "\(name) asks for permissions: \(permissions.map(\.rawValue).sorted())")
         let granted = ask("\(name) asks for more access", permissions.map(\.rawValue).sorted().joined(separator: ", "))
         completionHandler(granted ? permissions : [], nil)
     }
@@ -290,9 +310,12 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     }
 
     func webExtensionController(_ controller: WKWebExtensionController, presentActionPopup action: WKWebExtension.Action, for context: WKWebExtensionContext, completionHandler: @escaping ((any Error)?) -> Void) {
+        let name = context.webExtension.displayName ?? "extension"
         guard let popover = action.popupPopover, let window = Windows.front else {
+            Debug.log("extension", "\(name): popup asked for but \(action.popupPopover == nil ? "WebKit gave no popover" : "no window")")
             return completionHandler(nil)
         }
+        Debug.log("extension", "\(name): showing popup (already shown: \(popover.isShown))")
         window.present(popover, for: context)
         completionHandler(nil)
     }

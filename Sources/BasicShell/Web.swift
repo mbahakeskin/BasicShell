@@ -36,6 +36,7 @@ enum Web {
         config.preferences.isElementFullscreenEnabled = true
         config.allowsAirPlayForMediaPlayback = true
         config.userContentController.addUserScript(Sleep.typingWatch)
+        Debug.attach(to: config)
         // Extensions see ordinary tabs only.
         if !privately, store == nil || store?.isPersistent == true {
             config.webExtensionController = Extensions.shared.controller

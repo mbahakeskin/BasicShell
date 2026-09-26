@@ -169,7 +169,10 @@ struct ExtensionButton: View {
         let target = tab?.isPrivate == false ? tab : nil
         let action = context.action(for: target)
         let icon = action?.icon(for: CGSize(width: 16, height: 16)) ?? context.webExtension.icon(for: CGSize(width: 16, height: 16))
-        Button { context.performAction(for: target) } label: {
+        Button {
+            Debug.log("extension", "\(context.webExtension.displayName ?? "extension") button pressed; popup: \(action?.presentsPopup == true ? "yes" : "no"), enabled: \(action?.isEnabled ?? false)")
+            context.performAction(for: target)
+        } label: {
             Group {
                 if let icon { Image(nsImage: icon).resizable().frame(width: 16, height: 16) }
                 else { Image(systemName: "puzzlepiece.extension") }

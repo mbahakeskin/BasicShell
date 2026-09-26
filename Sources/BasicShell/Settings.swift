@@ -40,6 +40,7 @@ struct SettingsView: View {
 private struct GeneralSettings: View {
     @AppStorage("engine") private var engine = Engine.google.rawValue
     @AppStorage("engine.region") private var region = true
+    @AppStorage("debug.enabled") private var debug = false
 
     var body: some View {
         Form {
@@ -51,6 +52,13 @@ private struct GeneralSettings: View {
                 Text("Adds hl=\(Engine.language)\(Engine.region.map { ", gl=\($0)" } ?? "") to Google searches, so results don't follow a VPN's country.")
             }
             .disabled(engine != Engine.google.rawValue)
+            Section {
+                Toggle(isOn: $debug) {
+                    Text("Debug logging")
+                    Text("Keeps a log of location requests, extension popups and what pages and extensions report. Takes full effect after reopening BasicShell.")
+                }
+                Button("Open Debug Log") { DebugWindow.show() }
+            }
             Section {
                 Button("Make BasicShell the Default Browser") {
                     let app = Bundle.main.bundleURL

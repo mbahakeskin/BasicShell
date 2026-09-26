@@ -13,6 +13,7 @@ enum Main {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Debug.start()
         Shield.shared.start()
         Sleep.start()
         NSApp.mainMenu = Menus.build()
@@ -50,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc func newPrivateTab(_ sender: Any?) { Windows.open(privately: true) }
 
     @objc func showSettings(_ sender: Any?) { SettingsWindow.show() }
+    @objc func showDebugLog(_ sender: Any?) { DebugWindow.show() }
 
     @objc func reopenTab(_ sender: Any?) {
         guard let last = Closed.tabs.popLast() else { return NSSound.beep() }
