@@ -23,8 +23,10 @@ if [ "$CONFIG" = "release" ]; then
   strip -x "$APP/Contents/MacOS/$NAME"
 fi
 
-# WebKit builds Accept-Language from the languages the app is localized in, so
-# the bundle declares the ones the Mac is likely to prefer.
+# Pages are told one language in Accept-Language: the first of the Mac's
+# preferred languages that the app is localized in (measured: an app whose
+# first language is Turkish sends "tr-TR,tr;q=0.9"). Declaring Turkish lets a
+# Turkish-first Mac say so; everything else falls back to English.
 for lang in en tr; do
   mkdir -p "$APP/Contents/Resources/$lang.lproj"
 done
@@ -51,6 +53,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSSupportsAutomaticTermination</key><false/>
   <key>NSCameraUsageDescription</key><string>A web page you are visiting wants to use the camera.</string>
   <key>NSMicrophoneUsageDescription</key><string>A web page you are visiting wants to use the microphone.</string>
+  <key>NSLocationUsageDescription</key><string>A web page you allowed wants to know where you are.</string>
+  <key>NSLocationWhenInUseUsageDescription</key><string>A web page you allowed wants to know where you are.</string>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>
