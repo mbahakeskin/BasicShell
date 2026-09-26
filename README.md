@@ -10,8 +10,9 @@ the pages you open.
 - Full screen uses every pixel: the same bars, the same edges.
 - A new tab starts as a field over the current page; the tab exists only
   once you enter an address or a search.
-- Private tabs sit beside ordinary ones, each with its own cookie jar that
-  goes when the tab closes.
+- Private tabs sit beside ordinary ones. They share one cookie jar that is
+  kept only in memory, never on disk, and goes when the app quits; they are
+  never saved in the session.
 - Several windows, each with its own tabs.
 - Ads and trackers are blocked with EasyList and EasyPrivacy, as WebKit
   content rule lists enforced before any request is made. The shield in the

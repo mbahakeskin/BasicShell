@@ -51,14 +51,14 @@ final class Tab: NSObject, Identifiable {
 
     @ObservationIgnored private(set) var webView: WKWebView?
     @ObservationIgnored private var configuration: WKWebViewConfiguration?
-    /// A private tab's cookie jar, kept across an unload so it stays signed in.
+    /// The cookie jar it was made with, kept across an unload.
     @ObservationIgnored private var store: WKWebsiteDataStore?
     /// Its back-forward list and scroll position, kept across an unload.
     @ObservationIgnored private var savedState: Any?
     @ObservationIgnored private var watching: [NSKeyValueObservation] = []
 
-    /// A new, empty tab. A private one gets a cookie jar of its own that goes
-    /// when the tab does.
+    /// A new, empty tab. A private one shares the private tabs' cookie jar,
+    /// which lives in memory and goes when the app quits (see Web.swift).
     init(privately: Bool) {
         isPrivate = privately
         super.init()
@@ -157,7 +157,7 @@ final class Tab: NSObject, Identifiable {
     }
 
     /// Lets the page go but keeps what it takes to bring it back: its history,
-    /// its scroll position and, for a private tab, its cookie jar.
+    /// its scroll position and its cookie jar.
     func unload() {
         guard let web = webView, !isUnloaded else { return }
         savedState = web.interactionState
@@ -166,7 +166,7 @@ final class Tab: NSObject, Identifiable {
         isUnloaded = true
     }
 
-    /// Lets the page go: its process ends and its private data, if any, with it.
+    /// Lets the page go: its process ends.
     func discard() {
         watching = []
         isFrozen = false

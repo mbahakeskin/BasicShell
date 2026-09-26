@@ -20,9 +20,15 @@ enum Web {
     /// Schemes a tab loads itself. Anything else belongs to another app.
     static let inline: Set<String> = ["http", "https", "file", "about", "data", "blob"]
 
+    /// The cookie jar every private tab shares: in memory only, never on
+    /// disk, gone when the app quits. Shared, so that a site (Google behind a
+    /// VPN, say) that wants proof you are a person asks once, not per tab.
+    private static var privateStore: WKWebsiteDataStore?
+
     static func configuration(privately: Bool, store: WKWebsiteDataStore? = nil) -> WKWebViewConfiguration {
         let config = WKWebViewConfiguration()
-        config.websiteDataStore = store ?? (privately ? .nonPersistent() : .default())
+        if privately, store == nil, privateStore == nil { privateStore = .nonPersistent() }
+        config.websiteDataStore = store ?? (privately ? privateStore! : .default())
         // A page off screen is frozen: no script, no layout, no timers, but
         // everything it holds stays as it was (see Sleep.swift).
         config.preferences.inactiveSchedulingPolicy = .suspend
