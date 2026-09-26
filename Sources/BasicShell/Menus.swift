@@ -32,6 +32,8 @@ enum Menus {
         let menu = NSMenu(title: "BasicShell")
         menu.addItem(item("About BasicShell", #selector(NSApplication.orderFrontStandardAboutPanel(_:))))
         menu.addItem(.separator())
+        menu.addItem(item("Update Block Lists", #selector(AppDelegate.updateBlockLists(_:))))
+        menu.addItem(.separator())
         let services = item("Services", nil)
         services.submenu = NSMenu(title: "Services")
         NSApp.servicesMenu = services.submenu

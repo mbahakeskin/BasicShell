@@ -13,7 +13,7 @@ enum Main {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
-        Shield.shared.compile()
+        Shield.shared.start()
         Sleep.start()
         NSApp.mainMenu = Menus.build()
         if Windows.all.isEmpty { Windows.open() }
@@ -39,6 +39,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func newWindow(_ sender: Any?) { Windows.open() }
     @objc func newTab(_ sender: Any?) { Windows.open() }
     @objc func newPrivateTab(_ sender: Any?) { Windows.open(privately: true) }
+
+    @objc func updateBlockLists(_ sender: Any?) {
+        Task {
+            let result = await Shield.shared.update()
+            if let window = Windows.front { window.say(result) } else { NSSound.beep() }
+        }
+    }
 }
 
 /// Every open browser window, front to back as AppKit orders them.

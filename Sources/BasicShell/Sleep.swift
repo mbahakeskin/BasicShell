@@ -241,6 +241,6 @@ extension Tab {
                 await MainActor.run { self?.snapshot = data }
             }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: finish)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { finish() }
     }
 }
