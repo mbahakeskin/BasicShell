@@ -4,11 +4,13 @@ import WebKit
 
 // Tabs you aren't looking at, in two steps.
 //
-// Off screen: a tab leaves the screen and its web view leaves the window.
-// Web.swift asks WebKit to suspend such a page
-// (WKPreferences.inactiveSchedulingPolicy = .suspend), but measured on macOS 27
-// it only throttles it: timers run about once a second, the page keeps its
-// memory and nothing is lost, and coming back is instant.
+// Frozen: a tab leaves the screen and its web view leaves the window, and the
+// page is suspended: no script, no layout, no timers, no CPU. Nothing is lost:
+// scroll position, what was typed, a video's place, an open menu. Coming back
+// is instant. The suspension is WebKit's own, but private (Freeze, below): the
+// public WKPreferences.inactiveSchedulingPolicy = .suspend, also set, was
+// measured on macOS 27 to only throttle a page (timers about once a second).
+// A tab playing sound or using the camera or microphone is not frozen.
 //
 // Unloaded: after six hours off screen, or at once when macOS says memory is
 // critically short, the page is let go and its memory with it. Its history is
@@ -18,7 +20,8 @@ import WebKit
 // camera or microphone, or plays sound.
 //
 // A site can be kept awake (the sun in the top bar): its tabs stay in the
-// window, hidden, and are never unloaded. That is for mail and chat.
+// window, hidden, and are neither frozen nor unloaded. That is for mail and
+// chat, which should keep notifying.
 enum Sleep {
     /// How long a tab stays off screen before it is unloaded. Six hours, or
     /// `sleep.unloadHours` in the defaults.
@@ -38,7 +41,15 @@ enum Sleep {
     static func start() {
         let every: TimeInterval = min(300, unloadAfter / 4)
         timer = Timer.scheduledTimer(withTimeInterval: every, repeats: true) { _ in
-            MainActor.assumeIsolated { unloadIdle(olderThan: unloadAfter) }
+            MainActor.assumeIsolated {
+                unloadIdle(olderThan: unloadAfter)
+                // Tabs left running because they were playing: frozen once they stop.
+                for window in Windows.all {
+                    for tab in window.shell.tabs where tab !== window.shell.selected && !tab.isOnScreen {
+                        freezeIfIdle(tab)
+                    }
+                }
+            }
         }
         timer?.tolerance = every / 4
         let source = DispatchSource.makeMemoryPressureSource(eventMask: .critical, queue: .main)
@@ -78,6 +89,24 @@ enum Sleep {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { finish(false) }
     }
 
+    /// Freezes a tab that is off screen, unless it is kept awake, playing, or
+    /// using the camera or microphone. A page that doesn't say whether it is
+    /// playing is left running rather than risk stopping it mid-song.
+    static func freezeIfIdle(_ tab: Tab) {
+        guard let web = tab.webView, !tab.isFrozen, !tab.isOnScreen, !keepsAwake(tab.url),
+              web.cameraCaptureState == .none, web.microphoneCaptureState == .none
+        else { return }
+        var answered = false
+        web.requestMediaPlaybackState { state in
+            MainActor.assumeIsolated {
+                guard !answered else { return }
+                answered = true
+                if state != .playing, tab.webView === web, !tab.isOnScreen { Freeze.freeze(tab) }
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { answered = true }
+    }
+
     // MARK: - leaving the screen
 
     /// Put in every page at its start, in a script world of the browser's own
@@ -106,6 +135,50 @@ enum Sleep {
 
     /// Where the page is scrolled to, and whether it holds anything typed and not sent.
     static let leaving = "({ typed: typeof typedAndNotSent === 'function' && typedAndNotSent(), x: scrollX, y: scrollY })"
+}
+
+/// WebKit's own page suspension. WKWebView has it only as private methods,
+/// `_suspendPage:` and `_resumePage:`, each answering with whether it worked;
+/// they are used only when this WebKit has them. If a page doesn't come back
+/// from it, it is loaded again rather than left blank.
+enum Freeze {
+    private static let suspend = NSSelectorFromString("_suspendPage:")
+    private static let resume = NSSelectorFromString("_resumePage:")
+
+    static let available = WKWebView.instancesRespond(to: suspend) && WKWebView.instancesRespond(to: resume)
+
+    static func freeze(_ tab: Tab) {
+        guard available, let web = tab.webView, !tab.isFrozen else { return }
+        tab.isFrozen = true
+        let done: @convention(block) (Bool) -> Void = { [weak tab] worked in
+            MainActor.assumeIsolated { if !worked { tab?.isFrozen = false } }
+        }
+        web.perform(suspend, with: done)
+    }
+
+    /// Called as the tab comes back on screen.
+    static func thaw(_ tab: Tab) {
+        guard tab.isFrozen, let web = tab.webView else { return }
+        tab.isFrozen = false
+        var answered = false
+        let recover = {
+            guard tab.webView === web else { return }
+            if web.url != nil { web.reload() }
+        }
+        let done: @convention(block) (Bool) -> Void = { worked in
+            MainActor.assumeIsolated {
+                guard !answered else { return }
+                answered = true
+                if !worked { recover() }
+            }
+        }
+        web.perform(resume, with: done)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            guard !answered else { return }
+            answered = true
+            recover()
+        }
+    }
 }
 
 /// Sites whose tabs never sleep, kept in the defaults.

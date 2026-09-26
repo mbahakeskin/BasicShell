@@ -34,6 +34,8 @@ final class Tab: NSObject, Identifiable {
     /// comes back where it was when the tab is next shown.
     private(set) var isUnloaded = false
 
+    /// Its page is suspended (see Freeze in Sleep.swift).
+    @ObservationIgnored var isFrozen = false
     /// When it was last on screen.
     @ObservationIgnored var lastSeen = Date()
     /// Whether the page, when it was last on screen, held something typed and not sent.
@@ -149,6 +151,7 @@ final class Tab: NSObject, Identifiable {
     /// Lets the page go: its process ends and its private data, if any, with it.
     func discard() {
         watching = []
+        isFrozen = false
         webView?.stopLoading()
         webView?.navigationDelegate = nil
         webView?.uiDelegate = nil
