@@ -35,6 +35,12 @@ struct TopBarView: View {
                     .foregroundStyle(off ? Color.secondary : Color.primary)
                     .help(off ? "Block Ads on This Site" : "Allow Ads on This Site")
             }
+            if tab?.url?.host() != nil {
+                let awake = Awake.shared.contains(tab?.url)
+                IconButton(symbol: awake ? "sun.max.fill" : "moon.zzz") { window.toggleAwake(nil) }
+                    .foregroundStyle(awake ? Color.orange : Color.primary)
+                    .help(awake ? "Let This Site Sleep" : "Keep This Site Awake")
+            }
             IconButton(symbol: "link", enabled: tab?.url != nil) { window.copyAddress(nil) }
                 .help("Copy Address (⇧⌘C)")
             IconButton(symbol: "plus") { window.ask(.newTab(privately: false)) }

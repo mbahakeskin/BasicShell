@@ -8,6 +8,7 @@ protocol TabHost: AnyObject {
     func close(_ tab: Tab)
     func open(_ url: URL, from tab: Tab?, select: Bool)
     func retitled(_ tab: Tab)
+    func painted(_ tab: Tab)
 }
 
 /// One page. Its web view is built only when first needed, so a tab that has
@@ -28,9 +29,30 @@ final class Tab: NSObject, Identifiable {
     private(set) var canGoBack = false
     private(set) var canGoForward = false
     var icon: NSImage?
+    var pinned = false
+    /// Its page was let go to give the memory back (see Sleep.swift); it
+    /// comes back where it was when the tab is next shown.
+    private(set) var isUnloaded = false
+
+    /// When it was last on screen.
+    @ObservationIgnored var lastSeen = Date()
+    /// Whether the page, when it was last on screen, held something typed and not sent.
+    @ObservationIgnored var hasTypedInput = false
+    /// What the page looked like when it was last on screen, as a JPEG, shown
+    /// while an unloaded tab loads again.
+    @ObservationIgnored var snapshot: Data?
+    /// Where the page was scrolled to when it was last on screen. WebKit's
+    /// saved state doesn't carry it for the page being shown, so an unloaded
+    /// tab scrolls back here itself once it has loaded.
+    @ObservationIgnored var scrolled: CGPoint?
+    @ObservationIgnored private var scrollBack: CGPoint?
 
     @ObservationIgnored private(set) var webView: WKWebView?
     @ObservationIgnored private var configuration: WKWebViewConfiguration?
+    /// A private tab's cookie jar, kept across an unload so it stays signed in.
+    @ObservationIgnored private var store: WKWebsiteDataStore?
+    /// Its back-forward list and scroll position, kept across an unload.
+    @ObservationIgnored private var savedState: Any?
     @ObservationIgnored private var watching: [NSKeyValueObservation] = []
 
     /// A new, empty tab. A private one gets a cookie jar of its own that goes
@@ -59,7 +81,8 @@ final class Tab: NSObject, Identifiable {
 
     func makeWebView() -> WKWebView {
         if let webView { return webView }
-        let config = configuration ?? Web.configuration(privately: isPrivate)
+        let config = configuration ?? Web.configuration(privately: isPrivate, store: store)
+        store = config.websiteDataStore
         let web = WKWebView(frame: .zero, configuration: config)
         web.navigationDelegate = self
         web.uiDelegate = self
@@ -68,6 +91,12 @@ final class Tab: NSObject, Identifiable {
         web.isInspectable = true
         webView = web
         watch(web)
+        if let savedState {
+            web.interactionState = savedState
+            self.savedState = nil
+            scrollBack = scrolled
+        }
+        isUnloaded = false
         return web
     }
 
@@ -105,6 +134,16 @@ final class Tab: NSObject, Identifiable {
     func load(_ url: URL) {
         self.url = url
         makeWebView().load(URLRequest(url: url))
+    }
+
+    /// Lets the page go but keeps what it takes to bring it back: its history,
+    /// its scroll position and, for a private tab, its cookie jar.
+    func unload() {
+        guard let web = webView, !isUnloaded else { return }
+        savedState = web.interactionState
+        configuration = nil
+        discard()
+        isUnloaded = true
     }
 
     /// Lets the page go: its process ends and its private data, if any, with it.
@@ -164,6 +203,14 @@ extension Tab: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        if let spot = scrollBack {
+            scrollBack = nil
+            // Twice: once now, once after late images and fonts have moved things.
+            let script = "window.scrollTo(\(spot.x), \(spot.y))"
+            webView.evaluateJavaScript(script) { _, _ in }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { webView.evaluateJavaScript(script) { _, _ in } }
+        }
+        host?.painted(self)
         Favicons.fetch(for: self)
     }
 

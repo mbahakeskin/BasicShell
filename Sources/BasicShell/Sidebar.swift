@@ -19,13 +19,17 @@ struct SidebarView: View {
             .padding(.horizontal, 4)
 
             List {
-                ForEach(shell.tabs) { tab in
-                    TabRow(tab: tab, selected: tab === shell.selected, window: window)
-                        .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
+                let pinned = shell.tabs.filter(\.pinned)
+                if !pinned.isEmpty {
+                    ForEach(pinned) { row($0) }
+                        .onMove { window.move(from: $0, to: $1, pinned: true) }
+                    Divider()
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
+                        .padding(.horizontal, 6)
                 }
-                .onMove { window.move(from: $0, to: $1) }
+                ForEach(shell.tabs.filter { !$0.pinned }) { row($0) }
+                    .onMove { window.move(from: $0, to: $1, pinned: false) }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -33,6 +37,13 @@ struct SidebarView: View {
         .padding(8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .glassEffect(.regular, in: .rect(cornerRadius: Metrics.radius))
+    }
+
+    private func row(_ tab: Tab) -> some View {
+        TabRow(tab: tab, selected: tab === shell.selected, window: window)
+            .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
     }
 }
 
@@ -56,6 +67,11 @@ struct TabRow: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 0)
+            if tab.pinned && !hovering {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+            }
             if tab.isPrivate {
                 Image(systemName: "eyeglasses")
                     .font(.system(size: 10))
@@ -77,6 +93,7 @@ struct TabRow: View {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(Color.primary.opacity(selected ? 0.13 : hovering ? 0.06 : 0))
         )
+        .opacity(tab.isUnloaded ? 0.55 : 1)
         .contentShape(Rectangle())
         .onTapGesture { window.select(tab) }
         .onHover { hovering = $0 }
@@ -87,6 +104,9 @@ struct TabRow: View {
                 NSPasteboard.general.setString(url.absoluteString, forType: .string)
             }
             .disabled(tab.url == nil)
+            Button(tab.pinned ? "Unpin Tab" : "Pin Tab") { window.setPinned(tab, !tab.pinned) }
+            Button("Unload Tab") { window.unload(tab) }
+                .disabled(selected || tab.webView == nil)
             Divider()
             Button("Close Tab") { window.close(tab) }
         }

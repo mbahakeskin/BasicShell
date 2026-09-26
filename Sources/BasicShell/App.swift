@@ -14,6 +14,7 @@ enum Main {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Shield.shared.compile()
+        Sleep.start()
         NSApp.mainMenu = Menus.build()
         if Windows.all.isEmpty { Windows.open() }
         NSApp.activate()

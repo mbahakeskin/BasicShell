@@ -40,6 +40,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     private var topBar: NSHostingView<TopBarView>!
     private var omnibox: NSHostingView<OmniboxView>?
     private var toastView: NSHostingView<ToastView>?
+    /// A picture of an unloaded page, over it while it loads again.
+    private var cover: NSImageView?
     private var lights: Lights?
     private var monitors: [Any] = []
     private var closed: [URL] = []
@@ -330,23 +332,81 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     func select(_ tab: Tab?) {
         guard let window else { return }
         if let current = shell.selected, current !== tab {
-            current.webView?.removeFromSuperview()
+            // Out of the window, WebKit freezes the page (see Sleep.swift); a
+            // site kept awake stays in it, hidden, and is only throttled. The
+            // page leaves once its picture is taken, under the new one.
+            let web = current.webView
+            current.leavingScreen { [weak self, weak current] in
+                guard let self, let current, let web, current !== self.shell.selected, current.webView === web else { return }
+                if Sleep.keepsAwake(current.url) { web.isHidden = true } else { web.removeFromSuperview() }
+            }
         }
         shell.selected = tab
+        cover?.removeFromSuperview()
+        cover = nil
         guard let tab else {
             empty.isHidden = false
             window.title = "BasicShell"
             return
         }
         empty.isHidden = true
+        let wasUnloaded = tab.isUnloaded
         let web = tab.makeWebView()
+        web.isHidden = false
         if web.superview !== page {
             web.frame = page.bounds
             web.autoresizingMask = [.width, .height]
             page.addSubview(web)
+        } else {
+            page.addSubview(web, positioned: .above, relativeTo: nil)
         }
+        // An unloaded page loads again under a picture of how it was left.
+        if wasUnloaded, let data = tab.snapshot, let picture = NSImage(data: data) {
+            let view = NSImageView(image: picture)
+            view.imageScaling = .scaleAxesIndependently
+            view.frame = page.bounds
+            view.autoresizingMask = [.width, .height]
+            page.addSubview(view, positioned: .above, relativeTo: web)
+            cover = view
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self, weak view] in
+                if let view, self?.cover === view { self?.uncover() }
+            }
+        }
+        tab.lastSeen = Date()
         window.title = tab.name
         if omnibox == nil { window.makeFirstResponder(web) }
+    }
+
+    /// The page under the picture has drawn itself.
+    func painted(_ tab: Tab) {
+        if tab === shell.selected, cover != nil { uncover() }
+    }
+
+    private func uncover() {
+        guard let view = cover else { return }
+        cover = nil
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Motion.reveal
+            view.animator().alphaValue = 0
+        } completionHandler: {
+            MainActor.assumeIsolated { view.removeFromSuperview() }
+        }
+    }
+
+    func setPinned(_ tab: Tab, _ pinned: Bool) {
+        guard tab.pinned != pinned, let index = shell.tabs.firstIndex(of: tab) else { return }
+        shell.tabs.remove(at: index)
+        tab.pinned = pinned
+        // Pinned tabs come first; a tab pinned goes to the end of them, one
+        // unpinned to the start of the rest.
+        let boundary = shell.tabs.firstIndex { !$0.pinned } ?? shell.tabs.count
+        shell.tabs.insert(tab, at: boundary)
+    }
+
+    /// Unload now, from the sidebar's menu.
+    func unload(_ tab: Tab) {
+        guard tab !== shell.selected else { return }
+        tab.unload()
     }
 
     func close(_ tab: Tab) {
@@ -365,8 +425,13 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         if tab === shell.selected { window?.title = tab.name }
     }
 
-    func move(from source: IndexSet, to destination: Int) {
-        shell.tabs.move(fromOffsets: source, toOffset: destination)
+    /// A drag within the pinned tabs or within the rest; `pinned` says which,
+    /// and the offsets are within that group.
+    func move(from source: IndexSet, to destination: Int, pinned: Bool) {
+        var group = shell.tabs.filter { $0.pinned == pinned }
+        group.move(fromOffsets: source, toOffset: destination)
+        let other = shell.tabs.filter { $0.pinned != pinned }
+        shell.tabs = pinned ? group + other : other + group
     }
 
     // MARK: - the address field
@@ -460,6 +525,14 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         Shield.shared.pause(host, !Shield.shared.isPaused(on: host))
         Shield.shared.tune(web.configuration.userContentController, for: host)
         web.reload()
+    }
+
+    /// This site's tabs never sleep, or sleep again.
+    @objc func toggleAwake(_ sender: Any?) {
+        guard let url = shell.selected?.url else { return }
+        let on = !Awake.shared.contains(url)
+        Awake.shared.set(url, on)
+        say(on ? "\(url.host() ?? "This site") stays awake" : "\(url.host() ?? "This site") can sleep")
     }
 
     @objc func reload(_ sender: Any?) {

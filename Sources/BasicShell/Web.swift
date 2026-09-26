@@ -20,12 +20,16 @@ enum Web {
     /// Schemes a tab loads itself. Anything else belongs to another app.
     static let inline: Set<String> = ["http", "https", "file", "about", "data", "blob"]
 
-    static func configuration(privately: Bool) -> WKWebViewConfiguration {
+    static func configuration(privately: Bool, store: WKWebsiteDataStore? = nil) -> WKWebViewConfiguration {
         let config = WKWebViewConfiguration()
-        config.websiteDataStore = privately ? .nonPersistent() : .default()
+        config.websiteDataStore = store ?? (privately ? .nonPersistent() : .default())
+        // A page off screen is frozen: no script, no layout, no timers, but
+        // everything it holds stays as it was (see Sleep.swift).
+        config.preferences.inactiveSchedulingPolicy = .suspend
         config.applicationNameForUserAgent = userAgentName
         config.preferences.isElementFullscreenEnabled = true
         config.allowsAirPlayForMediaPlayback = true
+        config.userContentController.addUserScript(Sleep.typingWatch)
         Shield.shared.protect(config.userContentController)
         return config
     }
