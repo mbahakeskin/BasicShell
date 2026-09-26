@@ -41,6 +41,12 @@ struct TopBarView: View {
                     .foregroundStyle(awake ? Color.orange : Color.primary)
                     .help(awake ? "Let This Site Sleep" : "Keep This Site Awake")
             }
+            if tab?.url != nil {
+                let kept = Bookmarks.shared.contains(tab?.url)
+                IconButton(symbol: kept ? "star.fill" : "star") { window.bookmarkPage(nil) }
+                    .foregroundStyle(kept ? Color.yellow : Color.primary)
+                    .help(kept ? "Remove Bookmark (⌘D)" : "Bookmark This Page (⌘D)")
+            }
             IconButton(symbol: "link", enabled: tab?.url != nil) { window.copyAddress(nil) }
                 .help("Copy Address (⇧⌘C)")
             IconButton(symbol: "plus") { window.ask(.newTab(privately: false)) }

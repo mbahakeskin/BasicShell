@@ -2,26 +2,53 @@ import SwiftUI
 
 /// The field in the middle of the window, over the page, for a new tab.
 /// Nothing is created until an address or a search is entered; Esc or a
-/// click outside puts it away.
+/// click outside puts it away. Under it: what was typed, then open tabs,
+/// bookmarks and history that match, walked with the arrow keys.
 struct OmniboxView: View {
     let shell: Shell
     let window: BrowserWindow
+    // `@State` is a macro in the macOS 27 SDK whose plugin ships only with
+    // Xcode, so the State it would expand to is stored by hand.
     private var _text = State(initialValue: "")
     private var text: String {
         get { _text.wrappedValue }
         nonmutating set { _text.wrappedValue = newValue }
     }
+    private var _chosen = State(initialValue: 0)
+    private var chosen: Int {
+        get { _chosen.wrappedValue }
+        nonmutating set { _chosen.wrappedValue = newValue }
+    }
     @FocusState private var focused: Bool
 
     private var privately: Bool { shell.asking == .newTab(privately: true) }
 
-    private var hint: (symbol: String, words: String)? {
+    enum Suggestion {
+        case typed(String)
+        case tab(Tab)
+        case page(URL, String, symbol: String)
+    }
+
+    private var suggestions: [Suggestion] {
         let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !typed.isEmpty else { return nil }
-        if let url = Address.url(from: typed) {
-            return ("arrow.up.right", "Go to \(Address.pretty(url))")
+        guard !typed.isEmpty else { return [] }
+        var list: [Suggestion] = [.typed(typed)]
+        var seen: Set<URL> = []
+        for tab in Windows.all.flatMap({ $0.shell.tabs }) {
+            guard let url = tab.url, tab.isPrivate == privately, matches(typed, title: tab.title, url: url), seen.insert(url).inserted else { continue }
+            list.append(.tab(tab))
+            if list.count >= 3 { break }
         }
-        return ("magnifyingglass", "Search \(Engine.current.title) for “\(typed)”")
+        // A private tab's field doesn't search what ordinary browsing kept.
+        guard !privately else { return list }
+        for mark in Bookmarks.shared.search(typed).prefix(3) where seen.insert(mark.url).inserted {
+            list.append(.page(mark.url, mark.title, symbol: "star"))
+        }
+        for visit in History.shared.suggestions(for: typed) where seen.insert(visit.url).inserted {
+            list.append(.page(visit.url, visit.title, symbol: "clock"))
+            if list.count >= 9 { break }
+        }
+        return list
     }
 
     var body: some View {
@@ -39,47 +66,94 @@ struct OmniboxView: View {
                         .textFieldStyle(.plain)
                         .font(.system(size: 20))
                         .focused($focused)
-                        .onSubmit { window.commit(text) }
-                        .onExitCommand { window.dismissOmnibox() }
+                        .onSubmit { pick(chosen) }
+                        .onKeyPress(.downArrow) {
+                            chosen = min(chosen + 1, max(0, suggestions.count - 1))
+                            return .handled
+                        }
+                        .onKeyPress(.upArrow) {
+                            chosen = max(chosen - 1, 0)
+                            return .handled
+                        }
+                        .onChange(of: text) { _, _ in chosen = 0 }
                 }
                 .padding(.horizontal, 18)
                 .frame(height: 56)
 
-                if let hint {
+                let list = suggestions
+                if !list.isEmpty {
                     Divider().padding(.horizontal, 12)
-                    Button { window.commit(text) } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: hint.symbol).frame(width: 18)
-                            Text(hint.words).lineLimit(1).truncationMode(.tail)
-                            Spacer()
-                            Text("↩").foregroundStyle(.secondary)
+                    VStack(spacing: 0) {
+                        ForEach(Array(list.enumerated()), id: \.offset) { index, suggestion in
+                            row(suggestion, chosen: index == chosen)
+                                .contentShape(Rectangle())
+                                .onTapGesture { pick(index) }
                         }
-                        .font(.system(size: 14))
-                        .padding(.horizontal, 18)
-                        .frame(height: 40)
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .padding(6)
                 }
             }
-            .frame(width: 620)
+            .frame(width: 640)
             .glassEffect(.regular, in: .rect(cornerRadius: 18))
             .padding(.top, 150)
         }
         .onAppear { focused = true }
     }
+
+    private func row(_ suggestion: Suggestion, chosen: Bool) -> some View {
+        let (symbol, title, detail): (String, String, String?) = switch suggestion {
+        case .typed(let typed):
+            if let url = Address.url(from: typed) { ("arrow.up.right", "Go to \(Address.pretty(url))", nil) }
+            else { ("magnifyingglass", "Search \(Engine.current.title) for “\(typed)”", nil) }
+        case .tab(let tab): ("square.on.square", tab.name, "Switch to Tab")
+        case .page(let url, let title, let symbol): (symbol, title.isEmpty ? Address.pretty(url) : title, Address.pretty(url))
+        }
+        return HStack(spacing: 10) {
+            Image(systemName: symbol).frame(width: 18).foregroundStyle(.secondary)
+            Text(title).lineLimit(1).truncationMode(.tail)
+            Spacer(minLength: 8)
+            if let detail { Text(detail).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
+            if chosen { Text("↩").foregroundStyle(.secondary) }
+        }
+        .font(.system(size: 14))
+        .padding(.horizontal, 12)
+        .frame(height: 36)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(chosen ? 0.1 : 0)))
+    }
+
+    private func pick(_ index: Int) {
+        let list = suggestions
+        guard list.indices.contains(index) else { return window.commit(text) }
+        switch list[index] {
+        case .typed(let typed): window.commit(typed)
+        case .tab(let tab): window.switchTo(tab)
+        case .page(let url, _, _): window.commit(url.absoluteString)
+        }
+    }
 }
 
-/// What a window with no tabs shows.
+/// What a window with no tabs shows, or a tab whose video is floating.
 struct EmptyPage: View {
+    let shell: Shell
     let window: BrowserWindow
 
     var body: some View {
-        Button { window.ask(.newTab(privately: false)) } label: {
-            Label("New Tab", systemImage: "plus").padding(.horizontal, 8)
+        Group {
+            if let floating = shell.floating, floating === shell.selected {
+                VStack(spacing: 14) {
+                    Image(systemName: "pip").font(.system(size: 34)).foregroundStyle(.secondary)
+                    Text("Playing in Picture in Picture").foregroundStyle(.secondary)
+                    Button("Bring It Back") { window.pictureInPicture(nil) }
+                        .buttonStyle(.glass)
+                }
+            } else {
+                Button { window.ask(.newTab(privately: false)) } label: {
+                    Label("New Tab", systemImage: "plus").padding(.horizontal, 8)
+                }
+                .buttonStyle(.glass)
+                .controlSize(.large)
+            }
         }
-        .buttonStyle(.glass)
-        .controlSize(.large)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

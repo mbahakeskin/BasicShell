@@ -24,10 +24,10 @@ import WebKit
 // chat, which should keep notifying.
 enum Sleep {
     /// How long a tab stays off screen before it is unloaded. Six hours, or
-    /// `sleep.unloadHours` in the defaults.
-    static var unloadAfter: TimeInterval {
-        let hours = UserDefaults.standard.double(forKey: "sleep.unloadHours")
-        return (hours > 0 ? hours : 6) * 3600
+    /// `sleep.unloadHours` in the defaults; 0 means never.
+    static var unloadAfter: TimeInterval? {
+        let hours = UserDefaults.standard.object(forKey: "sleep.unloadHours") as? Double ?? 6
+        return hours > 0 ? hours * 3600 : nil
     }
 
     static func keepsAwake(_ url: URL?) -> Bool { Awake.shared.contains(url) }
@@ -39,10 +39,11 @@ enum Sleep {
 
     /// Started once, at launch.
     static func start() {
-        let every: TimeInterval = min(300, unloadAfter / 4)
+        let every: TimeInterval = min(300, (unloadAfter ?? 1200) / 4, (Archive.after ?? 1200) / 4)
         timer = Timer.scheduledTimer(withTimeInterval: every, repeats: true) { _ in
             MainActor.assumeIsolated {
-                unloadIdle(olderThan: unloadAfter)
+                archiveIdle()
+                if let after = unloadAfter { unloadIdle(olderThan: after) }
                 // Tabs left running because they were playing: frozen once they stop.
                 for window in Windows.all {
                     for tab in window.shell.tabs where tab !== window.shell.selected && !tab.isOnScreen {
@@ -58,6 +59,19 @@ enum Sleep {
         }
         source.resume()
         pressure = source
+    }
+
+    /// Tabs unseen for longer than Archive.after go to the archive; pinned
+    /// ones, private ones and ones holding something typed never do.
+    static func archiveIdle() {
+        guard let after = Archive.after else { return }
+        let now = Date()
+        for window in Windows.all {
+            for tab in window.shell.tabs where tab !== window.shell.selected && !tab.pinned && !tab.isPrivate
+                && !tab.hasTypedInput && !keepsAwake(tab.url) && now.timeIntervalSince(tab.lastSeen) > after {
+                window.archive(tab)
+            }
+        }
     }
 
     /// Every tab in every window off screen for longer than `age`, oldest first.
@@ -198,12 +212,18 @@ final class Awake {
         UserDefaults.standard.set(sites.sorted(), forKey: "sleep.awake")
     }
 
+    func remove(site: String) {
+        sites.remove(site)
+        UserDefaults.standard.set(sites.sorted(), forKey: "sleep.awake")
+    }
+
     private static func site(_ host: String) -> String {
         host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 }
 
 extension Tab {
+    /// In its window, or floating in Picture in Picture.
     var isOnScreen: Bool { webView?.window != nil && webView?.isHidden == false }
 
     /// The tab is going off screen: note what it was holding, where it was

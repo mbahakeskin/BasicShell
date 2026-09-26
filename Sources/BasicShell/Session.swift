@@ -18,6 +18,10 @@ enum Session {
         var scroll: [Double]?
         /// The favicon as a small PNG, so the sidebar has it before the page loads.
         var icon: Data?
+        /// When it was last on screen, for archiving.
+        var seen: Date?
+        /// The index, in the same window, of the tab it was opened from.
+        var opener: Int?
     }
 
     struct SavedWindow: Codable {
@@ -60,12 +64,18 @@ enum Session {
             guard !tabs.isEmpty, let frame = window.window?.frame else { return nil }
             return SavedWindow(
                 frame: NSStringFromRect(frame),
-                tabs: tabs.map(saved),
+                tabs: tabs.map { tab in
+                    var saved = snapshot(of: tab)
+                    saved.opener = tab.opener.flatMap { opener in tabs.firstIndex { $0 === opener } }
+                    return saved
+                },
                 selected: window.shell.selected.flatMap { selected in tabs.firstIndex { $0 === selected } }
             )
         }
         do {
-            let data = try JSONEncoder().encode(Saved(windows: windows))
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            let data = try encoder.encode(Saved(windows: windows))
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: file, options: .atomic)
         } catch {
@@ -73,14 +83,16 @@ enum Session {
         }
     }
 
-    private static func saved(_ tab: Tab) -> SavedTab {
+    /// A tab as it can be written down and brought back.
+    static func snapshot(of tab: Tab) -> SavedTab {
         SavedTab(
             url: tab.url,
             title: tab.title,
             pinned: tab.pinned,
             state: tab.historyState,
             scroll: tab.scrolled.map { [$0.x, $0.y] },
-            icon: tab.icon.flatMap(png)
+            icon: tab.icon.flatMap(png),
+            seen: tab.lastSeen
         )
     }
 
@@ -107,6 +119,7 @@ enum Session {
         let showing = Windows.all.compactMap { $0.shell.selected }.filter { !$0.isPrivate && $0.webView != nil }
         guard !showing.isEmpty else {
             save()
+            History.shared.flushAll()
             return done()
         }
         var left = showing.count
@@ -117,6 +130,7 @@ enum Session {
             save()
             done()
         }
+        History.shared.flushAll()
         for tab in showing {
             tab.webView?.evaluateJavaScript("[scrollX, scrollY]") { result, _ in
                 MainActor.assumeIsolated {
@@ -140,8 +154,10 @@ enum Session {
     @discardableResult
     static func restore() -> Bool {
         defer { restored = true }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
         guard let data = try? Data(contentsOf: file),
-              let saved = try? JSONDecoder().decode(Saved.self, from: data),
+              let saved = try? decoder.decode(Saved.self, from: data),
               !saved.windows.isEmpty
         else { return false }
         for savedWindow in saved.windows.reversed() {
@@ -152,6 +168,9 @@ enum Session {
                 window.insert(Tab(restoring: savedTab), after: nil, select: false)
             }
             let tabs = window.shell.tabs
+            for (tab, savedTab) in zip(tabs, savedWindow.tabs) {
+                if let index = savedTab.opener, tabs.indices.contains(index), tabs[index] !== tab { tab.opener = tabs[index] }
+            }
             let index = savedWindow.selected.flatMap { tabs.indices.contains($0) ? $0 : nil } ?? tabs.indices.last
             window.select(index.map { tabs[$0] })
         }
@@ -167,5 +186,6 @@ extension Tab {
         pinned = saved.pinned
         if let scroll = saved.scroll, scroll.count == 2 { scrolled = CGPoint(x: scroll[0], y: scroll[1]) }
         icon = saved.icon.flatMap(NSImage.init(data:))
+        if let seen = saved.seen { lastSeen = seen }
     }
 }

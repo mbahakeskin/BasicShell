@@ -21,14 +21,15 @@ struct SidebarView: View {
             List {
                 let pinned = shell.tabs.filter(\.pinned)
                 if !pinned.isEmpty {
-                    ForEach(pinned) { row($0) }
+                    ForEach(pinned) { row($0, in: pinned) }
                         .onMove { window.move(from: $0, to: $1, pinned: true) }
                     Divider()
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                         .padding(.horizontal, 6)
                 }
-                ForEach(shell.tabs.filter { !$0.pinned }) { row($0) }
+                let others = shell.tabs.filter { !$0.pinned }
+                ForEach(others) { row($0, in: others) }
                     .onMove { window.move(from: $0, to: $1, pinned: false) }
             }
             .listStyle(.plain)
@@ -39,8 +40,34 @@ struct SidebarView: View {
         .glassEffect(.regular, in: .rect(cornerRadius: Metrics.radius))
     }
 
-    private func row(_ tab: Tab) -> some View {
-        TabRow(tab: tab, selected: tab === shell.selected, window: window)
+    /// How far in a tab sits: one step under the tab a link in it came from,
+    /// as long as the two are together in the list; two at most.
+    private func depth(of tab: Tab, in group: [Tab], limit: Int = 2) -> Int {
+        guard limit > 0, let opener = tab.opener, let index = group.firstIndex(of: tab) else { return 0 }
+        var above = index - 1
+        while above >= 0 {
+            let candidate = group[above]
+            if candidate === opener { return 1 + depth(of: opener, in: group, limit: limit - 1) }
+            // Siblings and their own children may sit between a tab and its opener.
+            guard candidate.opener === opener || isDescendant(candidate, of: opener) else { return 0 }
+            above -= 1
+        }
+        return 0
+    }
+
+    private func isDescendant(_ tab: Tab, of ancestor: Tab) -> Bool {
+        var current = tab.opener
+        var steps = 0
+        while let node = current, steps < 8 {
+            if node === ancestor { return true }
+            current = node.opener
+            steps += 1
+        }
+        return false
+    }
+
+    private func row(_ tab: Tab, in group: [Tab]) -> some View {
+        TabRow(tab: tab, selected: tab === shell.selected, depth: depth(of: tab, in: group), window: window)
             .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
@@ -50,6 +77,7 @@ struct SidebarView: View {
 struct TabRow: View {
     let tab: Tab
     let selected: Bool
+    let depth: Int
     let window: BrowserWindow
     // `@State` is a macro in the macOS 27 SDK whose plugin ships only with
     // Xcode, so the State it would expand to is stored by hand.
@@ -93,6 +121,16 @@ struct TabRow: View {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(Color.primary.opacity(selected ? 0.13 : hovering ? 0.06 : 0))
         )
+        // Opened from the tab above: set in, with a line back to it.
+        .padding(.leading, CGFloat(depth) * 14)
+        .overlay(alignment: .leading) {
+            if depth > 0 {
+                Capsule()
+                    .fill(Color.primary.opacity(0.18))
+                    .frame(width: 2, height: 22)
+                    .padding(.leading, CGFloat(depth) * 14 - 7)
+            }
+        }
         .opacity(tab.isUnloaded ? 0.55 : 1)
         .contentShape(Rectangle())
         .onTapGesture { window.select(tab) }
@@ -105,6 +143,8 @@ struct TabRow: View {
             }
             .disabled(tab.url == nil)
             Button(tab.pinned ? "Unpin Tab" : "Pin Tab") { window.setPinned(tab, !tab.pinned) }
+            Button("Archive Tab") { window.archive(tab) }
+                .disabled(tab.isPrivate || tab.url == nil)
             Button("Unload Tab") { window.unload(tab) }
                 .disabled(selected || tab.webView == nil)
             Divider()

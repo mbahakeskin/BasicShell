@@ -11,7 +11,7 @@ enum Main {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Shield.shared.start()
         Sleep.start()
@@ -47,6 +47,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func newWindow(_ sender: Any?) { Windows.open() }
     @objc func newTab(_ sender: Any?) { Windows.open() }
     @objc func newPrivateTab(_ sender: Any?) { Windows.open(privately: true) }
+
+    @objc func showSettings(_ sender: Any?) { SettingsWindow.show() }
+
+    @objc func reopenTab(_ sender: Any?) {
+        guard let last = Closed.tabs.popLast() else { return NSSound.beep() }
+        open(last.url)
+    }
+
+    /// A bookmark or a recently closed tab from the menu bar.
+    @objc func openMenuPage(_ sender: NSMenuItem) {
+        if let url = sender.representedObject as? URL { open(url) }
+    }
+
+    private func open(_ url: URL) {
+        let window = Windows.front ?? Windows.open(empty: true)
+        window.open(url, select: true)
+        window.window?.makeKeyAndOrderFront(nil)
+    }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(reopenTab(_:)) { return !Closed.tabs.isEmpty }
+        return true
+    }
 
     @objc func updateBlockLists(_ sender: Any?) {
         Task {

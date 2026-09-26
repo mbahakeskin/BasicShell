@@ -126,6 +126,7 @@ final class Tab: NSObject, Identifiable {
                     guard let self else { return }
                     self.title = web.title ?? ""
                     self.host?.retitled(self)
+                    if !self.isPrivate, let url = web.url { History.shared.retitle(url, self.title) }
                 }
             },
             web.observe(\.url) { [weak self] web, _ in
@@ -153,7 +154,13 @@ final class Tab: NSObject, Identifiable {
 
     func load(_ url: URL) {
         self.url = url
-        makeWebView().load(URLRequest(url: url))
+        let web = makeWebView()
+        if url.isFileURL {
+            // A file may read only what sits beside it.
+            web.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+        } else {
+            web.load(URLRequest(url: url))
+        }
     }
 
     /// Lets the page go but keeps what it takes to bring it back: its history,
@@ -232,6 +239,7 @@ extension Tab: WKNavigationDelegate {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { webView.evaluateJavaScript(script) { _, _ in } }
         }
         host?.painted(self)
+        if !isPrivate, let url = webView.url { History.shared.record(url, title: webView.title ?? "") }
         Favicons.fetch(for: self)
     }
 

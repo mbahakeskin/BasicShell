@@ -23,6 +23,9 @@ final class Shell {
     var editingAddress = false
     var fullScreen = false
     var toast: String?
+    var panel: Panel?
+    /// A tab whose video is out in the floating window (Float.swift).
+    var floating: Tab?
 
     var sidebarOut: Bool { sidebarPinned || sidebarShown }
     var topBarOut: Bool { topBarPinned || topBarShown || editingAddress }
@@ -39,12 +42,12 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     private var sidebar: NSHostingView<SidebarView>!
     private var topBar: NSHostingView<TopBarView>!
     private var omnibox: NSHostingView<OmniboxView>?
+    private var panelHost: NSHostingView<PanelView>?
     private var toastView: NSHostingView<ToastView>?
     /// A picture of an unloaded page, over it while it loads again.
     private var cover: NSImageView?
     private var lights: Lights?
     private var monitors: [Any] = []
-    private var closed: [URL] = []
 
     private enum Edge { case side, top }
     private var revealing: [Edge: Timer] = [:]
@@ -96,7 +99,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         page.layer?.masksToBounds = true
         root.addSubview(page)
 
-        empty = hosting(EmptyPage(window: self))
+        empty = hosting(EmptyPage(shell: shell, window: self))
         empty.frame = page.bounds
         empty.autoresizingMask = [.width, .height]
         page.addSubview(empty)
@@ -164,6 +167,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             change()
         }
         omnibox?.frame = bounds
+        panelHost?.frame = bounds
         toastView?.frame = NSRect(x: 0, y: bounds.maxY - 120, width: bounds.width, height: 60)
         lights?.show(shell.topBarOut, animated: animated)
     }
@@ -208,6 +212,10 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     /// Esc: the field over the page, else the address being edited.
     private func escape() -> Bool {
+        if panelHost != nil {
+            closePanel()
+            return true
+        }
         if omnibox != nil {
             dismissOmnibox()
             return true
@@ -338,7 +346,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     func select(_ tab: Tab?) {
         guard let window else { return }
-        if let current = shell.selected, current !== tab {
+        if let current = shell.selected, current !== tab, !Float.shared.isFloating(current) {
             // Out of the window, WebKit freezes the page (see Sleep.swift); a
             // site kept awake stays in it, hidden, and is only throttled. The
             // page leaves once its picture is taken, under the new one.
@@ -359,6 +367,12 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         guard let tab else {
             empty.isHidden = false
             window.title = "BasicShell"
+            return
+        }
+        if Float.shared.isFloating(tab) {
+            // Its page is in the floating window; the tab says so.
+            empty.isHidden = false
+            window.title = tab.name
             return
         }
         empty.isHidden = true
@@ -426,7 +440,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     func close(_ tab: Tab) {
         guard let index = shell.tabs.firstIndex(of: tab) else { return }
-        if !tab.isPrivate, let url = tab.url { closed.append(url) }
+        if Float.shared.isFloating(tab) { Float.shared.land() }
+        Closed.add(tab)
         shell.tabs.remove(at: index)
         if shell.selected === tab {
             let next = shell.tabs.indices.contains(index) ? shell.tabs[index] : shell.tabs.last
@@ -434,6 +449,45 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         }
         tab.discard()
         Session.touch()
+    }
+
+    /// Puts a tab away in the archive, from where it comes back as it was.
+    func archive(_ tab: Tab) {
+        guard !tab.isPrivate, let index = shell.tabs.firstIndex(of: tab) else { return }
+        Archive.shared.add(tab)
+        shell.tabs.remove(at: index)
+        if shell.selected === tab {
+            select(shell.tabs.indices.contains(index) ? shell.tabs[index] : shell.tabs.last)
+        }
+        tab.discard()
+        Session.touch()
+    }
+
+    func restoreArchived(_ id: UUID) {
+        closePanel()
+        guard let saved = Archive.shared.take(id) else { return }
+        insert(Tab(restoring: saved), after: nil, select: true)
+    }
+
+    /// Takes a tab out of this window without closing it, to go to another.
+    func detach(_ tab: Tab) {
+        guard let index = shell.tabs.firstIndex(of: tab) else { return }
+        shell.tabs.remove(at: index)
+        if shell.selected === tab {
+            tab.webView?.removeFromSuperview()
+            shell.selected = nil
+            select(shell.tabs.indices.contains(index) ? shell.tabs[index] : shell.tabs.last)
+        }
+        tab.webView?.removeFromSuperview()
+        Session.touch()
+    }
+
+    /// A tab from the new-tab field's list, in whichever window it is.
+    func switchTo(_ tab: Tab) {
+        dismissOmnibox()
+        guard let owner = Windows.all.first(where: { $0.shell.tabs.contains(tab) }) else { return }
+        owner.select(tab)
+        owner.window?.makeKeyAndOrderFront(nil)
     }
 
     /// The window's title is the page's, for the Window menu and Mission Control.
@@ -491,6 +545,46 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         if let web = shell.selected?.webView { window?.makeFirstResponder(web) }
     }
 
+    // MARK: - panels
+
+    func showPanel(_ panel: Panel) {
+        if omnibox != nil { dismissOmnibox() }
+        if shell.panel == panel, panelHost != nil { return closePanel() }
+        shell.panel = panel
+        panelHost?.removeFromSuperview()
+        let host = hosting(PanelView(shell: shell, window: self))
+        host.frame = root.bounds
+        root.addSubview(host, positioned: .above, relativeTo: nil)
+        panelHost = host
+        window?.makeKeyAndOrderFront(nil)
+    }
+
+    func closePanel() {
+        panelHost?.removeFromSuperview()
+        panelHost = nil
+        shell.panel = nil
+        if let web = shell.selected?.webView { window?.makeFirstResponder(web) }
+    }
+
+    func openFromPanel(_ url: URL) {
+        closePanel()
+        open(url, from: nil, select: true)
+    }
+
+    @objc func clearHistory(_ sender: Any?) { confirmClearHistory() }
+
+    func confirmClearHistory() {
+        guard let window else { return }
+        let alert = NSAlert()
+        alert.messageText = "Clear all history?"
+        alert.informativeText = "Every page in History is forgotten. Open tabs, bookmarks and website data stay."
+        alert.addButton(withTitle: "Clear History")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { answer in
+            if answer == .alertFirstButtonReturn { History.shared.clear() }
+        }
+    }
+
     func say(_ message: String) {
         shell.toast = message
         if toastView == nil {
@@ -519,11 +613,6 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     @objc func closeTab(_ sender: Any?) {
         if omnibox != nil { return dismissOmnibox() }
         if let tab = shell.selected { close(tab) } else { window?.performClose(nil) }
-    }
-
-    @objc func reopenTab(_ sender: Any?) {
-        guard let url = closed.popLast() else { return }
-        open(url, from: nil, select: true)
     }
 
     @objc func copyAddress(_ sender: Any?) {
@@ -564,6 +653,76 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     @objc func zoomIn(_ sender: Any?) { shell.selected?.webView.map { $0.pageZoom = min(3, $0.pageZoom + 0.1) } }
     @objc func zoomOut(_ sender: Any?) { shell.selected?.webView.map { $0.pageZoom = max(0.3, $0.pageZoom - 0.1) } }
 
+    @objc func showHistory(_ sender: Any?) { showPanel(.history) }
+    @objc func showBookmarks(_ sender: Any?) { showPanel(.bookmarks) }
+    @objc func showDownloads(_ sender: Any?) { showPanel(.downloads) }
+    @objc func showArchive(_ sender: Any?) { showPanel(.archive) }
+
+    @objc func bookmarkPage(_ sender: Any?) {
+        guard let tab = shell.selected, let url = tab.url else { return }
+        say(Bookmarks.shared.toggle(url, title: tab.title) ? "Bookmarked" : "Bookmark removed")
+    }
+
+    @objc func togglePin(_ sender: Any?) {
+        guard let tab = shell.selected else { return }
+        setPinned(tab, !tab.pinned)
+    }
+
+    @objc func duplicateTab(_ sender: Any?) {
+        guard let tab = shell.selected, let url = tab.url else { return }
+        let copy = Tab(privately: tab.isPrivate)
+        copy.restore(url: url, title: tab.title, state: tab.historyState)
+        insert(copy, after: tab, select: true)
+    }
+
+    @objc func moveTabToNewWindow(_ sender: Any?) {
+        guard let tab = shell.selected, shell.tabs.count > 1 else { return }
+        detach(tab)
+        let other = Windows.open(empty: true)
+        other.insert(tab, after: nil, select: true)
+    }
+
+    @objc func archiveTab(_ sender: Any?) {
+        if let tab = shell.selected { archive(tab) }
+    }
+
+    @objc func stopLoading(_ sender: Any?) { shell.selected?.webView?.stopLoading() }
+
+    @objc func printPage(_ sender: Any?) {
+        guard let web = shell.selected?.webView, let window else { return }
+        let operation = web.printOperation(with: NSPrintInfo.shared)
+        operation.view?.frame = web.bounds
+        operation.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
+    }
+
+    @objc func openFile(_ sender: Any?) {
+        guard let window else { return }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.html, .pdf, .image, .plainText, .svg, .webArchive]
+        panel.beginSheetModal(for: window) { [weak self] answer in
+            guard answer == .OK, let url = panel.url else { return }
+            self?.open(url, from: nil, select: true)
+        }
+    }
+
+    @objc func pictureInPicture(_ sender: Any?) {
+        if let floating = shell.floating { return Float.shared.toggle(floating, in: self) }
+        guard let tab = shell.selected else { return }
+        Float.shared.toggle(tab, in: self)
+    }
+
+    /// The tab's page went into the floating window.
+    func floated(_ tab: Tab) {
+        shell.floating = tab
+        if shell.selected === tab { empty.isHidden = false }
+    }
+
+    /// And came back.
+    func landed(_ tab: Tab) {
+        shell.floating = nil
+        if shell.selected === tab { select(tab) }
+    }
+
     @objc func nextTab(_ sender: Any?) { step(1) }
     @objc func previousTab(_ sender: Any?) { step(-1) }
 
@@ -593,9 +752,27 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         case #selector(goBack(_:)): return tab?.canGoBack ?? false
         case #selector(goForward(_:)): return tab?.canGoForward ?? false
         case #selector(copyAddress(_:)), #selector(reload(_:)),
-             #selector(actualSize(_:)), #selector(zoomIn(_:)), #selector(zoomOut(_:)):
+             #selector(actualSize(_:)), #selector(zoomIn(_:)), #selector(zoomOut(_:)),
+             #selector(duplicateTab(_:)), #selector(printPage(_:)):
             return tab?.url != nil
-        case #selector(reopenTab(_:)): return !closed.isEmpty
+        case #selector(pictureInPicture(_:)):
+            item.title = shell.floating != nil ? "Exit Picture in Picture" : "Picture in Picture"
+            return tab?.url != nil || shell.floating != nil
+        case #selector(bookmarkPage(_:)):
+            item.title = Bookmarks.shared.contains(tab?.url) ? "Remove Bookmark" : "Bookmark This Page"
+            return tab?.url != nil
+        case #selector(togglePin(_:)):
+            item.title = tab?.pinned == true ? "Unpin Tab" : "Pin Tab"
+            return tab != nil
+        case #selector(archiveTab(_:)): return tab?.url != nil && tab?.isPrivate == false
+        case #selector(moveTabToNewWindow(_:)): return shell.tabs.count > 1
+        case #selector(stopLoading(_:)): return tab?.isLoading == true
+        case #selector(toggleAwake(_:)):
+            item.title = Awake.shared.contains(tab?.url) ? "Let This Site Sleep" : "Keep This Site Awake"
+            return tab?.url?.host() != nil
+        case #selector(toggleShield(_:)):
+            item.title = Shield.shared.isPaused(on: tab?.url?.host()) ? "Block Ads on This Site" : "Allow Ads on This Site"
+            return tab?.url?.host() != nil
         case #selector(nextTab(_:)), #selector(previousTab(_:)): return shell.tabs.count > 1
         case #selector(toggleSidebarPinned(_:)):
             item.state = shell.sidebarPinned ? .on : .off
