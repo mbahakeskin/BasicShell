@@ -186,18 +186,24 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             }
             return event
         }
-        // Esc puts the address fields away. A text field hands Esc to
-        // completion before SwiftUI's onExitCommand sees it, so it is caught
-        // here first.
-        let escape = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == 53 else { return event }
+        // Esc puts the address fields away: a text field hands Esc to
+        // completion before SwiftUI's onExitCommand sees it. ⌃Tab walks the
+        // tabs: the page would otherwise take it before the menu does.
+        let keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let tab = event.keyCode == 48 && event.modifierFlags.contains(.control)
+            guard event.keyCode == 53 || tab else { return event }
+            let back = event.modifierFlags.contains(.shift)
             let handled = MainActor.assumeIsolated { () -> Bool in
                 guard let self, event.window === self.window else { return false }
+                if tab {
+                    self.step(back ? -1 : 1)
+                    return true
+                }
                 return self.escape()
             }
             return handled ? nil : event
         }
-        monitors = [pointer, escape].compactMap { $0 }
+        monitors = [pointer, keys].compactMap { $0 }
     }
 
     /// Esc: the field over the page, else the address being edited.
@@ -338,7 +344,12 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             let web = current.webView
             current.leavingScreen { [weak self, weak current] in
                 guard let self, let current, let web, current !== self.shell.selected, current.webView === web else { return }
-                if Sleep.keepsAwake(current.url) { web.isHidden = true } else { web.removeFromSuperview() }
+                if Sleep.keepsAwake(current.url) {
+                    web.isHidden = true
+                } else {
+                    web.removeFromSuperview()
+                    Sleep.freezeIfIdle(current)
+                }
             }
         }
         shell.selected = tab
@@ -360,6 +371,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         } else {
             page.addSubview(web, positioned: .above, relativeTo: nil)
         }
+        Freeze.thaw(tab)
         // An unloaded page loads again under a picture of how it was left.
         if wasUnloaded, let data = tab.snapshot, let picture = NSImage(data: data) {
             let view = NSImageView(image: picture)
