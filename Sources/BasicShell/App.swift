@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApp.mainMenu = Menus.build()
         if !Session.restored { Session.restore() }
         if Windows.all.isEmpty { Windows.open() }
+        Extensions.shared.start()
         NSApp.activate()
     }
 
@@ -94,6 +95,7 @@ enum Windows {
     static func open(empty: Bool = false, privately: Bool = false) -> BrowserWindow {
         let window = BrowserWindow()
         all.append(window)
+        Extensions.shared.controller.didOpenWindow(window)
         window.showWindow(nil)
         if !empty { window.ask(.newTab(privately: privately)) }
         return window
@@ -101,5 +103,6 @@ enum Windows {
 
     static func closed(_ window: BrowserWindow) {
         all.removeAll { $0 === window }
+        Extensions.shared.controller.didCloseWindow(window)
     }
 }

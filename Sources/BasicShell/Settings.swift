@@ -30,6 +30,7 @@ struct SettingsView: View {
             GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
             TabSettings().tabItem { Label("Tabs", systemImage: "square.on.square") }
             PrivacySettings().tabItem { Label("Privacy", systemImage: "hand.raised") }
+            ExtensionSettings().tabItem { Label("Extensions", systemImage: "puzzlepiece.extension") }
         }
         .padding(.top, 28)
         .frame(width: 580, height: 520)
@@ -167,6 +168,85 @@ private struct SiteList: View {
                 Button { remove(site) } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.borderless)
                     .help("Remove")
+            }
+        }
+    }
+}
+
+private struct ExtensionSettings: View {
+    // `@State` is a macro in the macOS 27 SDK whose plugin ships only with
+    // Xcode, so the State it would expand to is stored by hand.
+    private var _link = State(initialValue: "")
+    private var link: String {
+        get { _link.wrappedValue }
+        nonmutating set { _link.wrappedValue = newValue }
+    }
+    private var _status = State(initialValue: "")
+    private var status: String {
+        get { _status.wrappedValue }
+        nonmutating set { _status.wrappedValue = newValue }
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                HStack {
+                    TextField("Extension", text: _link.projectedValue, prompt: Text("Chrome Web Store link or extension id"))
+                        .labelsHidden()
+                    Button("Add") { add { try await Extensions.shared.add(fromStore: link) } }
+                        .disabled(link.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+                Button("Add Unpacked Extension…") {
+                    let panel = NSOpenPanel()
+                    panel.canChooseFiles = false
+                    panel.canChooseDirectories = true
+                    panel.message = "Choose the folder with the extension's manifest.json"
+                    guard panel.runModal() == .OK, let folder = panel.url else { return }
+                    add { try await Extensions.shared.add(fromFolder: folder) }
+                }
+                if !status.isEmpty { Text(status).font(.caption).foregroundStyle(.secondary) }
+            } footer: {
+                Text("Extensions run on WebKit's own extension engine, as in Safari. One that needs a Chrome API WebKit lacks won't work. They never see private tabs.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Installed") {
+                if Extensions.shared.contexts.isEmpty {
+                    Text("None yet.").foregroundStyle(.secondary)
+                }
+                ForEach(Extensions.shared.contexts, id: \.uniqueIdentifier) { context in
+                    HStack {
+                        if let icon = context.webExtension.icon(for: CGSize(width: 20, height: 20)) {
+                            Image(nsImage: icon).resizable().frame(width: 20, height: 20)
+                        }
+                        VStack(alignment: .leading) {
+                            Text(context.webExtension.displayName ?? "Extension")
+                            Text(context.webExtension.version ?? "").font(.caption).foregroundStyle(.secondary)
+                            ForEach(Array((context.errors + context.webExtension.errors).prefix(3).enumerated()), id: \.offset) { _, error in
+                                Text(error.localizedDescription).font(.caption).foregroundStyle(.orange).lineLimit(2)
+                            }
+                        }
+                        Spacer()
+                        if context.optionsPageURL != nil {
+                            Button("Options") {
+                                if let url = context.optionsPageURL { (Windows.front ?? Windows.open(empty: true)).open(url, select: true) }
+                            }
+                        }
+                        Button("Remove") { Extensions.shared.remove(context) }
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private func add(_ work: @escaping () async throws -> String) {
+        status = "Adding…"
+        Task {
+            do {
+                status = try await work()
+                link = ""
+            } catch {
+                status = error.localizedDescription
             }
         }
     }

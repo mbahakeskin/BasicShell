@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 
 /// Back, forward, reload, the address, and the traffic lights at its left
 /// end, on glass along the top.
@@ -41,6 +42,9 @@ struct TopBarView: View {
                     .foregroundStyle(awake ? Color.orange : Color.primary)
                     .help(awake ? "Let This Site Sleep" : "Keep This Site Awake")
             }
+            ForEach(Extensions.shared.contexts, id: \.uniqueIdentifier) { context in
+                ExtensionButton(context: context, tab: tab, shell: shell)
+            }
             if tab?.url != nil {
                 let kept = Bookmarks.shared.contains(tab?.url)
                 IconButton(symbol: kept ? "star.fill" : "star") { window.bookmarkPage(nil) }
@@ -54,6 +58,7 @@ struct TopBarView: View {
         }
         .padding(.horizontal, 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .coordinateSpace(.named("bar"))
         .background {
             Color.clear
                 .contentShape(Rectangle())
@@ -149,5 +154,48 @@ struct FullScreenLights: View {
         }
         .buttonStyle(.plain)
         .disabled(action == nil)
+    }
+}
+
+/// An extension's button: its icon, its badge, and its popup when pressed.
+struct ExtensionButton: View {
+    let context: WKWebExtensionContext
+    let tab: Tab?
+    let shell: Shell
+
+    var body: some View {
+        // Read so the button redraws when the extension changes it.
+        let _ = Extensions.shared.actions
+        let target = tab?.isPrivate == false ? tab : nil
+        let action = context.action(for: target)
+        let icon = action?.icon(for: CGSize(width: 16, height: 16)) ?? context.webExtension.icon(for: CGSize(width: 16, height: 16))
+        Button { context.performAction(for: target) } label: {
+            Group {
+                if let icon { Image(nsImage: icon).resizable().frame(width: 16, height: 16) }
+                else { Image(systemName: "puzzlepiece.extension") }
+            }
+            .frame(width: 28, height: 28)
+            .overlay(alignment: .topTrailing) {
+                if let badge = action?.badgeText, !badge.isEmpty {
+                    Text(badge)
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 3)
+                        .background(Capsule().fill(Color.red))
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .help(action?.label ?? context.webExtension.displayName ?? "Extension")
+        .background {
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear { shell.extensionButtons[context.uniqueIdentifier] = geometry.frame(in: .named("bar")) }
+                    .onChange(of: geometry.frame(in: .named("bar"))) { _, frame in
+                        shell.extensionButtons[context.uniqueIdentifier] = frame
+                    }
+            }
+        }
     }
 }

@@ -21,7 +21,19 @@ the pages you open.
   hours off screen, or when memory runs short, a tab is unloaded and comes
   back where it was. Tabs holding unsent typing, sound or a call are left
   alone, and a site can be kept awake (the sun in the top bar).
+- History, bookmarks, downloads and archived tabs, each a searchable panel
+  over the page; the new-tab field suggests open tabs, bookmarks and history.
+- Tabs opened from a link sit under the tab they came from.
+- Picture in picture: `⇧⌘P` lifts a video into a small window above
+  everything.
+- Google searches carry the Mac's language and region, so a VPN doesn't
+  switch results to another country.
+- Chrome extensions from the Chrome Web Store (signature checked) or a
+  folder, on WebKit's own extension engine.
 - `⇧⌘C` copies the address.
+
+What it can't do: passkeys. WebKit gives them to a browser only with an
+entitlement Apple grants on request, tied to a paid Developer ID.
 
 ## Building
 

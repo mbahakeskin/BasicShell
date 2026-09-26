@@ -26,9 +26,13 @@ final class Shell {
     var panel: Panel?
     /// A tab whose video is out in the floating window (Float.swift).
     var floating: Tab?
+    /// An extension's popup is open under its button in the top bar.
+    var popupOpen = false
+    /// Where each extension's button is in the top bar, for its popup.
+    var extensionButtons: [String: CGRect] = [:]
 
     var sidebarOut: Bool { sidebarPinned || sidebarShown }
-    var topBarOut: Bool { topBarPinned || topBarShown || editingAddress }
+    var topBarOut: Bool { topBarPinned || topBarShown || editingAddress || popupOpen }
 }
 
 /// A browser window: its tabs, the page on show, and the two panels that
@@ -46,6 +50,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     private var toastView: NSHostingView<ToastView>?
     /// A picture of an unloaded page, over it while it loads again.
     private var cover: NSImageView?
+    private var popupWatch: (any NSObjectProtocol)?
     private var lights: Lights?
     private var monitors: [Any] = []
 
@@ -329,6 +334,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         } else {
             shell.tabs.append(tab)
         }
+        Extensions.shared.opened(tab)
         if select { self.select(tab) }
         Session.touch()
     }
@@ -346,6 +352,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     func select(_ tab: Tab?) {
         guard let window else { return }
+        let previous = shell.selected
+        defer { if previous !== tab { Extensions.shared.activated(tab, previous: previous) } }
         if let current = shell.selected, current !== tab, !Float.shared.isFloating(current) {
             // Out of the window, WebKit freezes the page (see Sleep.swift); a
             // site kept awake stays in it, hidden, and is only throttled. The
@@ -441,6 +449,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     func close(_ tab: Tab) {
         guard let index = shell.tabs.firstIndex(of: tab) else { return }
         if Float.shared.isFloating(tab) { Float.shared.land() }
+        Extensions.shared.closed(tab)
         Closed.add(tab)
         shell.tabs.remove(at: index)
         if shell.selected === tab {
@@ -543,6 +552,34 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         guard let url = Address.resolve(typed) else { return }
         if let tab = shell.selected { tab.load(url) } else { open(url, from: nil, select: true) }
         if let web = shell.selected?.webView { window?.makeFirstResponder(web) }
+    }
+
+    // MARK: - extensions
+
+    /// An extension's popup, under its button; the top bar stays out while it is open.
+    func present(_ popover: NSPopover, for context: WKWebExtensionContext) {
+        shell.popupOpen = true
+        layout(animated: true)
+        window?.makeKeyAndOrderFront(nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + Motion.reveal) { [weak self] in
+            guard let self else { return }
+            let bar = self.topBar!
+            var rect = self.shell.extensionButtons[context.uniqueIdentifier]
+                ?? NSRect(x: bar.bounds.maxX - 60, y: 6, width: 28, height: 28)
+            if !bar.isFlipped { rect.origin.y = bar.bounds.height - rect.maxY }
+            popover.behavior = .transient
+            popover.show(relativeTo: rect, of: bar, preferredEdge: bar.isFlipped ? .maxY : .minY)
+            if let old = self.popupWatch { NotificationCenter.default.removeObserver(old) }
+            self.popupWatch = NotificationCenter.default.addObserver(forName: NSPopover.didCloseNotification, object: popover, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if let watch = self.popupWatch { NotificationCenter.default.removeObserver(watch) }
+                    self.popupWatch = nil
+                    self.shell.popupOpen = false
+                    self.layout(animated: true)
+                }
+            }
+        }
     }
 
     // MARK: - panels
@@ -806,10 +843,17 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         layout(animated: true)
     }
 
+    func windowDidBecomeKey(_ notification: Notification) {
+        Extensions.shared.controller.didFocusWindow(self)
+    }
+
     func windowWillClose(_ notification: Notification) {
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
-        for tab in shell.tabs { tab.discard() }
+        for tab in shell.tabs {
+            Extensions.shared.closed(tab, windowClosing: true)
+            tab.discard()
+        }
         shell.tabs = []
         Windows.closed(self)
         Session.touch()

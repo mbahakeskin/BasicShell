@@ -126,6 +126,7 @@ final class Tab: NSObject, Identifiable {
                     guard let self else { return }
                     self.title = web.title ?? ""
                     self.host?.retitled(self)
+                    Extensions.shared.changed(self, .title)
                     if !self.isPrivate, let url = web.url { History.shared.retitle(url, self.title) }
                 }
             },
@@ -135,10 +136,15 @@ final class Tab: NSObject, Identifiable {
                     if url.host() != self.url?.host() { self.icon = nil }
                     self.url = url
                     if !self.isPrivate { Session.touch() }
+                    Extensions.shared.changed(self, .URL)
                 }
             },
             web.observe(\.isLoading) { [weak self] web, _ in
-                MainActor.assumeIsolated { self?.isLoading = web.isLoading }
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.isLoading = web.isLoading
+                    Extensions.shared.changed(self, .loading)
+                }
             },
             web.observe(\.estimatedProgress) { [weak self] web, _ in
                 MainActor.assumeIsolated { self?.progress = web.estimatedProgress }
