@@ -210,7 +210,7 @@ final class Shield {
         }
         lists = compiled
         self.version = version
-        for old in await store.availableIdentifiers() ?? [] where old.hasPrefix("shield-") && !keep.contains(old) {
+        for old in await store.availableIdentifiers() ?? [] where (old == "shield" || old.hasPrefix("shield-")) && !keep.contains(old) {
             try? await store.removeContentRuleList(forIdentifier: old)
         }
     }
