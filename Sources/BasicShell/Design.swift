@@ -17,7 +17,7 @@ enum Motion {
     /// How long the pointer rests at an edge before the panel comes out, so
     /// crossing the edge on the way into the window doesn't open it.
     static let dwell: TimeInterval = 0.12
-    static let linger: TimeInterval = 0.35
+    static let linger: TimeInterval = 0.12
 }
 
 /// A small icon button for the bars.
