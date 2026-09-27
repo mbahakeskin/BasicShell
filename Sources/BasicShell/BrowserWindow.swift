@@ -340,7 +340,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     }
 
     func open(_ url: URL, from tab: Tab?, select: Bool) {
-        let new = Tab(privately: tab?.isPrivate ?? false)
+        let new = Tab(privately: tab?.isPrivate ?? false, opening: url)
         insert(new, after: tab, select: select)
         new.load(url)
     }

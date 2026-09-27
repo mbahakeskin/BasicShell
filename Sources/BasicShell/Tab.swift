@@ -58,11 +58,16 @@ final class Tab: NSObject, Identifiable {
     /// Its back-forward list and scroll position, kept across an unload.
     @ObservationIgnored private var savedState: Any?
     @ObservationIgnored private var watching: [NSKeyValueObservation] = []
+    /// When its web process last ended, for telling a crash loop apart.
+    @ObservationIgnored private var crashes: [Date] = []
 
     /// A new, empty tab. A private one shares the private tabs' cookie jar,
     /// which lives in memory and goes when the app quits (see Web.swift).
-    init(privately: Bool) {
+    /// Given the address it is about to open, its view is made for that
+    /// address: an extension's page needs a view of that extension's kind.
+    init(privately: Bool, opening address: URL? = nil) {
         isPrivate = privately
+        url = address
         super.init()
     }
 
@@ -85,7 +90,11 @@ final class Tab: NSObject, Identifiable {
 
     func makeWebView() -> WKWebView {
         if let webView { return webView }
-        let config = configuration ?? Web.configuration(privately: isPrivate, store: store)
+        // An extension's page is shown only by a view made the way that
+        // extension's own are; any other page, the usual configuration.
+        let config = configuration
+            ?? (isPrivate ? nil : url.flatMap { Extensions.shared.configuration(for: $0) })
+            ?? Web.configuration(privately: isPrivate, store: store)
         store = config.websiteDataStore
         let web = WKWebView(frame: .zero, configuration: config)
         web.navigationDelegate = self
@@ -208,6 +217,13 @@ extension Tab: WKNavigationDelegate {
             return
         }
         let scheme = url.scheme?.lowercased() ?? ""
+        // An extension's own pages: its inline menu in a page's frame, its
+        // popup popped out into a tab. WebKit's extension engine decides what
+        // a page may load from it; a private tab has no extensions.
+        if scheme == Extensions.scheme {
+            decisionHandler(webView.configuration.webExtensionController == nil ? .cancel : .allow, preferences)
+            return
+        }
         guard Web.inline.contains(scheme) else {
             decisionHandler(.cancel, preferences)
             handOff(url, action: action)
@@ -262,6 +278,15 @@ extension Tab: WKNavigationDelegate {
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         // macOS may end a frozen page's process; wake the view before reloading it.
         Freeze.thaw(self)
+        // A page whose process keeps dying is not reloaded into another
+        // crash: after the third in a minute it is left for a manual reload.
+        let now = Date()
+        crashes = crashes.filter { now.timeIntervalSince($0) < 60 } + [now]
+        Debug.log("tab", "\(name): its web process ended (\(crashes.count) in the last minute)")
+        guard crashes.count < 3 else {
+            (host as? BrowserWindow)?.say("\(name) keeps crashing; reload it to try again")
+            return
+        }
         webView.reload()
     }
 

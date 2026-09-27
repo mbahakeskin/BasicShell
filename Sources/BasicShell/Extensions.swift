@@ -225,20 +225,33 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     ///   refuses ("No runtime.onConnect listeners found"). So a page's
     ///   connect first sends a wake-up message, then connects; what is
     ///   posted meanwhile waits.
+    /// - No windows in the worker. WebKit gives a worker the windows of the
+    ///   extension's pages (extension.getViews), and reading anything off
+    ///   one from the worker crashes the extension's process (sampled:
+    ///   Bitwarden checking every ten seconds whether its popup is open in
+    ///   a tab). Chrome gives a worker none; runtime.getContexts, which
+    ///   Chrome gives instead and WebKit lacks, is made from the tabs and
+    ///   whether a popup is open.
+    /// - No WebSocket in the worker. WebKit runs an extension's worker on
+    ///   its process's main thread, and a worker's WebSocket waits for the
+    ///   main thread to open it: the process locks up for about a minute,
+    ///   popup included (sampled). Bitwarden opens one for live sync as soon
+    ///   as you are signed in. Without it Bitwarden syncs when the popup
+    ///   opens and on its own schedule instead.
     ///
     /// WebKit also hands out a new wrapper for `chrome.runtime` and its
     /// events on every read, so they are pinned to keep what is set on them.
     /// (After Search's ExtensionShims.swift, Office Commun, MIT.)
     /// Which version of the fixes a file carries; with the debug log on, a
     /// version that also reports to it (see Debug.swift).
-    private static var marker: String { "/* BasicShell: extension fixes 10\(Debug.enabled ? " debug" : "") */" }
+    private static var marker: String { "/* BasicShell: extension fixes 13\(Debug.enabled ? " debug" : "") */" }
     /// One line, so a later version can take this one's place.
     private static var fixes: String { (marker + #"""
     (()=>{for(const n of["dispose","asyncDispose"]){if(typeof Symbol[n]!=="symbol")Object.defineProperty(Symbol,n,{value:Symbol.for("Symbol."+n)})}
     const pin=(o,k)=>{let v;try{v=o[k]}catch(e){return}if(v==null)return v;try{Object.defineProperty(o,k,{value:v,configurable:true,writable:true,enumerable:true})}catch(e){}return v};
     const mend=(sender)=>{if(!sender||typeof sender!=="object"||sender.origin||typeof sender.url!=="string")return sender;const m=/^([a-z][a-z0-9+.-]*:\/\/[^/?#]*)/i.exec(sender.url);if(!m)return sender;try{Object.defineProperty(sender,"origin",{value:m[1],configurable:true,enumerable:true})}catch(e){try{sender={...sender,origin:m[1]}}catch(e2){}}return sender};
     const mendArgs=(args,message)=>{if(message){args[1]=mend(args[1])}else{const port=args[0];if(port&&port.sender&&!port.sender.origin){const fixed=mend(port.sender);if(fixed!==port.sender)try{Object.defineProperty(port,"sender",{value:fixed,configurable:true})}catch(e){}}}return args};
-    const DEBUG=__DEBUG__&&(!self.document||location.protocol==="chrome-extension:");const L=DEBUG?(...a)=>{try{fetch("http://127.0.0.1:__PORT__/log?c=ext&m="+encodeURIComponent((self.document?location.pathname:"worker")+" "+a.map(x=>{try{if(x&&typeof x==="object"&&("message" in x||x instanceof Error))return (x.name?x.name+": ":"")+x.message+(x.stack?" @"+String(x.stack).split("\n")[0]:"");return typeof x==="object"?JSON.stringify(x):String(x)}catch(e){return String(x)}}).join(" ").slice(0,500))).catch(()=>{})}catch(e){}}:()=>{};
+    const DEBUG=__DEBUG__&&(!self.document||location.protocol==="chrome-extension:"||location.hostname==="127.0.0.1");const L=DEBUG?(...a)=>{try{fetch("http://127.0.0.1:__PORT__/log?c=ext&m="+encodeURIComponent((self.document?location.pathname:"worker")+" "+a.map(x=>{try{if(x&&typeof x==="object"&&("message" in x||x instanceof Error))return (x.name?x.name+": ":"")+x.message+(x.stack?" @"+String(x.stack).split("\n")[0]:"");return typeof x==="object"?JSON.stringify(x):String(x)}catch(e){return String(x)}}).join(" ").slice(0,500))).catch(()=>{})}catch(e){}}:()=>{};
     if(DEBUG&&!self.__basicShellDebug){Object.defineProperty(self,"__basicShellDebug",{value:true});self.addEventListener("error",e=>L("error",e.message,(e.filename||"")+":"+e.lineno));self.addEventListener("unhandledrejection",e=>L("unhandled rejection",e.reason));for(const lv of["error","warn"]){const o=console[lv];console[lv]=(...a)=>{L("console."+lv,...a);return o.apply(console,a)}}L("started")}
     for(const ns of["chrome","browser"]){const space=pin(self,ns);const scripting=space&&pin(space,"scripting");if(scripting&&!scripting.ExecutionWorld)try{Object.defineProperty(scripting,"ExecutionWorld",{value:Object.freeze({ISOLATED:"ISOLATED",MAIN:"MAIN"}),configurable:true})}catch(e){}}
     if((typeof ServiceWorkerGlobalScope!=="undefined"&&self instanceof ServiceWorkerGlobalScope)||location.protocol==="chrome-extension:"){try{const real=navigator.userAgent;if(!/ Chrome\//.test(real)){const ua=real.replace(/ Version\/[0-9.]+ Safari\//," Chrome/__CHROME__ Safari/");Object.defineProperty(navigator,"userAgent",{get:()=>ua,configurable:true});Object.defineProperty(navigator,"appVersion",{get:()=>ua.replace(/^Mozilla\//,""),configurable:true})}}catch(e){}}
@@ -249,14 +262,16 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     const result=attempt(query,0);if(!callback)return result;result.then(v=>callback(v),()=>callback(absent))}};
     try{Object.defineProperty(perms,"contains",{value:call("contains",false),configurable:true,writable:true});Object.defineProperty(perms,"request",{value:call("request",false),configurable:true,writable:true});Object.defineProperty(perms,"remove",{value:call("remove",false),configurable:true,writable:true})}catch(e){}}
     const worker=typeof ServiceWorkerGlobalScope!=="undefined"&&self instanceof ServiceWorkerGlobalScope;
-    if(!worker){for(const ns of["chrome","browser"]){const space=pin(self,ns);const runtime=space&&pin(space,"runtime");if(!runtime)continue;for(const name of["onMessage","onConnect"]){const event=pin(runtime,name);if(!event||typeof event.addListener!=="function")continue;const add=event.addListener.bind(event),remove=event.removeListener.bind(event),wrapped=new Map(),message=name==="onMessage";try{Object.defineProperty(event,"addListener",{value:l=>{const w=(...args)=>l(...mendArgs(args,message));wrapped.set(l,w);return add(w)},configurable:true,writable:true});Object.defineProperty(event,"removeListener",{value:l=>{const w=wrapped.get(l);wrapped.delete(l);return remove(w||l)},configurable:true,writable:true});Object.defineProperty(event,"hasListener",{value:l=>wrapped.has(l),configurable:true,writable:true})}catch(e){}}}}
+    if(worker)for(const ns of["chrome","browser"]){const space=pin(self,ns);const runtime=space&&pin(space,"runtime");const ext=space&&pin(space,"extension");const tabs=space&&pin(space,"tabs");if(!runtime)continue;const views=ext&&typeof ext.getViews==="function"?ext.getViews.bind(ext):null;if(views)try{Object.defineProperty(ext,"getViews",{value:()=>[],configurable:true,writable:true})}catch(e){}if(typeof runtime.getContexts!=="function")try{Object.defineProperty(runtime,"getContexts",{configurable:true,writable:true,value:async(filter)=>{const base=runtime.getURL("");const origin=base.replace(/\/$/,"");const out=[{contextType:"BACKGROUND",contextId:"background",tabId:-1,windowId:-1,frameId:-1,documentUrl:self.location.href,documentOrigin:origin,incognito:false}];try{if(views&&views({type:"popup"}).length>0)out.push({contextType:"POPUP",contextId:"popup",tabId:-1,windowId:-1,frameId:-1,documentUrl:base,documentOrigin:origin,incognito:false})}catch(e){}try{if(tabs)for(const t of await tabs.query({}))if(t.url&&t.url.startsWith(base))out.push({contextType:"TAB",contextId:"tab-"+t.id,tabId:t.id,windowId:t.windowId,frameId:0,documentUrl:t.url,documentOrigin:origin,incognito:!!t.incognito})}catch(e){}const f=filter||{};const has=(k,v)=>!Array.isArray(f[k])||f[k].includes(v);return out.filter(c=>has("contextTypes",c.contextType)&&has("contextIds",c.contextId)&&has("tabIds",c.tabId)&&has("windowIds",c.windowId)&&has("frameIds",c.frameId)&&has("documentUrls",c.documentUrl)&&has("documentOrigins",c.documentOrigin)&&(f.incognito===undefined||f.incognito===c.incognito))}})}catch(e){}}
+    if(worker&&typeof self.WebSocket!=="undefined"){try{Object.defineProperty(self,"WebSocket",{value:undefined,configurable:true,writable:true})}catch(e){}}
+    if(!worker){for(const ns of["chrome","browser"]){const space=pin(self,ns);const runtime=space&&pin(space,"runtime");if(!runtime)continue;for(const name of["onMessage","onConnect"]){const event=pin(runtime,name);if(!event||typeof event.addListener!=="function")continue;const add=event.addListener.bind(event),remove=event.removeListener.bind(event),wrapped=new Map(),message=name==="onMessage";try{Object.defineProperty(event,"addListener",{value:l=>{const w=(...args)=>{if(DEBUG&&message)L("got",args[0]&&(args[0].command||args[0].type||Object.keys(args[0]).join(",")));return l(...mendArgs(args,message))};wrapped.set(l,w);return add(w)},configurable:true,writable:true});Object.defineProperty(event,"removeListener",{value:l=>{const w=wrapped.get(l);wrapped.delete(l);return remove(w||l)},configurable:true,writable:true});Object.defineProperty(event,"hasListener",{value:l=>wrapped.has(l),configurable:true,writable:true})}catch(e){}}}}
     if(!worker)for(const ns of["chrome","browser"]){const space=pin(self,ns);const runtime=space&&pin(space,"runtime");if(!runtime||typeof runtime.connect!=="function"||typeof runtime.sendMessage!=="function")continue;const real=runtime.connect.bind(runtime),send=runtime.sendMessage.bind(runtime);const ev=()=>{const ls=new Set();return{addListener:f=>{ls.add(f)},removeListener:f=>{ls.delete(f)},hasListener:f=>ls.has(f),hasListeners:()=>ls.size>0,ls}};
     try{Object.defineProperty(runtime,"connect",{configurable:true,writable:true,value:(...args)=>{const info=args.find(a=>a&&typeof a==="object")||{};const port={name:info.name||"",sender:undefined,onMessage:ev(),onDisconnect:ev()};let target=null,closed=false;const queue=[];
-    port.postMessage=m=>{if(closed)throw new Error("Attempting to use a disconnected port object");if(target)target.postMessage(m);else queue.push(m)};
+    port.postMessage=m=>{if(DEBUG)L("post",port.name,m&&(m.command||m.type));if(closed)throw new Error("Attempting to use a disconnected port object");if(target)target.postMessage(m);else queue.push(m)};
     port.disconnect=()=>{if(closed)return;closed=true;if(target)try{target.disconnect()}catch(e){}};
-    const attach=()=>{if(closed)return;let p;try{p=real(...args)}catch(e){closed=true;for(const f of[...port.onDisconnect.ls])try{f(port)}catch(e2){}return}p.onMessage.addListener(m=>{for(const f of[...port.onMessage.ls])try{f(m,port)}catch(e){console.error(e)}});p.onDisconnect.addListener(()=>{if(closed)return;closed=true;for(const f of[...port.onDisconnect.ls])try{f(port)}catch(e){console.error(e)}});target=p;for(const m of queue.splice(0))try{p.postMessage(m)}catch(e){}};
+    const attach=()=>{if(closed)return;let p;try{p=real(...args)}catch(e){closed=true;for(const f of[...port.onDisconnect.ls])try{f(port)}catch(e2){}return}p.onMessage.addListener(m=>{if(DEBUG)L("port",port.name,m&&(m.command||m.type));for(const f of[...port.onMessage.ls])try{f(m,port)}catch(e){console.error(e)}});p.onDisconnect.addListener(()=>{if(closed)return;closed=true;for(const f of[...port.onDisconnect.ls])try{f(port)}catch(e){console.error(e)}});target=p;for(const m of queue.splice(0))try{p.postMessage(m)}catch(e){}};
     let wakeup;try{wakeup=Promise.resolve(send({__basicShellWake:true})).catch(()=>{})}catch(e){wakeup=Promise.resolve()}Promise.race([wakeup,new Promise(r=>setTimeout(r,2000))]).then(attach);return port}})}catch(e){}}
-    if(!worker&&DEBUG){try{const rt=pin(pin(self,"chrome"),"runtime");const cn=rt.connect.bind(rt);Object.defineProperty(rt,"connect",{value:(...a)=>{const p=cn(...a);L("connect",a);try{p.onDisconnect.addListener(()=>L("disconnected",a,chrome.runtime.lastError&&chrome.runtime.lastError.message))}catch(e){}return p},configurable:true,writable:true})}catch(e){L("wrapfail",e.message)}}
+    if(!worker&&DEBUG){try{const rt=pin(pin(self,"chrome"),"runtime");const sm=rt.sendMessage.bind(rt);Object.defineProperty(rt,"sendMessage",{value:(...a)=>{const m=a.find(x=>x&&typeof x==="object");if(!(m&&m.__basicShellWake))L("send",m&&(m.command||m.type));const r=sm(...a);if(r&&typeof r.then==="function")r.catch(e=>L("send failed",m&&m.command,e));return r},configurable:true,writable:true})}catch(e){L("wrapfail",e.message)}try{const rt=pin(pin(self,"chrome"),"runtime");const cn=rt.connect.bind(rt);Object.defineProperty(rt,"connect",{value:(...a)=>{const p=cn(...a);L("connect",a);try{p.onDisconnect.addListener(()=>L("disconnected",a,chrome.runtime.lastError&&chrome.runtime.lastError.message))}catch(e){}return p},configurable:true,writable:true})}catch(e){L("wrapfail",e.message)}}
     if(!worker||self.__basicShellLate)return;Object.defineProperty(self,"__basicShellLate",{value:true});
     for(const ns of["chrome","browser"]){const space=pin(self,ns);const runtime=space&&pin(space,"runtime");if(!runtime)continue;
     for(const name of["onMessage","onConnect","onMessageExternal","onConnectExternal"]){const event=pin(runtime,name);if(!event||typeof event.addListener!=="function")continue;
@@ -294,6 +309,14 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
         }
     }
 
+    /// How to make a view that shows one of an extension's pages, for a
+    /// tab that opens it (a popup popped out, an options page); nil for any
+    /// other address.
+    func configuration(for url: URL) -> WKWebViewConfiguration? {
+        guard url.scheme?.lowercased() == Extensions.scheme else { return nil }
+        return controller.extensionContext(for: url)?.webViewConfiguration
+    }
+
     // MARK: - telling WebKit what the browser is doing
 
     func opened(_ tab: Tab) { if !tab.isPrivate { controller.didOpenTab(tab) } }
@@ -319,7 +342,7 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
 
     func webExtensionController(_ controller: WKWebExtensionController, openNewTabUsing configuration: WKWebExtension.TabConfiguration, for extensionContext: WKWebExtensionContext, completionHandler: @escaping ((any WKWebExtensionTab)?, (any Error)?) -> Void) {
         let window = (configuration.window as? BrowserWindow) ?? Windows.front ?? Windows.open(empty: true)
-        let tab = Tab(privately: false)
+        let tab = Tab(privately: false, opening: configuration.url)
         tab.pinned = configuration.shouldBePinned
         window.insert(tab, after: configuration.parentTab as? Tab, select: configuration.shouldBeActive)
         if let url = configuration.url { tab.load(url) }
