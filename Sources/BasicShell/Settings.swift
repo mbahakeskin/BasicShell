@@ -41,6 +41,7 @@ private struct GeneralSettings: View {
     @AppStorage("engine") private var engine = Engine.google.rawValue
     @AppStorage("engine.region") private var region = true
     @AppStorage("debug.enabled") private var debug = false
+    @AppStorage("fullscreen.notch") private var notch = true
 
     var body: some View {
         Form {
@@ -52,6 +53,12 @@ private struct GeneralSettings: View {
                 Text("Adds hl=\(Engine.language)\(Engine.region.map { ", gl=\($0)" } ?? "") to Google searches, so results don't follow a VPN's country.")
             }
             .disabled(engine != Engine.google.rawValue)
+            Section {
+                Toggle(isOn: $notch) {
+                    Text("Full screen uses the space beside the notch")
+                    Text("The page goes up to the top of the screen, with a clock beside the notch. Off, full screen gets a desktop of its own, as elsewhere in macOS, and the strip beside the notch stays black.")
+                }
+            }
             Section {
                 Toggle(isOn: $debug) {
                     Text("Debug logging")

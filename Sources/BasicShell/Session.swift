@@ -61,7 +61,7 @@ enum Session {
         let rest = Windows.all.filter { window in !ordered.contains { $0 === window } }
         let windows: [SavedWindow] = (ordered + rest).compactMap { window in
             let tabs = window.shell.tabs.filter { !$0.isPrivate && $0.url != nil }
-            guard !tabs.isEmpty, let frame = window.window?.frame else { return nil }
+            guard !tabs.isEmpty, let frame = window.restingFrame else { return nil }
             return SavedWindow(
                 frame: NSStringFromRect(frame),
                 tabs: tabs.map { tab in

@@ -48,7 +48,13 @@ final class Lights: NSObject {
 
     private var container: NSView? { buttons.first?.superview?.superview }
 
-    private var fullScreen: Bool { window?.styleMask.contains(.fullScreen) ?? false }
+    private var fullScreen: Bool {
+        guard let window else { return false }
+        return window.styleMask.contains(.fullScreen) || (window as? ShellWindow)?.edgeToEdge == true
+    }
+
+    /// The window went in or out of BasicShell's full screen.
+    func refresh() { relaid() }
 
     func show(_ visible: Bool, animated: Bool) {
         self.visible = visible

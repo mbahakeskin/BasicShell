@@ -30,10 +30,13 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     private(set) var contexts: [WKWebExtensionContext] = []
     /// Bumped when an extension's button changes, so the top bar redraws.
     private(set) var actions = 0
+    /// How many times WebKit has asked for a popup, for the debug log.
+    @ObservationIgnored private(set) var popupsAsked = 0
     private var installed: [Installed] = Store.read("extensions.json", as: [Installed].self) ?? []
 
     private static var folder: URL { Store.folder.appendingPathComponent("Extensions", isDirectory: true) }
     private static func folder(for id: String) -> URL { folder.appendingPathComponent(id, isDirectory: true) }
+    private static func grantedKey(_ id: String) -> String { "extensions.granted.\(id)" }
 
     override init() {
         WKWebExtension.MatchPattern.registerCustomURLScheme(Extensions.scheme)
@@ -95,6 +98,21 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
         context.isInspectable = true
         for permission in found.requestedPermissions { context.setPermissionStatus(.grantedExplicitly, for: permission) }
         for pattern in found.allRequestedMatchPatterns { context.setPermissionStatus(.grantedExplicitly, for: pattern) }
+        // What it was given later, when it asked (nativeMessaging, for
+        // Bitwarden's Touch ID): WebKit forgets it at quit, so it is kept here.
+        let optional = found.optionalPermissions
+        for name in UserDefaults.standard.stringArray(forKey: Extensions.grantedKey(id)) ?? [] {
+            let permission = WKWebExtension.Permission(rawValue: name)
+            if optional.contains(permission) { context.setPermissionStatus(.grantedExplicitly, for: permission) }
+        }
+        for name in [WKWebExtensionContext.permissionsWereGrantedNotification, WKWebExtensionContext.grantedPermissionsWereRemovedNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: context, queue: .main) { _ in
+                MainActor.assumeIsolated {
+                    let kept = context.grantedPermissions.keys.filter { optional.contains($0) }.map(\.rawValue).sorted()
+                    UserDefaults.standard.set(kept, forKey: Extensions.grantedKey(id))
+                }
+            }
+        }
         try controller.load(context)
         contexts.append(context)
         Debug.log("extension", "loaded \(found.displayName ?? id) \(found.version ?? "")")
@@ -177,6 +195,7 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
         try? FileManager.default.removeItem(at: Extensions.folder(for: id))
         installed.removeAll { $0.id == id }
         Store.write(installed, to: "extensions.json")
+        UserDefaults.standard.removeObject(forKey: Extensions.grantedKey(id))
         keepData()
     }
 
@@ -392,15 +411,65 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
+    // MARK: - apps on this Mac (see NativeMessaging.swift)
+
+    /// Open connections, kept until either side closes them.
+    private var native: [ObjectIdentifier: NativeConnection] = [:]
+
+    func webExtensionController(_ controller: WKWebExtensionController, connectUsing port: WKWebExtension.MessagePort, for extensionContext: WKWebExtensionContext, completionHandler: @escaping ((any Error)?) -> Void) {
+        do {
+            let connection = try NativeHosts.open(port.applicationIdentifier ?? "", for: extensionContext)
+            let key = ObjectIdentifier(connection)
+            native[key] = connection
+            connection.onMessage = { message in port.sendMessage(message, completionHandler: nil) }
+            connection.onClose = { [weak self] in
+                self?.native[key] = nil
+                if !port.isDisconnected { port.disconnect() }
+            }
+            port.messageHandler = { message, _ in
+                MainActor.assumeIsolated { if let message { connection.send(message) } }
+            }
+            port.disconnectHandler = { _ in MainActor.assumeIsolated { connection.close() } }
+            completionHandler(nil)
+        } catch {
+            completionHandler(error)
+        }
+    }
+
+    func webExtensionController(_ controller: WKWebExtensionController, sendMessage message: Any, toApplicationWithIdentifier applicationIdentifier: String?, for extensionContext: WKWebExtensionContext, replyHandler: @escaping (Any?, (any Error)?) -> Void) {
+        do {
+            let connection = try NativeHosts.open(applicationIdentifier ?? "", for: extensionContext)
+            let key = ObjectIdentifier(connection)
+            native[key] = connection
+            var answered = false
+            connection.onMessage = { reply in
+                guard !answered else { return }
+                answered = true
+                replyHandler(reply, nil)
+                connection.close()
+            }
+            connection.onClose = { [weak self] in
+                self?.native[key] = nil
+                if !answered { answered = true; replyHandler(nil, NativeHosts.Refused.failed("\(applicationIdentifier ?? "The app") closed without answering")) }
+            }
+            connection.send(message)
+        } catch {
+            replyHandler(nil, error)
+        }
+    }
+
     func webExtensionController(_ controller: WKWebExtensionController, didUpdate action: WKWebExtension.Action, forExtensionContext context: WKWebExtensionContext) {
         actions += 1
     }
 
     func webExtensionController(_ controller: WKWebExtensionController, presentActionPopup action: WKWebExtension.Action, for context: WKWebExtensionContext, completionHandler: @escaping ((any Error)?) -> Void) {
         let name = context.webExtension.displayName ?? "extension"
+        popupsAsked += 1
         guard let popover = action.popupPopover, let window = Windows.front else {
             Debug.log("extension", "\(name): popup asked for but \(action.popupPopover == nil ? "WebKit gave no popover" : "no window")")
-            return completionHandler(nil)
+            // An error, so WebKit doesn't take the popup for open and refuse
+            // to show it again.
+            return completionHandler(NSError(domain: WKWebExtension.Action.self.description(), code: 1))
         }
         Debug.log("extension", "\(name): showing popup (already shown: \(popover.isShown))")
         window.present(popover, for: context)
@@ -479,7 +548,7 @@ extension BrowserWindow: WKWebExtensionWindow {
     func windowState(for context: WKWebExtensionContext) -> WKWebExtension.WindowState {
         guard let window else { return .normal }
         if window.isMiniaturized { return .minimized }
-        if window.styleMask.contains(.fullScreen) { return .fullscreen }
+        if shell.fullScreen || window.styleMask.contains(.fullScreen) { return .fullscreen }
         return window.isZoomed ? .maximized : .normal
     }
     func isPrivate(for context: WKWebExtensionContext) -> Bool { false }

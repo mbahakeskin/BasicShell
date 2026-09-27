@@ -45,6 +45,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     private var empty: NSHostingView<EmptyPage>!
     private var sidebar: NSHostingView<SidebarView>!
     private var topBar: NSHostingView<TopBarView>!
+    /// The time, beside the notch, while full screen hides the menu bar.
+    private let clock = ClockHost(rootView: MenuBarClock())
     private var omnibox: NSHostingView<OmniboxView>?
     private var panelHost: NSHostingView<PanelView>?
     private var toastView: NSHostingView<ToastView>?
@@ -59,7 +61,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     private var hiding: [Edge: Timer] = [:]
 
     init() {
-        let window = NSWindow(
+        let window = ShellWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false
@@ -75,6 +77,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         window.backgroundColor = .windowBackgroundColor
         super.init(window: window)
         window.delegate = self
+        window.onFullScreen = { [weak self] in self?.fullScreenRequested() ?? false }
         build(in: window)
         place(window)
         lights = Lights(window)
@@ -113,6 +116,10 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         topBar = hosting(TopBarView(shell: shell, window: self))
         root.addSubview(sidebar)
         root.addSubview(topBar)
+        clock.sizingOptions = []
+        clock.safeAreaRegions = []
+        clock.alphaValue = 0
+        root.addSubview(clock)
     }
 
     private func hosting<V: View>(_ view: V) -> NSHostingView<V> {
@@ -154,7 +161,11 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             }
         }
 
+        let strip = menuBarAllowance
+        let clockWidth: CGFloat = 64
+        clock.frame = NSRect(x: bounds.maxX - clockWidth - 10, y: bounds.maxY - strip, width: clockWidth, height: strip)
         let change = {
+            self.clock.alphaValue = self.edgeToEdge && !self.shell.topBarOut ? 1 : 0
             self.topBar.frame = barFrame
             self.topBar.alphaValue = self.shell.topBarOut ? 1 : 0
             self.sidebar.frame = sideFrame
@@ -177,12 +188,22 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         lights?.show(shell.topBarOut, animated: animated)
     }
 
-    /// In full screen on a Mac without a notch the menu bar comes down over
-    /// the top of the window; the bar goes below it.
+    /// In full screen the menu bar comes down over the top of the window
+    /// (on a Mac with a notch, the strip beside it); the bar goes below it.
     private var menuBarAllowance: CGFloat {
-        guard shell.fullScreen, let screen = window?.screen, screen.safeAreaInsets.top == 0 else { return 0 }
-        return NSApp.mainMenu?.menuBarHeight ?? 24
+        guard shell.fullScreen, let screen = window?.screen else { return 0 }
+        if edgeToEdge { return screen.safeAreaInsets.top > 0 ? screen.safeAreaInsets.top : (NSApp.mainMenu?.menuBarHeight ?? 24) }
+        // macOS's own full screen: below the notch already; without one the
+        // menu bar comes down over the window.
+        return screen.safeAreaInsets.top > 0 ? 0 : (NSApp.mainMenu?.menuBarHeight ?? 24)
     }
+
+    private var edgeToEdge: Bool { (window as? ShellWindow)?.edgeToEdge == true }
+
+    /// How far down from the top the pointer brings the bar out: in full
+    /// screen only the very top, where the menu bar comes down too, so the
+    /// page beside the notch stays the page's.
+    private var topReach: CGFloat { edgeToEdge ? Metrics.edge : Metrics.edge + menuBarAllowance }
 
     // MARK: - the pointer at the edges
 
@@ -243,7 +264,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             }
         }
         if !shell.topBarPinned {
-            if bounds.maxY - point.y <= Metrics.edge + menuBarAllowance, !shell.topBarShown { arm(.top) } else { disarm(.top) }
+            if bounds.maxY - point.y <= topReach, !shell.topBarShown { arm(.top) } else { disarm(.top) }
             if shell.topBarShown {
                 if point.y < topBar.frame.minY - Metrics.slack { linger(.top) } else { stay(.top) }
             }
@@ -252,7 +273,14 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     private func pointerLeft() {
         if shell.sidebarShown { linger(.side) }
-        if shell.topBarShown { linger(.top) }
+        // In full screen the pointer leaves for the menu bar above the bar;
+        // the bar stays for it to come back down.
+        if shell.topBarShown, !overMenuBar { linger(.top) }
+    }
+
+    private var overMenuBar: Bool {
+        guard shell.fullScreen, let screen = window?.screen else { return false }
+        return NSEvent.mouseLocation.y >= screen.frame.maxY - menuBarAllowance - Metrics.edge
     }
 
     /// The pointer reached an edge: the panel comes out if it rests there.
@@ -294,7 +322,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         let point = root.convert(window.mouseLocationOutsideOfEventStream, from: nil)
         switch edge {
         case .side: return point.x <= Metrics.edge && root.bounds.contains(point)
-        case .top: return root.bounds.maxY - point.y <= Metrics.edge + menuBarAllowance && point.x >= 0 && point.x <= root.bounds.maxX
+        case .top: return root.bounds.maxY - point.y <= max(topReach, menuBarAllowance) && point.x >= 0 && point.x <= root.bounds.maxX
         }
     }
 
@@ -834,8 +862,58 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     // MARK: - window
 
+    /// Full screen. macOS's own gives the window a desktop of its own but
+    /// keeps it below the notch, and puts it back there if it is made
+    /// taller (measured). So on a screen with a notch, unless turned off in
+    /// Settings › General, full screen is BasicShell's own: the window
+    /// covers the whole screen on the desktop it is on, the menu bar and
+    /// the Dock hide until the pointer asks for them, and a clock stands in
+    /// for the menu bar's meanwhile.
+    static var coversNotch: Bool { UserDefaults.standard.object(forKey: "fullscreen.notch") as? Bool ?? true }
+
+    /// Which full screen ⌃⌘F, the green light and the menu bring.
+    private func fullScreenRequested() -> Bool {
+        if edgeToEdge { toggleEdgeToEdge(); return true }
+        guard BrowserWindow.coversNotch, let screen = window?.screen, screen.safeAreaInsets.top > 0,
+              window?.styleMask.contains(.fullScreen) == false else { return false }
+        toggleEdgeToEdge()
+        return true
+    }
+
+    private var windowedFrame: NSRect?
+
+    /// The frame to remember: the window's own, not the screen's.
+    var restingFrame: NSRect? { windowedFrame ?? window?.frame }
+
+    func toggleEdgeToEdge() {
+        guard let window = window as? ShellWindow else { return }
+        if window.edgeToEdge {
+            window.edgeToEdge = false
+            shell.fullScreen = false
+            NSApp.presentationOptions = []
+            window.isMovable = true
+            if let frame = windowedFrame { window.setFrame(frame, display: true, animate: true) }
+            windowedFrame = nil
+        } else {
+            guard let screen = window.screen ?? NSScreen.main else { return }
+            windowedFrame = window.frame
+            window.edgeToEdge = true
+            shell.fullScreen = true
+            NSApp.presentationOptions = [.autoHideMenuBar, .autoHideDock]
+            window.isMovable = false
+            window.setFrame(screen.frame, display: true, animate: true)
+        }
+        shell.topBarShown = false
+        shell.sidebarShown = false
+        lights?.refresh()
+        layout(animated: false)
+        Session.touch()
+    }
+
     func windowWillEnterFullScreen(_ notification: Notification) {
         shell.fullScreen = true
+        shell.topBarShown = false
+        shell.sidebarShown = false
         layout(animated: false)
     }
 
@@ -856,9 +934,12 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     func windowDidBecomeKey(_ notification: Notification) {
         Extensions.shared.controller.didFocusWindow(self)
+        // The menu bar and the Dock hide for a window in full screen only.
+        NSApp.presentationOptions = edgeToEdge ? [.autoHideMenuBar, .autoHideDock] : []
     }
 
     func windowWillClose(_ notification: Notification) {
+        if edgeToEdge { NSApp.presentationOptions = [] }
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
         for tab in shell.tabs {
@@ -891,4 +972,48 @@ final class RootView: NSView {
     override func mouseExited(with event: NSEvent) {
         onExit?()
     }
+}
+
+/// The browser's window: its full screen may be BasicShell's own (see
+/// BrowserWindow.coversNotch), which covers the menu bar's place.
+final class ShellWindow: NSWindow {
+    var edgeToEdge = false
+    /// Takes the request and answers whether it did; otherwise macOS's own.
+    var onFullScreen: (() -> Bool)?
+
+    override func toggleFullScreen(_ sender: Any?) {
+        if onFullScreen?() != true { super.toggleFullScreen(sender) }
+    }
+
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        edgeToEdge ? frameRect : super.constrainFrameRect(frameRect, to: screen)
+    }
+
+    override func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(toggleFullScreen(_:)) {
+            item.title = edgeToEdge || styleMask.contains(.fullScreen) ? "Exit Full Screen" : "Enter Full Screen"
+            return true
+        }
+        return super.validateMenuItem(item)
+    }
+}
+
+/// The clock that stands in for the menu bar's while full screen hides it.
+struct MenuBarClock: View {
+    var body: some View {
+        TimelineView(.everyMinute) { context in
+            Text(context.date, format: .dateTime.hour().minute())
+                .font(.system(size: 13, weight: .medium))
+                .monospacedDigit()
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .glassEffect(.regular, in: .capsule)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+    }
+}
+
+/// Shows the clock but lets every click through to the page under it.
+final class ClockHost: NSHostingView<MenuBarClock> {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
