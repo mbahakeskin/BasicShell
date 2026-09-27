@@ -18,16 +18,25 @@ struct SidebarView: View {
             }
             .padding(.horizontal, 4)
 
-            List {
-                let pinned = shell.tabs.filter(\.pinned)
-                if !pinned.isEmpty {
-                    ForEach(pinned) { row($0, in: pinned) }
-                        .onMove { window.move(from: $0, to: $1, pinned: true) }
-                    Divider()
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
-                        .padding(.horizontal, 6)
+            // Pinned tabs: three to a row, each a tile with its icon.
+            let pinned = shell.tabs.filter(\.pinned)
+            if !pinned.isEmpty {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
+                    ForEach(pinned) { tab in
+                        PinnedTile(tab: tab, selected: tab === shell.selected, window: window)
+                            .draggable(tab.id.uuidString)
+                            .dropDestination(for: String.self) { ids, _ in
+                                guard let id = ids.first.flatMap(UUID.init(uuidString:)) else { return false }
+                                window.movePinned(id, before: tab)
+                                return true
+                            }
+                    }
                 }
+                .padding(.horizontal, 2)
+                Divider().padding(.horizontal, 6).padding(.vertical, 2)
+            }
+
+            List {
                 let others = shell.tabs.filter { !$0.pinned }
                 ForEach(others) { row($0, in: others) }
                     .onMove { window.move(from: $0, to: $1, pinned: false) }
@@ -71,6 +80,65 @@ struct SidebarView: View {
             .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
+    }
+}
+
+/// A pinned tab as a tile: its icon, its title on hover.
+struct PinnedTile: View {
+    let tab: Tab
+    let selected: Bool
+    let window: BrowserWindow
+    // `@State` is a macro in the macOS 27 SDK whose plugin ships only with
+    // Xcode, so the State it would expand to is stored by hand.
+    private var _hovering = State(initialValue: false)
+    private var hovering: Bool {
+        get { _hovering.wrappedValue }
+        nonmutating set { _hovering.wrappedValue = newValue }
+    }
+
+    var body: some View {
+        Favicon(tab: tab)
+            .scaleEffect(1.25)
+            .frame(maxWidth: .infinity)
+            .frame(height: 40)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.primary.opacity(selected ? 0.16 : hovering ? 0.1 : 0.06))
+            )
+            .overlay(alignment: .bottom) {
+                if tab.isLoading {
+                    Capsule().fill(Color.accentColor).frame(width: 14, height: 2).padding(.bottom, 4)
+                }
+            }
+            .opacity(tab.isUnloaded ? 0.55 : 1)
+            .contentShape(RoundedRectangle(cornerRadius: 10))
+            .onTapGesture { window.select(tab) }
+            .onHover { hovering = $0 }
+            .help(tab.name)
+            .contextMenu { TabMenu(tab: tab, selected: selected, window: window) }
+    }
+}
+
+/// What a tab's right click offers, as a row or a tile.
+struct TabMenu: View {
+    let tab: Tab
+    let selected: Bool
+    let window: BrowserWindow
+
+    var body: some View {
+        Button("Copy Address") {
+            guard let url = tab.url else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(url.absoluteString, forType: .string)
+        }
+        .disabled(tab.url == nil)
+        Button(tab.pinned ? "Unpin Tab" : "Pin Tab") { window.setPinned(tab, !tab.pinned) }
+        Button("Archive Tab") { window.archive(tab) }
+            .disabled(tab.isPrivate || tab.url == nil)
+        Button("Unload Tab") { window.unload(tab) }
+            .disabled(selected || tab.webView == nil)
+        Divider()
+        Button("Close Tab") { window.close(tab) }
     }
 }
 
@@ -135,20 +203,6 @@ struct TabRow: View {
         .contentShape(Rectangle())
         .onTapGesture { window.select(tab) }
         .onHover { hovering = $0 }
-        .contextMenu {
-            Button("Copy Address") {
-                guard let url = tab.url else { return }
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(url.absoluteString, forType: .string)
-            }
-            .disabled(tab.url == nil)
-            Button(tab.pinned ? "Unpin Tab" : "Pin Tab") { window.setPinned(tab, !tab.pinned) }
-            Button("Archive Tab") { window.archive(tab) }
-                .disabled(tab.isPrivate || tab.url == nil)
-            Button("Unload Tab") { window.unload(tab) }
-                .disabled(selected || tab.webView == nil)
-            Divider()
-            Button("Close Tab") { window.close(tab) }
-        }
+        .contextMenu { TabMenu(tab: tab, selected: selected, window: window) }
     }
 }

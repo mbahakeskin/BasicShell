@@ -504,6 +504,15 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         if tab === shell.selected { window?.title = tab.name }
     }
 
+    /// A pinned tile dropped on another: it goes before that one.
+    func movePinned(_ id: UUID, before target: Tab) {
+        guard let moving = shell.tabs.first(where: { $0.id == id }), moving !== target, moving.pinned else { return }
+        shell.tabs.removeAll { $0 === moving }
+        let index = shell.tabs.firstIndex(of: target) ?? 0
+        shell.tabs.insert(moving, at: index)
+        Session.touch()
+    }
+
     /// A drag within the pinned tabs or within the rest; `pinned` says which,
     /// and the offsets are within that group.
     func move(from source: IndexSet, to destination: Int, pinned: Bool) {

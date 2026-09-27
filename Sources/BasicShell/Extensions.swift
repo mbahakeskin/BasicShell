@@ -37,14 +37,15 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
 
     override init() {
         WKWebExtension.MatchPattern.registerCustomURLScheme(Extensions.scheme)
-        // An extension's own pages (popup, background, options) say they are
-        // Chrome: these are Chrome builds, and some decide which browser's
-        // code to run from the user agent. Without a browser in it Bitwarden
-        // stops before drawing anything; as Safari it would ask a Safari app
-        // for the clipboard. Web pages still see Safari (Web.swift).
+        // An extension's pages get the tabs' user agent to the letter: WebKit
+        // gives extension workers the user agent of the last page that loaded
+        // and, when it differs, stops them, killing whatever they were doing
+        // (Bitwarden's sign-in, half-way). They are told they run in Chrome
+        // by the fixes below instead (navigator.userAgent). (Found by Search,
+        // Office Commun.)
         let configuration = WKWebExtensionController.Configuration.default()
         let pages = configuration.webViewConfiguration ?? WKWebViewConfiguration()
-        pages.applicationNameForUserAgent = "Chrome/\(Crx.chromeVersion) \(Web.userAgentName)"
+        pages.applicationNameForUserAgent = Web.userAgentName
         configuration.webViewConfiguration = pages
         controller = WKWebExtensionController(configuration: configuration)
         super.init()
@@ -169,6 +170,9 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     ///
     /// - Symbol.dispose and Symbol.asyncDispose, which this JavaScriptCore
     ///   lacks and code compiled from TypeScript's `using` checks for first.
+    /// - navigator.userAgent says Chrome in the extension's own pages and
+    ///   worker, which some choose their code by (see init for why the
+    ///   views themselves can't).
     /// - chrome.scripting.ExecutionWorld, which WebKit doesn't define.
     /// - sender.origin on messages and ports, which Chrome gives and WebKit
     ///   doesn't; Bitwarden ignores a sender without one.
@@ -188,7 +192,7 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     /// (After Search's ExtensionShims.swift, Office Commun, MIT.)
     /// Which version of the fixes a file carries; with the debug log on, a
     /// version that also reports to it (see Debug.swift).
-    private static var marker: String { "/* BasicShell: extension fixes 8\(Debug.enabled ? " debug" : "") */" }
+    private static var marker: String { "/* BasicShell: extension fixes 9\(Debug.enabled ? " debug" : "") */" }
     /// One line, so a later version can take this one's place.
     private static var fixes: String { (marker + #"""
     (()=>{for(const n of["dispose","asyncDispose"]){if(typeof Symbol[n]!=="symbol")Object.defineProperty(Symbol,n,{value:Symbol.for("Symbol."+n)})}
@@ -198,6 +202,7 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     const DEBUG=__DEBUG__&&(!self.document||location.protocol==="chrome-extension:");const L=DEBUG?(...a)=>{try{fetch("http://127.0.0.1:__PORT__/log?c=ext&m="+encodeURIComponent((self.document?location.pathname:"worker")+" "+a.map(x=>{try{if(x&&typeof x==="object"&&("message" in x||x instanceof Error))return (x.name?x.name+": ":"")+x.message+(x.stack?" @"+String(x.stack).split("\n")[0]:"");return typeof x==="object"?JSON.stringify(x):String(x)}catch(e){return String(x)}}).join(" ").slice(0,500))).catch(()=>{})}catch(e){}}:()=>{};
     if(DEBUG&&!self.__basicShellDebug){Object.defineProperty(self,"__basicShellDebug",{value:true});self.addEventListener("error",e=>L("error",e.message,(e.filename||"")+":"+e.lineno));self.addEventListener("unhandledrejection",e=>L("unhandled rejection",e.reason));for(const lv of["error","warn"]){const o=console[lv];console[lv]=(...a)=>{L("console."+lv,...a);return o.apply(console,a)}}L("started")}
     for(const ns of["chrome","browser"]){const space=pin(self,ns);const scripting=space&&pin(space,"scripting");if(scripting&&!scripting.ExecutionWorld)try{Object.defineProperty(scripting,"ExecutionWorld",{value:Object.freeze({ISOLATED:"ISOLATED",MAIN:"MAIN"}),configurable:true})}catch(e){}}
+    if((typeof ServiceWorkerGlobalScope!=="undefined"&&self instanceof ServiceWorkerGlobalScope)||location.protocol==="chrome-extension:"){try{const real=navigator.userAgent;if(!/ Chrome\//.test(real)){const ua=real.replace(/ Version\/[0-9.]+ Safari\//," Chrome/__CHROME__ Safari/");Object.defineProperty(navigator,"userAgent",{get:()=>ua,configurable:true});Object.defineProperty(navigator,"appVersion",{get:()=>ua.replace(/^Mozilla\//,""),configurable:true})}}catch(e){}}
     const worker=typeof ServiceWorkerGlobalScope!=="undefined"&&self instanceof ServiceWorkerGlobalScope;
     if(!worker){for(const ns of["chrome","browser"]){const space=pin(self,ns);const runtime=space&&pin(space,"runtime");if(!runtime)continue;for(const name of["onMessage","onConnect"]){const event=pin(runtime,name);if(!event||typeof event.addListener!=="function")continue;const add=event.addListener.bind(event),remove=event.removeListener.bind(event),wrapped=new Map(),message=name==="onMessage";try{Object.defineProperty(event,"addListener",{value:l=>{const w=(...args)=>l(...mendArgs(args,message));wrapped.set(l,w);return add(w)},configurable:true,writable:true});Object.defineProperty(event,"removeListener",{value:l=>{const w=wrapped.get(l);wrapped.delete(l);return remove(w||l)},configurable:true,writable:true});Object.defineProperty(event,"hasListener",{value:l=>wrapped.has(l),configurable:true,writable:true})}catch(e){}}}}
     if(!worker)for(const ns of["chrome","browser"]){const space=pin(self,ns);const runtime=space&&pin(space,"runtime");if(!runtime||typeof runtime.connect!=="function"||typeof runtime.sendMessage!=="function")continue;const real=runtime.connect.bind(runtime),send=runtime.sendMessage.bind(runtime);const ev=()=>{const ls=new Set();return{addListener:f=>{ls.add(f)},removeListener:f=>{ls.delete(f)},hasListener:f=>ls.has(f),hasListeners:()=>ls.size>0,ls}};
@@ -221,7 +226,8 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     set("removeListener",l=>{listeners.delete(l)});set("hasListener",l=>listeners.has(l));set("hasListeners",()=>listeners.size>0)}}})();
     """#).replacingOccurrences(of: "\n", with: "")
         .replacingOccurrences(of: "__DEBUG__", with: Debug.enabled ? "true" : "false")
-        .replacingOccurrences(of: "__PORT__", with: String(Debug.port)) + "\n" }
+        .replacingOccurrences(of: "__PORT__", with: String(Debug.port))
+        .replacingOccurrences(of: "__CHROME__", with: Crx.chromeVersion) + "\n" }
 
     /// Puts the fixes first in every script the extension ships, replacing
     /// an older version of them.
