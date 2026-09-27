@@ -4,12 +4,11 @@ import WebKit
 
 // Tabs you aren't looking at, in two steps.
 //
-// Off screen: a tab leaves the screen and its web view leaves the window,
-// and WebKit slows the page down (WKPreferences.inactiveSchedulingPolicy,
-// measured on macOS 27: timers about once a second). Nothing is lost and
-// coming back is instant. It can also be frozen outright, with WebKit's
-// private page suspension, if that is turned on (Freeze, below; off by
-// default because it can crash the app).
+// Frozen: a tab leaves the screen and its web view leaves the window, and the
+// page is suspended with WebKit's private page suspension (Freeze, below): no
+// script, no layout, no timers, no CPU, nothing lost, back instantly. With it
+// turned off (Settings › Tabs) WebKit only slows such a page down
+// (inactiveSchedulingPolicy, measured: timers about once a second).
 //
 // Unloaded: after six hours off screen, or at once when macOS says memory is
 // critically short, the page is let go and its memory with it. Its history is
@@ -108,7 +107,8 @@ enum Sleep {
     /// using the camera or microphone. A page that doesn't say whether it is
     /// playing is left running rather than risk stopping it mid-song.
     static func freezeIfIdle(_ tab: Tab) {
-        guard Freeze.enabled, let web = tab.webView, !tab.isFrozen, !tab.isOnScreen, !keepsAwake(tab.url),
+        // Never mid-load: the page would still report its loads, frozen.
+        guard Freeze.enabled, let web = tab.webView, !tab.isFrozen, !tab.isOnScreen, !web.isLoading, !keepsAwake(tab.url),
               web.cameraCaptureState == .none, web.microphoneCaptureState == .none
         else { return }
         var answered = false
@@ -116,7 +116,7 @@ enum Sleep {
             MainActor.assumeIsolated {
                 guard !answered else { return }
                 answered = true
-                if state != .playing, tab.webView === web, !tab.isOnScreen { Freeze.freeze(tab) }
+                if state != .playing, tab.webView === web, !tab.isOnScreen, !web.isLoading { Freeze.freeze(tab) }
             }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { answered = true }
@@ -157,25 +157,103 @@ enum Sleep {
 /// they are used only when this WebKit has them. If a page doesn't come back
 /// from it, it is loaded again rather than left blank.
 ///
-/// Off unless turned on (Settings › Tabs), because a suspended web view
-/// throws on nearly everything done to it — load, reload, stop, go back,
-/// zoom, run script, take a picture, ask about media (measured, macOS 27:
-/// "The WKWebView is suspended") — and an uncaught exception ends the app.
-/// Extensions do those things to any tab at any time: Bitwarden's sign-out
-/// ran a script in every tab and brought BasicShell down. So a frozen tab is
-/// woken before anything is done to it here, and extensions don't see its
-/// web view at all; but WebKit's own extension code can still reach one in
-/// the moment between asking and acting.
+/// A suspended web view throws on nearly everything done to it — load,
+/// reload, stop, go back, zoom, run script, take a picture, ask about media
+/// (measured, macOS 27: "The WKWebView is suspended") — and an uncaught
+/// exception ends the app. So a frozen tab is woken before anything here
+/// touches it, extensions are not given its web view, and WebKit's own
+/// extension code, which runs scripts in any tab it holds (Bitwarden's
+/// sign-out ran one in every tab and brought BasicShell down), goes through a
+/// guard that wakes the page first (`guardScripts`, verified against the
+/// exact call that crashed).
 enum Freeze {
     private static let suspend = NSSelectorFromString("_suspendPage:")
     private static let resume = NSSelectorFromString("_resumePage:")
 
     static let available = WKWebView.instancesRespond(to: suspend) && WKWebView.instancesRespond(to: resume)
 
-    static var enabled: Bool { available && UserDefaults.standard.bool(forKey: "sleep.freeze") }
+    /// On unless turned off in Settings › Tabs.
+    static var enabled: Bool { available && (UserDefaults.standard.object(forKey: "sleep.freeze") as? Bool ?? true) }
+
+    /// Wraps the methods that reach into a page and throw on a frozen one,
+    /// so the page is woken first instead. They are the ones WebKit's
+    /// extension code calls on a tab (scripting.executeScript runs through
+    /// the private `_evaluateJavaScript:…withUserGesture:` and
+    /// `_callAsyncJavaScript:…withUserGesture:`, tabs.captureVisibleTab
+    /// through `takeSnapshotWithConfiguration:`), which can land after the
+    /// tab was frozen: WebKit asks for the tab's frames first and runs the
+    /// script when they arrive. The public and private variants of the
+    /// script methods are wrapped as well. Installed once at launch; a
+    /// method this WebKit lacks is skipped. A tab woken this way is frozen
+    /// again by Sleep's next round.
+    static func guardScripts() {
+        typealias Two = @convention(c) (AnyObject, Selector, AnyObject?, AnyObject?) -> Void
+        typealias Four = @convention(c) (AnyObject, Selector, AnyObject?, AnyObject?, AnyObject?, AnyObject?) -> Void
+        typealias Five = @convention(c) (AnyObject, Selector, AnyObject?, AnyObject?, AnyObject?, AnyObject?, AnyObject?) -> Void
+        typealias FourFlag = @convention(c) (AnyObject, Selector, AnyObject?, AnyObject?, AnyObject?, AnyObject?, Bool, AnyObject?) -> Void
+
+        func method(_ name: String) -> (Method, Selector)? {
+            let selector = NSSelectorFromString(name)
+            return class_getInstanceMethod(WKWebView.self, selector).map { ($0, selector) }
+        }
+        for name in ["evaluateJavaScript:completionHandler:", "_evaluateJavaScriptWithoutUserGesture:completionHandler:",
+                     "takeSnapshotWithConfiguration:completionHandler:"] {
+            guard let (found, selector) = method(name) else { continue }
+            let original = unsafeBitCast(method_getImplementation(found), to: Two.self)
+            let wrapper: @convention(block) (AnyObject, AnyObject?, AnyObject?) -> Void = { view, a, b in
+                wake(view, for: name)
+                original(view, selector, a, b)
+            }
+            method_setImplementation(found, imp_implementationWithBlock(wrapper))
+        }
+        for name in ["evaluateJavaScript:inFrame:inContentWorld:completionHandler:", "_evaluateJavaScript:inFrame:inContentWorld:completionHandler:"] {
+            guard let (found, selector) = method(name) else { continue }
+            let original = unsafeBitCast(method_getImplementation(found), to: Four.self)
+            let wrapper: @convention(block) (AnyObject, AnyObject?, AnyObject?, AnyObject?, AnyObject?) -> Void = { view, a, b, c, d in
+                wake(view, for: name)
+                original(view, selector, a, b, c, d)
+            }
+            method_setImplementation(found, imp_implementationWithBlock(wrapper))
+        }
+        for name in ["callAsyncJavaScript:arguments:inFrame:inContentWorld:completionHandler:",
+                     "_callAsyncJavaScript:arguments:inFrame:inContentWorld:completionHandler:",
+                     "_evaluateJavaScript:withSourceURL:inFrame:inContentWorld:completionHandler:"] {
+            guard let (found, selector) = method(name) else { continue }
+            let original = unsafeBitCast(method_getImplementation(found), to: Five.self)
+            let wrapper: @convention(block) (AnyObject, AnyObject?, AnyObject?, AnyObject?, AnyObject?, AnyObject?) -> Void = { view, a, b, c, d, e in
+                wake(view, for: name)
+                original(view, selector, a, b, c, d, e)
+            }
+            method_setImplementation(found, imp_implementationWithBlock(wrapper))
+        }
+        for name in ["_evaluateJavaScript:withSourceURL:inFrame:inContentWorld:withUserGesture:completionHandler:",
+                     "_callAsyncJavaScript:arguments:inFrame:inContentWorld:withUserGesture:completionHandler:"] {
+            guard let (found, selector) = method(name) else { continue }
+            let original = unsafeBitCast(method_getImplementation(found), to: FourFlag.self)
+            let wrapper: @convention(block) (AnyObject, AnyObject?, AnyObject?, AnyObject?, AnyObject?, Bool, AnyObject?) -> Void = { view, a, b, c, d, flag, e in
+                wake(view, for: name)
+                original(view, selector, a, b, c, d, flag, e)
+            }
+            method_setImplementation(found, imp_implementationWithBlock(wrapper))
+        }
+    }
+
+    /// Wakes whichever tab this frozen view belongs to.
+    private static func wake(_ view: AnyObject, for reason: String) {
+        guard let web = view as? WKWebView else { return }
+        MainActor.assumeIsolated {
+            for window in Windows.all {
+                for tab in window.shell.tabs where tab.isFrozen && tab.webView === web {
+                    Debug.log("sleep", "waking \(tab.name) for \(reason)")
+                    thaw(tab)
+                }
+            }
+        }
+    }
 
     static func freeze(_ tab: Tab) {
         guard enabled, let web = tab.webView, !tab.isFrozen else { return }
+        Debug.log("sleep", "freezing \(tab.name)")
         tab.isFrozen = true
         let done: @convention(block) (Bool) -> Void = { [weak tab] worked in
             MainActor.assumeIsolated { if !worked { tab?.isFrozen = false } }
@@ -188,6 +266,7 @@ enum Freeze {
     /// returns (measured).
     static func thaw(_ tab: Tab) {
         guard tab.isFrozen, let web = tab.webView else { return }
+        Debug.log("sleep", "waking \(tab.name)")
         tab.isFrozen = false
         var answered = false
         let recover = {

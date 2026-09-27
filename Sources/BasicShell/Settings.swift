@@ -75,7 +75,7 @@ private struct GeneralSettings: View {
 private struct TabSettings: View {
     @AppStorage("sleep.unloadHours") private var unload = 6.0
     @AppStorage("archive.hours") private var archive = 12.0
-    @AppStorage("sleep.freeze") private var freeze = false
+    @AppStorage("sleep.freeze") private var freeze = true
 
     private let unloadChoices: [(String, Double)] = [("1 hour", 1), ("2 hours", 2), ("6 hours", 6), ("12 hours", 12), ("1 day", 24), ("Never", 0)]
     private let archiveChoices: [(String, Double)] = [("6 hours", 6), ("12 hours", 12), ("1 day", 24), ("3 days", 72), ("1 week", 168), ("Never", 0)]
@@ -90,13 +90,13 @@ private struct TabSettings: View {
                     ForEach(archiveChoices, id: \.1) { Text($0.0).tag($0.1) }
                 }
             } footer: {
-                Text("Tabs off screen are slowed down. Unloaded tabs give their memory back and reload where they were; archived tabs leave the sidebar for Tab › Show Archived Tabs. Pinned tabs are never archived, and nothing holding unsent typing is unloaded.")
+                Text("Unloaded tabs give their memory back and reload where they were; archived tabs leave the sidebar for Tab › Show Archived Tabs. Pinned tabs are never archived, and nothing holding unsent typing is unloaded.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 Toggle(isOn: $freeze) {
-                    Text("Freeze tabs off screen (experimental)")
-                    Text("Stops them completely instead of slowing them down. Uses a private WebKit feature that can crash BasicShell when an extension touches a frozen tab.")
+                    Text("Freeze tabs off screen")
+                    Text("Stops them completely instead of slowing them down, with a private WebKit feature.")
                 }
             }
             Section("Sites kept awake") {
@@ -246,6 +246,8 @@ private struct ExtensionSettings: View {
                                 if let url = context.optionsPageURL { (Windows.front ?? Windows.open(empty: true)).open(url, select: true) }
                             }
                         }
+                        Button("Reload") { Extensions.shared.reload(context) }
+                            .help("Start the extension afresh, as if BasicShell had just opened")
                         Button("Remove") { Extensions.shared.remove(context) }
                     }
                 }

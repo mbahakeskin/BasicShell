@@ -14,6 +14,7 @@ enum Main {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Debug.start()
+        Freeze.guardScripts()
         Shield.shared.start()
         Sleep.start()
         NSApp.mainMenu = Menus.build()

@@ -241,12 +241,18 @@ extension Tab: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        if let spot = scrollBack {
+        // A frozen page still reports a load that finished as it froze; no
+        // script may reach it until it is woken (see Freeze).
+        if !isFrozen, let spot = scrollBack {
             scrollBack = nil
             // Twice: once now, once after late images and fonts have moved things.
             let script = "window.scrollTo(\(spot.x), \(spot.y))"
             webView.evaluateJavaScript(script) { _, _ in }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { webView.evaluateJavaScript(script) { _, _ in } }
+            // The tab may have been left, and frozen, by then (see Freeze).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                guard let self, self.webView === webView, !self.isFrozen else { return }
+                webView.evaluateJavaScript(script) { _, _ in }
+            }
         }
         host?.painted(self)
         if !isPrivate, let url = webView.url { History.shared.record(url, title: webView.title ?? "") }
@@ -254,6 +260,8 @@ extension Tab: WKNavigationDelegate {
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        // macOS may end a frozen page's process; wake the view before reloading it.
+        Freeze.thaw(self)
         webView.reload()
     }
 

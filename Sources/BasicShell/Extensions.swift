@@ -54,6 +54,7 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
 
     /// At launch: every extension added before.
     func start() {
+        keepData()
         Task {
             for item in installed {
                 do { try await load(item.id) } catch {
@@ -62,6 +63,26 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
                 }
             }
         }
+    }
+
+    /// Keeps WebKit's tracking prevention away from extensions' own data.
+    /// It counts chrome-extension://<id> as a site like any other, and a
+    /// site you have never clicked in has its storage, service worker
+    /// included, deleted a few seconds after launch: the extension's worker
+    /// is stopped mid-way while WebKit's extension code still takes it for
+    /// running, so every event sent to it is lost until it is restarted.
+    /// Exempting the extensions' addresses, with a private WebKit setting
+    /// (`_persistedSites`, the list Safari exempts sites with), stops that.
+    /// Other sites are left to tracking prevention as in Safari.
+    private func keepData() {
+        let store = WKWebsiteDataStore.default()
+        let setter = NSSelectorFromString("_setPersistedSites:")
+        guard store.responds(to: setter) else {
+            Debug.log("extension", "this WebKit can't exempt extensions from tracking prevention")
+            return
+        }
+        let sites = installed.compactMap { URL(string: "\(Extensions.scheme)://\($0.id)/") } as NSArray
+        store.perform(setter, with: sites)
     }
 
     private func load(_ id: String) async throws {
@@ -123,6 +144,7 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
         installed.removeAll { $0.id == id }
         installed.append(Installed(id: id, source: source))
         Store.write(installed, to: "extensions.json")
+        keepData()
         return "Added \(found.displayName ?? "the extension")"
     }
 
@@ -155,6 +177,20 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
         try? FileManager.default.removeItem(at: Extensions.folder(for: id))
         installed.removeAll { $0.id == id }
         Store.write(installed, to: "extensions.json")
+        keepData()
+    }
+
+    /// Unloads and loads it again from its folder, for one that has got
+    /// itself stuck.
+    func reload(_ context: WKWebExtensionContext) {
+        let id = context.uniqueIdentifier
+        Debug.log("extension", "reloading \(context.webExtension.displayName ?? id)")
+        unload(context)
+        Task {
+            do { try await load(id) } catch {
+                Debug.log("extension", "\(id) didn't load again: \(error.localizedDescription)")
+            }
+        }
     }
 
     private func unload(_ context: WKWebExtensionContext) {
@@ -174,6 +210,9 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     ///   worker, which some choose their code by (see init for why the
     ///   views themselves can't).
     /// - chrome.scripting.ExecutionWorld, which WebKit doesn't define.
+    /// - permissions.contains/request/remove with a permission WebKit doesn't
+    ///   know: Chrome answers false, WebKit throws. Bitwarden's popup asks
+    ///   about "privacy" as it opens and was left blank by the throw.
     /// - sender.origin on messages and ports, which Chrome gives and WebKit
     ///   doesn't; Bitwarden ignores a sender without one.
     /// - Late listeners. In the background worker, WebKit takes runtime
@@ -192,7 +231,7 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     /// (After Search's ExtensionShims.swift, Office Commun, MIT.)
     /// Which version of the fixes a file carries; with the debug log on, a
     /// version that also reports to it (see Debug.swift).
-    private static var marker: String { "/* BasicShell: extension fixes 9\(Debug.enabled ? " debug" : "") */" }
+    private static var marker: String { "/* BasicShell: extension fixes 10\(Debug.enabled ? " debug" : "") */" }
     /// One line, so a later version can take this one's place.
     private static var fixes: String { (marker + #"""
     (()=>{for(const n of["dispose","asyncDispose"]){if(typeof Symbol[n]!=="symbol")Object.defineProperty(Symbol,n,{value:Symbol.for("Symbol."+n)})}
@@ -203,6 +242,12 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     if(DEBUG&&!self.__basicShellDebug){Object.defineProperty(self,"__basicShellDebug",{value:true});self.addEventListener("error",e=>L("error",e.message,(e.filename||"")+":"+e.lineno));self.addEventListener("unhandledrejection",e=>L("unhandled rejection",e.reason));for(const lv of["error","warn"]){const o=console[lv];console[lv]=(...a)=>{L("console."+lv,...a);return o.apply(console,a)}}L("started")}
     for(const ns of["chrome","browser"]){const space=pin(self,ns);const scripting=space&&pin(space,"scripting");if(scripting&&!scripting.ExecutionWorld)try{Object.defineProperty(scripting,"ExecutionWorld",{value:Object.freeze({ISOLATED:"ISOLATED",MAIN:"MAIN"}),configurable:true})}catch(e){}}
     if((typeof ServiceWorkerGlobalScope!=="undefined"&&self instanceof ServiceWorkerGlobalScope)||location.protocol==="chrome-extension:"){try{const real=navigator.userAgent;if(!/ Chrome\//.test(real)){const ua=real.replace(/ Version\/[0-9.]+ Safari\//," Chrome/__CHROME__ Safari/");Object.defineProperty(navigator,"userAgent",{get:()=>ua,configurable:true});Object.defineProperty(navigator,"appVersion",{get:()=>ua.replace(/^Mozilla\//,""),configurable:true})}}catch(e){}}
+    for(const ns of["chrome","browser"]){const space=pin(self,ns);const perms=space&&pin(space,"permissions");if(!perms||typeof perms.contains!=="function")continue;
+    const unknown=e=>{const m=/'([^']+)' is not a valid permission/.exec(String(e&&e.message||e));return m?m[1]:null};
+    const call=(name,absent)=>{const original=perms[name].bind(perms);return(...args)=>{const callback=typeof args[args.length-1]==="function"?args.pop():null;const query=args[0]&&typeof args[0]==="object"?{...args[0]}:args[0];
+    const attempt=(q,tries)=>{let p;try{p=Promise.resolve(original(q))}catch(e){p=Promise.reject(e)}return p.catch(e=>{const bad=unknown(e);if(!bad||tries>8||!q||!Array.isArray(q.permissions))throw e;const left=q.permissions.filter(x=>x!==bad);if(name!=="remove"&&left.length<q.permissions.length)return absent;if(!left.length&&!(q.origins&&q.origins.length))return absent;return attempt({...q,permissions:left},tries+1)})};
+    const result=attempt(query,0);if(!callback)return result;result.then(v=>callback(v),()=>callback(absent))}};
+    try{Object.defineProperty(perms,"contains",{value:call("contains",false),configurable:true,writable:true});Object.defineProperty(perms,"request",{value:call("request",false),configurable:true,writable:true});Object.defineProperty(perms,"remove",{value:call("remove",false),configurable:true,writable:true})}catch(e){}}
     const worker=typeof ServiceWorkerGlobalScope!=="undefined"&&self instanceof ServiceWorkerGlobalScope;
     if(!worker){for(const ns of["chrome","browser"]){const space=pin(self,ns);const runtime=space&&pin(space,"runtime");if(!runtime)continue;for(const name of["onMessage","onConnect"]){const event=pin(runtime,name);if(!event||typeof event.addListener!=="function")continue;const add=event.addListener.bind(event),remove=event.removeListener.bind(event),wrapped=new Map(),message=name==="onMessage";try{Object.defineProperty(event,"addListener",{value:l=>{const w=(...args)=>l(...mendArgs(args,message));wrapped.set(l,w);return add(w)},configurable:true,writable:true});Object.defineProperty(event,"removeListener",{value:l=>{const w=wrapped.get(l);wrapped.delete(l);return remove(w||l)},configurable:true,writable:true});Object.defineProperty(event,"hasListener",{value:l=>wrapped.has(l),configurable:true,writable:true})}catch(e){}}}}
     if(!worker)for(const ns of["chrome","browser"]){const space=pin(self,ns);const runtime=space&&pin(space,"runtime");if(!runtime||typeof runtime.connect!=="function"||typeof runtime.sendMessage!=="function")continue;const real=runtime.connect.bind(runtime),send=runtime.sendMessage.bind(runtime);const ev=()=>{const ls=new Set();return{addListener:f=>{ls.add(f)},removeListener:f=>{ls.delete(f)},hasListener:f=>ls.has(f),hasListeners:()=>ls.size>0,ls}};

@@ -17,7 +17,7 @@ enum Favicons {
     """
 
     static func fetch(for tab: Tab) {
-        guard let web = tab.webView, let page = web.url, ["http", "https"].contains(page.scheme) else { return }
+        guard !tab.isFrozen, let web = tab.webView, let page = web.url, ["http", "https"].contains(page.scheme) else { return }
         web.evaluateJavaScript(find) { result, _ in
             let found = (result as? String).flatMap(URL.init(string:))
             let fallback = URL(string: "/favicon.ico", relativeTo: page)?.absoluteURL

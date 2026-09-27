@@ -17,8 +17,7 @@ the pages you open.
 - Ads and trackers are blocked with EasyList and EasyPrivacy, as WebKit
   content rule lists enforced before any request is made. The shield in the
   top bar turns blocking off for one site.
-- Tabs off screen are slowed down (or frozen outright, experimentally),
-  nothing lost. After six
+- Tabs off screen are frozen: no script, no timers, nothing lost. After six
   hours off screen, or when memory runs short, a tab is unloaded and comes
   back where it was. Tabs holding unsent typing, sound or a call are left
   alone, and a site can be kept awake (the sun in the top bar).
@@ -32,6 +31,11 @@ the pages you open.
 - Chrome extensions from the Chrome Web Store (signature checked) or a
   folder, on WebKit's own extension engine.
 - `⇧⌘C` copies the address.
+
+Two private WebKit features are used, each only where WebKit has it:
+`_suspendPage:` freezes tabs off screen (Settings › Tabs turns it off), and
+`_persistedSites` keeps WebKit's tracking prevention from deleting an
+extension's own storage, which would stop its background worker.
 
 What it can't do: passkeys. WebKit gives them to a browser only with an
 entitlement Apple grants on request, tied to a paid Developer ID.
