@@ -163,25 +163,32 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
 
     // MARK: - the changes made to an extension
 
-    /// Put first in every script an extension ships. Two fixes, each for a
-    /// place where WebKit differs from Chrome in a way a Chrome extension
-    /// can't survive:
+    /// Put first in every script an extension ships: fixes for the places
+    /// where WebKit differs from Chrome in ways a Chrome extension can't
+    /// survive, each found with Bitwarden and the debug log:
     ///
-    /// Symbol.dispose and Symbol.asyncDispose, which this JavaScriptCore
-    /// lacks and code compiled from TypeScript's `using` checks for first.
+    /// - Symbol.dispose and Symbol.asyncDispose, which this JavaScriptCore
+    ///   lacks and code compiled from TypeScript's `using` checks for first.
+    /// - chrome.scripting.ExecutionWorld, which WebKit doesn't define.
+    /// - sender.origin on messages and ports, which Chrome gives and WebKit
+    ///   doesn't; Bitwarden ignores a sender without one.
+    /// - Late listeners. In the background worker, WebKit takes runtime
+    ///   listeners only while the worker starts; Chrome takes them any time.
+    ///   So one listener per event is given to WebKit at the start and the
+    ///   extension's own are kept here; an event that comes before any
+    ///   waits for the first.
+    /// - A sleeping worker. WebKit stops an idle worker after half a minute
+    ///   and wakes it for a message but not for a connection, which it
+    ///   refuses ("No runtime.onConnect listeners found"). So a page's
+    ///   connect first sends a wake-up message, then connects; what is
+    ///   posted meanwhile waits.
     ///
-    /// Late listeners. In the background worker, WebKit takes runtime
-    /// listeners only while the worker starts; Chrome takes them any time.
-    /// Bitwarden adds its own after some awaits, so the popup's connection
-    /// went nowhere and it waited forever. So one listener per event is given
-    /// to WebKit at the start, and the extension's own are kept here and
-    /// handed each event; one that arrives before any is added waits for the
-    /// first. WebKit also hands out a new wrapper for `chrome.runtime` and
-    /// its events on every read, so they are pinned to keep what is set on
-    /// them. (After Search's ExtensionShims.swift, Office Commun, MIT.)
+    /// WebKit also hands out a new wrapper for `chrome.runtime` and its
+    /// events on every read, so they are pinned to keep what is set on them.
+    /// (After Search's ExtensionShims.swift, Office Commun, MIT.)
     /// Which version of the fixes a file carries; with the debug log on, a
     /// version that also reports to it (see Debug.swift).
-    private static var marker: String { "/* BasicShell: extension fixes 7\(Debug.enabled ? " debug" : "") */" }
+    private static var marker: String { "/* BasicShell: extension fixes 8\(Debug.enabled ? " debug" : "") */" }
     /// One line, so a later version can take this one's place.
     private static var fixes: String { (marker + #"""
     (()=>{for(const n of["dispose","asyncDispose"]){if(typeof Symbol[n]!=="symbol")Object.defineProperty(Symbol,n,{value:Symbol.for("Symbol."+n)})}
@@ -193,13 +200,19 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     for(const ns of["chrome","browser"]){const space=pin(self,ns);const scripting=space&&pin(space,"scripting");if(scripting&&!scripting.ExecutionWorld)try{Object.defineProperty(scripting,"ExecutionWorld",{value:Object.freeze({ISOLATED:"ISOLATED",MAIN:"MAIN"}),configurable:true})}catch(e){}}
     const worker=typeof ServiceWorkerGlobalScope!=="undefined"&&self instanceof ServiceWorkerGlobalScope;
     if(!worker){for(const ns of["chrome","browser"]){const space=pin(self,ns);const runtime=space&&pin(space,"runtime");if(!runtime)continue;for(const name of["onMessage","onConnect"]){const event=pin(runtime,name);if(!event||typeof event.addListener!=="function")continue;const add=event.addListener.bind(event),remove=event.removeListener.bind(event),wrapped=new Map(),message=name==="onMessage";try{Object.defineProperty(event,"addListener",{value:l=>{const w=(...args)=>l(...mendArgs(args,message));wrapped.set(l,w);return add(w)},configurable:true,writable:true});Object.defineProperty(event,"removeListener",{value:l=>{const w=wrapped.get(l);wrapped.delete(l);return remove(w||l)},configurable:true,writable:true});Object.defineProperty(event,"hasListener",{value:l=>wrapped.has(l),configurable:true,writable:true})}catch(e){}}}}
+    if(!worker)for(const ns of["chrome","browser"]){const space=pin(self,ns);const runtime=space&&pin(space,"runtime");if(!runtime||typeof runtime.connect!=="function"||typeof runtime.sendMessage!=="function")continue;const real=runtime.connect.bind(runtime),send=runtime.sendMessage.bind(runtime);const ev=()=>{const ls=new Set();return{addListener:f=>{ls.add(f)},removeListener:f=>{ls.delete(f)},hasListener:f=>ls.has(f),hasListeners:()=>ls.size>0,ls}};
+    try{Object.defineProperty(runtime,"connect",{configurable:true,writable:true,value:(...args)=>{const info=args.find(a=>a&&typeof a==="object")||{};const port={name:info.name||"",sender:undefined,onMessage:ev(),onDisconnect:ev()};let target=null,closed=false;const queue=[];
+    port.postMessage=m=>{if(closed)throw new Error("Attempting to use a disconnected port object");if(target)target.postMessage(m);else queue.push(m)};
+    port.disconnect=()=>{if(closed)return;closed=true;if(target)try{target.disconnect()}catch(e){}};
+    const attach=()=>{if(closed)return;let p;try{p=real(...args)}catch(e){closed=true;for(const f of[...port.onDisconnect.ls])try{f(port)}catch(e2){}return}p.onMessage.addListener(m=>{for(const f of[...port.onMessage.ls])try{f(m,port)}catch(e){console.error(e)}});p.onDisconnect.addListener(()=>{if(closed)return;closed=true;for(const f of[...port.onDisconnect.ls])try{f(port)}catch(e){console.error(e)}});target=p;for(const m of queue.splice(0))try{p.postMessage(m)}catch(e){}};
+    let wakeup;try{wakeup=Promise.resolve(send({__basicShellWake:true})).catch(()=>{})}catch(e){wakeup=Promise.resolve()}Promise.race([wakeup,new Promise(r=>setTimeout(r,2000))]).then(attach);return port}})}catch(e){}}
     if(!worker&&DEBUG){try{const rt=pin(pin(self,"chrome"),"runtime");const cn=rt.connect.bind(rt);Object.defineProperty(rt,"connect",{value:(...a)=>{const p=cn(...a);L("connect",a);try{p.onDisconnect.addListener(()=>L("disconnected",a,chrome.runtime.lastError&&chrome.runtime.lastError.message))}catch(e){}return p},configurable:true,writable:true})}catch(e){L("wrapfail",e.message)}}
     if(!worker||self.__basicShellLate)return;Object.defineProperty(self,"__basicShellLate",{value:true});
     for(const ns of["chrome","browser"]){const space=pin(self,ns);const runtime=space&&pin(space,"runtime");if(!runtime)continue;
     for(const name of["onMessage","onConnect","onMessageExternal","onConnectExternal"]){const event=pin(runtime,name);if(!event||typeof event.addListener!=="function")continue;
     const listeners=new Set(),waiting=[],message=name.startsWith("onMessage");
     const deliver=(l,args)=>{try{return l(...mendArgs(args,message))}catch(e){console.error(e)}};
-    const dispatch=(...args)=>{if(!message)L(ns+".runtime."+name,"port",args[0]&&args[0].name,"to",listeners.size,"listeners");if(!listeners.size){if(message){waiting.push(args);setTimeout(()=>{const i=waiting.indexOf(args);if(i>=0){waiting.splice(i,1);try{args[2](undefined)}catch(e){}}},15000);return true}waiting.push(args);return}
+    const dispatch=(...args)=>{if(message&&args[0]&&args[0].__basicShellWake===true){try{args[2](true)}catch(e){}return false}if(!message)L(ns+".runtime."+name,"port",args[0]&&args[0].name,"to",listeners.size,"listeners");if(!listeners.size){if(message){waiting.push(args);setTimeout(()=>{const i=waiting.indexOf(args);if(i>=0){waiting.splice(i,1);try{args[2](undefined)}catch(e){}}},15000);return true}waiting.push(args);return}
     if(!message){for(const l of[...listeners])deliver(l,args);return}
     let keep=false;for(const l of[...listeners]){const r=deliver(l,args);if(r===true)keep=true;else if(r&&typeof r.then==="function"){keep=true;r.then(v=>{try{args[2](v)}catch(e){}},()=>{try{args[2](undefined)}catch(e){}})}}return keep};
     event.addListener(dispatch);
