@@ -350,7 +350,9 @@ extension Tab: WKWebExtensionTab {
         browser?.shell.tabs.filter { !$0.isPrivate }.firstIndex(of: self) ?? NSNotFound
     }
     func parentTab(for context: WKWebExtensionContext) -> (any WKWebExtensionTab)? { opener }
-    func webView(for context: WKWebExtensionContext) -> WKWebView? { webView }
+    /// None while frozen: WebKit's extension code would run scripts in it,
+    /// and a frozen view throws (see Freeze).
+    func webView(for context: WKWebExtensionContext) -> WKWebView? { isFrozen ? nil : webView }
     func title(for context: WKWebExtensionContext) -> String? { title }
     func url(for context: WKWebExtensionContext) -> URL? { url }
     func isPinned(for context: WKWebExtensionContext) -> Bool { pinned }
@@ -366,21 +368,25 @@ extension Tab: WKWebExtensionTab {
     }
 
     func loadURL(_ url: URL, for context: WKWebExtensionContext, completionHandler: @escaping ((any Error)?) -> Void) {
+        Freeze.thaw(self)
         load(url)
         completionHandler(nil)
     }
 
     func reload(fromOrigin: Bool, for context: WKWebExtensionContext, completionHandler: @escaping ((any Error)?) -> Void) {
+        Freeze.thaw(self)
         if fromOrigin { webView?.reloadFromOrigin() } else { webView?.reload() }
         completionHandler(nil)
     }
 
     func goBack(for context: WKWebExtensionContext, completionHandler: @escaping ((any Error)?) -> Void) {
+        Freeze.thaw(self)
         webView?.goBack()
         completionHandler(nil)
     }
 
     func goForward(for context: WKWebExtensionContext, completionHandler: @escaping ((any Error)?) -> Void) {
+        Freeze.thaw(self)
         webView?.goForward()
         completionHandler(nil)
     }

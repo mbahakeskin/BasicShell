@@ -4,13 +4,12 @@ import WebKit
 
 // Tabs you aren't looking at, in two steps.
 //
-// Frozen: a tab leaves the screen and its web view leaves the window, and the
-// page is suspended: no script, no layout, no timers, no CPU. Nothing is lost:
-// scroll position, what was typed, a video's place, an open menu. Coming back
-// is instant. The suspension is WebKit's own, but private (Freeze, below): the
-// public WKPreferences.inactiveSchedulingPolicy = .suspend, also set, was
-// measured on macOS 27 to only throttle a page (timers about once a second).
-// A tab playing sound or using the camera or microphone is not frozen.
+// Off screen: a tab leaves the screen and its web view leaves the window,
+// and WebKit slows the page down (WKPreferences.inactiveSchedulingPolicy,
+// measured on macOS 27: timers about once a second). Nothing is lost and
+// coming back is instant. It can also be frozen outright, with WebKit's
+// private page suspension, if that is turned on (Freeze, below; off by
+// default because it can crash the app).
 //
 // Unloaded: after six hours off screen, or at once when macOS says memory is
 // critically short, the page is let go and its memory with it. Its history is
@@ -87,9 +86,11 @@ enum Sleep {
 
     /// Unloads a tab unless it holds something that can't be brought back.
     static func unloadIfSafe(_ tab: Tab) {
-        guard let web = tab.webView, !tab.hasTypedInput, !keepsAwake(tab.url),
-              web.cameraCaptureState == .none, web.microphoneCaptureState == .none
-        else { return }
+        guard let web = tab.webView, !tab.hasTypedInput, !keepsAwake(tab.url) else { return }
+        // A frozen page plays nothing and uses no camera (those are never
+        // frozen), and asking it would throw.
+        if tab.isFrozen { return tab.unload() }
+        guard web.cameraCaptureState == .none, web.microphoneCaptureState == .none else { return }
         // A page that doesn't answer in a second is frozen, so not playing.
         var answered = false
         let finish: (Bool) -> Void = { playing in
@@ -107,7 +108,7 @@ enum Sleep {
     /// using the camera or microphone. A page that doesn't say whether it is
     /// playing is left running rather than risk stopping it mid-song.
     static func freezeIfIdle(_ tab: Tab) {
-        guard let web = tab.webView, !tab.isFrozen, !tab.isOnScreen, !keepsAwake(tab.url),
+        guard Freeze.enabled, let web = tab.webView, !tab.isFrozen, !tab.isOnScreen, !keepsAwake(tab.url),
               web.cameraCaptureState == .none, web.microphoneCaptureState == .none
         else { return }
         var answered = false
@@ -155,14 +156,26 @@ enum Sleep {
 /// `_suspendPage:` and `_resumePage:`, each answering with whether it worked;
 /// they are used only when this WebKit has them. If a page doesn't come back
 /// from it, it is loaded again rather than left blank.
+///
+/// Off unless turned on (Settings › Tabs), because a suspended web view
+/// throws on nearly everything done to it — load, reload, stop, go back,
+/// zoom, run script, take a picture, ask about media (measured, macOS 27:
+/// "The WKWebView is suspended") — and an uncaught exception ends the app.
+/// Extensions do those things to any tab at any time: Bitwarden's sign-out
+/// ran a script in every tab and brought BasicShell down. So a frozen tab is
+/// woken before anything is done to it here, and extensions don't see its
+/// web view at all; but WebKit's own extension code can still reach one in
+/// the moment between asking and acting.
 enum Freeze {
     private static let suspend = NSSelectorFromString("_suspendPage:")
     private static let resume = NSSelectorFromString("_resumePage:")
 
     static let available = WKWebView.instancesRespond(to: suspend) && WKWebView.instancesRespond(to: resume)
 
+    static var enabled: Bool { available && UserDefaults.standard.bool(forKey: "sleep.freeze") }
+
     static func freeze(_ tab: Tab) {
-        guard available, let web = tab.webView, !tab.isFrozen else { return }
+        guard enabled, let web = tab.webView, !tab.isFrozen else { return }
         tab.isFrozen = true
         let done: @convention(block) (Bool) -> Void = { [weak tab] worked in
             MainActor.assumeIsolated { if !worked { tab?.isFrozen = false } }
@@ -170,7 +183,9 @@ enum Freeze {
         web.perform(suspend, with: done)
     }
 
-    /// Called as the tab comes back on screen.
+    /// Called as the tab comes back on screen, and before anything is done
+    /// to a frozen tab's web view. The view can be used as soon as this
+    /// returns (measured).
     static func thaw(_ tab: Tab) {
         guard tab.isFrozen, let web = tab.webView else { return }
         tab.isFrozen = false

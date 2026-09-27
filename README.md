@@ -17,7 +17,8 @@ the pages you open.
 - Ads and trackers are blocked with EasyList and EasyPrivacy, as WebKit
   content rule lists enforced before any request is made. The shield in the
   top bar turns blocking off for one site.
-- Tabs off screen are frozen: no script, no timers, nothing lost. After six
+- Tabs off screen are slowed down (or frozen outright, experimentally),
+  nothing lost. After six
   hours off screen, or when memory runs short, a tab is unloaded and comes
   back where it was. Tabs holding unsent typing, sound or a call are left
   alone, and a site can be kept awake (the sun in the top bar).

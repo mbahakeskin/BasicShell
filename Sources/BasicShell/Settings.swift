@@ -75,6 +75,7 @@ private struct GeneralSettings: View {
 private struct TabSettings: View {
     @AppStorage("sleep.unloadHours") private var unload = 6.0
     @AppStorage("archive.hours") private var archive = 12.0
+    @AppStorage("sleep.freeze") private var freeze = false
 
     private let unloadChoices: [(String, Double)] = [("1 hour", 1), ("2 hours", 2), ("6 hours", 6), ("12 hours", 12), ("1 day", 24), ("Never", 0)]
     private let archiveChoices: [(String, Double)] = [("6 hours", 6), ("12 hours", 12), ("1 day", 24), ("3 days", 72), ("1 week", 168), ("Never", 0)]
@@ -89,8 +90,14 @@ private struct TabSettings: View {
                     ForEach(archiveChoices, id: \.1) { Text($0.0).tag($0.1) }
                 }
             } footer: {
-                Text("Tabs off screen are always frozen. Unloaded tabs give their memory back and reload where they were; archived tabs leave the sidebar for Tab › Show Archived Tabs. Pinned tabs are never archived, and nothing holding unsent typing is unloaded.")
+                Text("Tabs off screen are slowed down. Unloaded tabs give their memory back and reload where they were; archived tabs leave the sidebar for Tab › Show Archived Tabs. Pinned tabs are never archived, and nothing holding unsent typing is unloaded.")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Toggle(isOn: $freeze) {
+                    Text("Freeze tabs off screen (experimental)")
+                    Text("Stops them completely instead of slowing them down. Uses a private WebKit feature that can crash BasicShell when an extension touches a frozen tab.")
+                }
             }
             Section("Sites kept awake") {
                 SiteList(sites: Awake.shared.sites.sorted(), empty: "None. The sun in the top bar keeps a site's tabs awake.") {

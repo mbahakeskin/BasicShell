@@ -174,6 +174,7 @@ final class Tab: NSObject, Identifiable {
     /// Lets the page go but keeps what it takes to bring it back: its history,
     /// its scroll position and its cookie jar.
     func unload() {
+        Freeze.thaw(self)
         guard let web = webView, !isUnloaded else { return }
         savedState = web.interactionState
         configuration = nil
@@ -184,7 +185,8 @@ final class Tab: NSObject, Identifiable {
     /// Lets the page go: its process ends.
     func discard() {
         watching = []
-        isFrozen = false
+        // A frozen view throws on stopLoading (see Freeze).
+        Freeze.thaw(self)
         webView?.stopLoading()
         webView?.navigationDelegate = nil
         webView?.uiDelegate = nil
