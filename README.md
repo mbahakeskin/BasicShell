@@ -43,6 +43,11 @@ Needs macOS 27 and the Command Line Tools (Swift 6.4); Xcode is not required.
 
 `swift build` alone builds the executable.
 
+`build.sh` signs with a code-signing identity named "BasicShell Local Signing"
+if the keychain has one (a self-signed certificate is enough), so macOS keeps
+the app's permissions (location, camera, microphone) from build to build;
+otherwise it signs ad hoc, and macOS asks again after each build.
+
 ## Block lists
 
 The lists are not in the app. `./publish-lists.sh` fetches the latest

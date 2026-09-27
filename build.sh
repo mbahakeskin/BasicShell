@@ -74,5 +74,11 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-codesign --force --options runtime --entitlements "$NAME.entitlements" --sign - "$APP"
+# Signed with "BasicShell Local Signing" when that identity is in the
+# keychain: a self-signed certificate that stays the same from build to build,
+# so macOS keeps what it was told about the app (location, camera, microphone)
+# instead of asking again after every build. Otherwise ad-hoc, which runs just
+# as well but is a new app to macOS each time.
+IDENTITY="$(security find-certificate -c "BasicShell Local Signing" -Z 2>/dev/null | awk '/SHA-1/ {print $3}')"
+codesign --force --options runtime --entitlements "$NAME.entitlements" --sign "${IDENTITY:--}" "$APP"
 echo "Built $APP"
