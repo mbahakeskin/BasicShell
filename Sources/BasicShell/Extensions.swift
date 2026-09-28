@@ -12,7 +12,7 @@ import WebKit
 // copied into Application Support/BasicShell/Extensions/<id>. Adding it shows
 // what it asks for; what you accept is granted again at every launch. Its
 // pages are served from chrome-extension://<id>/, the address they have in
-// Chrome, which some servers check. Private tabs never see extensions.
+// Chrome, which some servers check. They work in private tabs too.
 //
 // The only change made to an extension's files is a line at the top of each
 // script with two fixes for Chrome extensions (see `fixes` below).
@@ -166,6 +166,7 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
         context.uniqueIdentifier = id
         if let base = URL(string: "\(Extensions.scheme)://\(id)/") { context.baseURL = base }
         context.isInspectable = true
+        context.hasAccessToPrivateData = true
         for permission in found.requestedPermissions { context.setPermissionStatus(.grantedExplicitly, for: permission) }
         for pattern in found.allRequestedMatchPatterns { context.setPermissionStatus(.grantedExplicitly, for: pattern) }
         // What it was given later, when it asked (nativeMessaging, for
@@ -462,14 +463,18 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
 
     // MARK: - telling WebKit what the browser is doing
 
-    func opened(_ tab: Tab) { if !tab.isPrivate { controller.didOpenTab(tab) } }
-    func closed(_ tab: Tab, windowClosing: Bool = false) { if !tab.isPrivate { controller.didCloseTab(tab, windowIsClosing: windowClosing) } }
+    // Private tabs included: extensions work in them too (each is given
+    // access to private data as it loads). WebKit knows privacy by window,
+    // and private tabs here share windows with ordinary ones, so to an
+    // extension they look like any other tab.
+    func opened(_ tab: Tab) { controller.didOpenTab(tab) }
+    func closed(_ tab: Tab, windowClosing: Bool = false) { controller.didCloseTab(tab, windowIsClosing: windowClosing) }
     func activated(_ tab: Tab?, previous: Tab?) {
-        guard let tab, !tab.isPrivate else { return }
-        controller.didActivateTab(tab, previousActiveTab: previous?.isPrivate == false ? previous : nil)
+        guard let tab else { return }
+        controller.didActivateTab(tab, previousActiveTab: previous)
     }
     func changed(_ tab: Tab, _ properties: WKWebExtension.TabChangedProperties) {
-        if !tab.isPrivate { controller.didChangeTabProperties(properties, for: tab) }
+        controller.didChangeTabProperties(properties, for: tab)
     }
 
     // MARK: - WKWebExtensionControllerDelegate
@@ -631,7 +636,7 @@ extension Tab: WKWebExtensionTab {
 
     func window(for context: WKWebExtensionContext) -> (any WKWebExtensionWindow)? { browser }
     func indexInWindow(for context: WKWebExtensionContext) -> Int {
-        browser?.shell.tabs.filter { !$0.isPrivate }.firstIndex(of: self) ?? NSNotFound
+        browser?.shell.tabs.firstIndex(of: self) ?? NSNotFound
     }
     func parentTab(for context: WKWebExtensionContext) -> (any WKWebExtensionTab)? { opener }
     /// None while frozen: WebKit's extension code would run scripts in it,
@@ -687,9 +692,9 @@ extension Tab: WKWebExtensionTab {
 }
 
 extension BrowserWindow: WKWebExtensionWindow {
-    func tabs(for context: WKWebExtensionContext) -> [any WKWebExtensionTab] { shell.tabs.filter { !$0.isPrivate } }
+    func tabs(for context: WKWebExtensionContext) -> [any WKWebExtensionTab] { shell.tabs }
     func activeTab(for context: WKWebExtensionContext) -> (any WKWebExtensionTab)? {
-        shell.selected?.isPrivate == false ? shell.selected : nil
+        shell.selected
     }
     func windowType(for context: WKWebExtensionContext) -> WKWebExtension.WindowType { .normal }
     func windowState(for context: WKWebExtensionContext) -> WKWebExtension.WindowState {

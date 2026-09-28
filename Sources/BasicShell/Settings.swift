@@ -226,7 +226,7 @@ private struct ExtensionSettings: View {
                 }
                 if !status.isEmpty { Text(status).font(.caption).foregroundStyle(.secondary) }
             } footer: {
-                Text("Extensions run on WebKit's own extension engine, as in Safari. A Safari extension, made for it, is loaded from inside its app; one from the Chrome Web Store that needs a Chrome API WebKit lacks won't work. They never see private tabs.")
+                Text("Extensions run on WebKit's own extension engine, as in Safari. A Safari extension, made for it, is loaded from inside its app; one from the Chrome Web Store that needs a Chrome API WebKit lacks won't work. They work in private tabs too.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Installed") {

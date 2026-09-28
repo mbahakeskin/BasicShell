@@ -38,10 +38,8 @@ enum Web {
         config.userContentController.addUserScript(Sleep.typingWatch)
         Geolocation.attach(to: config)
         Debug.attach(to: config)
-        // Extensions see ordinary tabs only.
-        if !privately, store == nil || store?.isPersistent == true {
-            config.webExtensionController = Extensions.shared.controller
-        }
+        // Extensions work in private tabs as well (see Extensions.opened).
+        config.webExtensionController = Extensions.shared.controller
         return config
     }
 }
