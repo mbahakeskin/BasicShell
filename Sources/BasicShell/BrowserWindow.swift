@@ -24,8 +24,6 @@ final class Shell {
     var fullScreen = false
     var toast: String?
     var panel: Panel?
-    /// A tab whose video is out in the floating window (Float.swift).
-    var floating: Tab?
     /// An extension's popup is open under its button in the top bar.
     var popupOpen = false
     /// Where each extension's button is in the top bar, for its popup.
@@ -382,14 +380,17 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         guard let window else { return }
         let previous = shell.selected
         defer { if previous !== tab { Extensions.shared.activated(tab, previous: previous) } }
-        if let current = shell.selected, current !== tab, !Float.shared.isFloating(current) {
+        if let current = shell.selected, current !== tab {
+            // A video playing in it goes into Picture in Picture (PiP.swift).
+            PiP.follow(current)
             // Out of the window, WebKit freezes the page (see Sleep.swift); a
-            // site kept awake stays in it, hidden, and is only throttled. The
-            // page leaves once its picture is taken, under the new one.
+            // site kept awake, or one whose video is in Picture in Picture,
+            // stays in it, hidden, and is only throttled. The page leaves once
+            // its picture is taken, under the new one.
             let web = current.webView
             current.leavingScreen { [weak self, weak current] in
                 guard let self, let current, let web, current !== self.shell.selected, current.webView === web else { return }
-                if Sleep.keepsAwake(current.url) {
+                if Sleep.keepsAwake(current.url) || PiP.holds(current) {
                     web.isHidden = true
                 } else {
                     web.removeFromSuperview()
@@ -405,12 +406,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             window.title = "BasicShell"
             return
         }
-        if Float.shared.isFloating(tab) {
-            // Its page is in the floating window; the tab says so.
-            empty.isHidden = false
-            window.title = tab.name
-            return
-        }
+        PiP.bringBack(tab)
         empty.isHidden = true
         let wasUnloaded = tab.isUnloaded
         let web = tab.makeWebView()
@@ -476,7 +472,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     func close(_ tab: Tab) {
         guard let index = shell.tabs.firstIndex(of: tab) else { return }
-        if Float.shared.isFloating(tab) { Float.shared.land() }
+        PiP.forget(tab)
         Extensions.shared.closed(tab)
         Closed.add(tab)
         shell.tabs.remove(at: index)
@@ -773,21 +769,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     }
 
     @objc func pictureInPicture(_ sender: Any?) {
-        if let floating = shell.floating { return Float.shared.toggle(floating, in: self) }
         guard let tab = shell.selected else { return }
-        Float.shared.toggle(tab, in: self)
-    }
-
-    /// The tab's page went into the floating window.
-    func floated(_ tab: Tab) {
-        shell.floating = tab
-        if shell.selected === tab { empty.isHidden = false }
-    }
-
-    /// And came back.
-    func landed(_ tab: Tab) {
-        shell.floating = nil
-        if shell.selected === tab { select(tab) }
+        PiP.toggle(tab)
     }
 
     @objc func nextTab(_ sender: Any?) { step(1) }
@@ -823,8 +806,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
              #selector(duplicateTab(_:)), #selector(printPage(_:)):
             return tab?.url != nil
         case #selector(pictureInPicture(_:)):
-            item.title = shell.floating != nil ? "Exit Picture in Picture" : "Picture in Picture"
-            return tab?.url != nil || shell.floating != nil
+            item.title = tab.map(PiP.isActive) == true ? "Exit Picture in Picture" : "Picture in Picture"
+            return tab?.url != nil
         case #selector(bookmarkPage(_:)):
             item.title = Bookmarks.shared.contains(tab?.url) ? "Remove Bookmark" : "Bookmark This Page"
             return tab?.url != nil
@@ -918,6 +901,13 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         shell.sidebarShown = false
         shell.topBarShown = false
         layout(animated: true)
+    }
+
+    /// Out of sight (another desktop, minimized, covered): a video playing
+    /// goes into Picture in Picture; back in sight, it comes back.
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        guard let window, let tab = shell.selected else { return }
+        if window.occlusionState.contains(.visible) { PiP.bringBack(tab) } else { PiP.follow(tab) }
     }
 
     func windowDidBecomeKey(_ notification: Notification) {

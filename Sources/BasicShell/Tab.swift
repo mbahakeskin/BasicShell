@@ -58,6 +58,8 @@ final class Tab: NSObject, Identifiable {
     /// Its back-forward list and scroll position, kept across an unload.
     @ObservationIgnored private var savedState: Any?
     @ObservationIgnored private var watching: [NSKeyValueObservation] = []
+    /// Its video is in Picture in Picture (see PiP.swift).
+    @ObservationIgnored var inPictureInPicture = false
     /// When its web process last ended, for telling a crash loop apart.
     @ObservationIgnored private var crashes: [Date] = []
 

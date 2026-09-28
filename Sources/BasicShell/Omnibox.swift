@@ -132,28 +132,17 @@ struct OmniboxView: View {
     }
 }
 
-/// What a window with no tabs shows, or a tab whose video is floating.
+/// What a window with no tabs shows.
 struct EmptyPage: View {
     let shell: Shell
     let window: BrowserWindow
 
     var body: some View {
-        Group {
-            if let floating = shell.floating, floating === shell.selected {
-                VStack(spacing: 14) {
-                    Image(systemName: "pip").font(.system(size: 34)).foregroundStyle(.secondary)
-                    Text("Playing in Picture in Picture").foregroundStyle(.secondary)
-                    Button("Bring It Back") { window.pictureInPicture(nil) }
-                        .buttonStyle(.glass)
-                }
-            } else {
-                Button { window.ask(.newTab(privately: false)) } label: {
-                    Label("New Tab", systemImage: "plus").padding(.horizontal, 8)
-                }
-                .buttonStyle(.glass)
-                .controlSize(.large)
-            }
+        Button { window.ask(.newTab(privately: false)) } label: {
+            Label("New Tab", systemImage: "plus").padding(.horizontal, 8)
         }
+        .buttonStyle(.glass)
+        .controlSize(.large)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

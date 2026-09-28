@@ -25,8 +25,10 @@ the pages you open.
 - History, bookmarks, downloads and archived tabs, each a searchable panel
   over the page; the new-tab field suggests open tabs, bookmarks and history.
 - Tabs opened from a link sit under the tab they came from.
-- Picture in picture: `⇧⌘P` lifts a video into a small window above
-  everything.
+- Picture in picture, the system's own: just the video, in a borderless
+  window you can resize, the page staying where it is (`⇧⌘P`). A video
+  playing goes into it by itself when you leave its tab or the window
+  (another desktop, minimized), and comes back when you return.
 - Google searches carry the Mac's language and region, so a VPN doesn't
   switch results to another country.
 - Extensions on WebKit's own extension engine: from the Chrome Web Store
@@ -36,10 +38,12 @@ the pages you open.
   app).
 - `⇧⌘C` copies the address.
 
-Two private WebKit features are used, each only where WebKit has it:
-`_suspendPage:` freezes tabs off screen (Settings › Tabs turns it off), and
+Private WebKit features are used, each only where WebKit has it:
+`_suspendPage:` freezes tabs off screen (Settings › Tabs turns it off);
 `_persistedSites` keeps WebKit's tracking prevention from deleting an
-extension's own storage, which would stop its background worker.
+extension's own storage, which would stop its background worker; and
+`_setAllowsPictureInPictureMediaPlayback:` with a script run as though
+clicked (`_callAsyncJavaScript:…withUserGesture:`) gives picture in picture.
 
 What it can't do: passkeys. WebKit gives them to a browser only with an
 entitlement Apple grants on request, tied to a paid Developer ID.

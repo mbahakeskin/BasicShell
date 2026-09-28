@@ -108,7 +108,7 @@ enum Sleep {
     /// playing is left running rather than risk stopping it mid-song.
     static func freezeIfIdle(_ tab: Tab) {
         // Never mid-load: the page would still report its loads, frozen.
-        guard Freeze.enabled, let web = tab.webView, !tab.isFrozen, !tab.isOnScreen, !web.isLoading, !keepsAwake(tab.url),
+        guard Freeze.enabled, let web = tab.webView, !tab.isFrozen, !tab.isOnScreen, !web.isLoading, !keepsAwake(tab.url), !PiP.holds(tab),
               web.cameraCaptureState == .none, web.microphoneCaptureState == .none
         else { return }
         var answered = false
@@ -317,7 +317,7 @@ final class Awake {
 }
 
 extension Tab {
-    /// In its window, or floating in Picture in Picture.
+    /// In its window and not hidden.
     var isOnScreen: Bool { webView?.window != nil && webView?.isHidden == false }
 
     /// The tab is going off screen: note what it was holding, where it was

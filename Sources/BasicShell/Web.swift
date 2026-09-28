@@ -34,6 +34,7 @@ enum Web {
         config.preferences.inactiveSchedulingPolicy = .suspend
         config.applicationNameForUserAgent = userAgentName
         config.preferences.isElementFullscreenEnabled = true
+        PiP.allow(in: config)
         config.allowsAirPlayForMediaPlayback = true
         config.userContentController.addUserScript(Sleep.typingWatch)
         Geolocation.attach(to: config)
