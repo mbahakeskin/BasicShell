@@ -47,7 +47,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     private let clock = ClockHost(rootView: MenuBarClock())
     private var omnibox: NSHostingView<OmniboxView>?
     private var panelHost: NSHostingView<PanelView>?
-    private var toastView: NSHostingView<ToastView>?
+    private var toastView: ToastHost?
     /// A picture of an unloaded page, over it while it loads again.
     private var cover: NSImageView?
     private var popupWatch: (any NSObjectProtocol)?
@@ -660,7 +660,9 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     func say(_ message: String) {
         shell.toast = message
         if toastView == nil {
-            let host = hosting(ToastView(shell: shell))
+            let host = ToastHost(rootView: ToastView(shell: shell))
+            host.sizingOptions = []
+            host.safeAreaRegions = []
             root.addSubview(host, positioned: .above, relativeTo: nil)
             toastView = host
             layout(animated: false)
@@ -993,5 +995,14 @@ struct MenuBarClock: View {
 
 /// Shows the clock but lets every click through to the page under it.
 final class ClockHost: NSHostingView<MenuBarClock> {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+/// Shows a message but lets every click through to what is under it. It
+/// stays once made, a band across the window's width, and took the clicks
+/// there: the lower half of the top bar in full screen, the first tabs in
+/// the sidebar, the page (SwiftUI's allowsHitTesting doesn't stop the
+/// hosting view itself from taking them).
+final class ToastHost: NSHostingView<ToastView> {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
