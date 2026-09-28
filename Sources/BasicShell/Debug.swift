@@ -96,7 +96,8 @@ final class Debug {
       let left = 50;
       const report = (kind, text) => { if (left-- > 0) post(location.host + " " + kind + ": " + String(text).slice(0, 300)); };
       addEventListener("error", (e) => report("error", (e.message || e) + " @" + (e.filename || "").split("?")[0] + ":" + e.lineno), true);
-      addEventListener("unhandledrejection", (e) => report("unhandled rejection", e.reason && (e.reason.stack || e.reason.message) || e.reason));
+      const describe = (x) => x && typeof x === "object" ? (x.name || "") + ": " + (x.message || JSON.stringify(x)) + " @" + String(x.stack || "").split("\\n")[0] : String(x);
+      addEventListener("unhandledrejection", (e) => report("unhandled rejection", describe(e.reason)));
       const original = console.error.bind(console);
       console.error = (...a) => { report("console.error", a.map((x) => x && x.message ? x.message : String(x)).join(" ")); return original(...a); };
     })();

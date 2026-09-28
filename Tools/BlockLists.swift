@@ -270,6 +270,35 @@ if rules.count > limit {
     rules = Array(rules.prefix(limit))
 }
 
+// A guard against a conversion that blocks the web itself: no rule that
+// holds on every site may block an ordinary address, other than pings and
+// popups (`*$ping,third-party` is meant that way). One did once, through a
+// wrong resource type, and Google Maps lost its routes.
+let ordinary = [
+    "https://www.example.com/", "https://www.example.com/static/app.js", "https://cdn.example.net/lib/main.min.js",
+    "https://api.example.com/v1/data.json", "https://www.example.com/images/photo.jpg", "https://fonts.example.org/font.woff2",
+    "https://www.example.com/css/site.css", "https://www.example.com/search?q=test&page=2", "https://www.example.com/api/graphql",
+]
+let harmless: Set<String> = ["ping", "popup"]
+var tooBroad: [String] = []
+for rule in rules {
+    guard let action = rule["action"] as? [String: Any], action["type"] as? String == "block",
+          let trigger = rule["trigger"] as? [String: Any], let filter = trigger["url-filter"] as? String,
+          !["if-domain", "unless-domain", "if-top-url", "unless-top-url"].contains(where: { trigger[$0] != nil })
+    else { continue }
+    let types = Set(trigger["resource-type"] as? [String] ?? allTypes)
+    guard !types.isSubset(of: harmless) else { continue }
+    let caseSensitive = trigger["url-filter-is-case-sensitive"] as? Bool == true
+    guard let pattern = try? NSRegularExpression(pattern: filter, options: caseSensitive ? [] : [.caseInsensitive]) else { continue }
+    if ordinary.contains(where: { pattern.firstMatch(in: $0, range: NSRange($0.startIndex..., in: $0)) != nil }) {
+        tooBroad.append(String(data: try JSONSerialization.data(withJSONObject: trigger, options: [.sortedKeys]), encoding: .utf8) ?? filter)
+    }
+}
+if !tooBroad.isEmpty {
+    FileHandle.standardError.write(Data("\(tooBroad.count) rule(s) would block ordinary addresses on every site:\n\(tooBroad.prefix(10).joined(separator: "\n"))\n".utf8))
+    exit(2)
+}
+
 let data = try JSONSerialization.data(withJSONObject: rules, options: [.sortedKeys])
 try (data as NSData).compressed(using: .lzfse).write(to: URL(fileURLWithPath: arguments[2]))
 print("\(URL(fileURLWithPath: arguments[1]).lastPathComponent): \(rules.count) rules, \(dropped) dropped")

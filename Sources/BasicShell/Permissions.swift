@@ -95,9 +95,17 @@ enum Geolocation {
       // Objects of the page's own kinds, so a check like
       // `position instanceof GeolocationPosition` holds; their own fields
       // stand in front of the native getters, which would refuse them.
+      // Every field the kind has (WebKit's coordinates also have floorLevel)
+      // is given, null where there is nothing to say: one left to the native
+      // getter throws, and MapKit, reading floorLevel, gave up on the fix.
       const make = (kind, fields) => {
-        const made = Object.create(kind && kind.prototype ? kind.prototype : Object.prototype);
-        for (const [key, value] of Object.entries(fields)) Object.defineProperty(made, key, { value, enumerable: true });
+        const proto = kind && kind.prototype ? kind.prototype : Object.prototype;
+        const made = Object.create(proto);
+        for (const key of Object.getOwnPropertyNames(proto)) {
+          const d = Object.getOwnPropertyDescriptor(proto, key);
+          if (d && d.get && !(key in fields)) Object.defineProperty(made, key, { value: null, enumerable: true });
+        }
+        for (const [key, value] of Object.entries(fields)) Object.defineProperty(made, key, { value, enumerable: key !== "toJSON" });
         return made;
       };
       const error = (code, message) => make(window.GeolocationPositionError,
