@@ -16,7 +16,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         Debug.start()
         LocationAccess.start()
         Freeze.guardScripts()
-        Shield.shared.start()
         Sleep.start()
         NSApp.mainMenu = Menus.build()
         if !Session.restored { Session.restore() }
@@ -76,12 +75,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return true
     }
 
-    @objc func updateBlockLists(_ sender: Any?) {
-        Task {
-            let result = await Shield.shared.update()
-            if let window = Windows.front { window.say(result) } else { NSSound.beep() }
-        }
-    }
 }
 
 /// Every open browser window, front to back as AppKit orders them.

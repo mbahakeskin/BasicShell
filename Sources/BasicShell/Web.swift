@@ -42,7 +42,6 @@ enum Web {
         if !privately, store == nil || store?.isPersistent == true {
             config.webExtensionController = Extensions.shared.controller
         }
-        Shield.shared.protect(config.userContentController)
         return config
     }
 }

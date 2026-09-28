@@ -236,9 +236,6 @@ extension Tab: WKNavigationDelegate {
             host?.open(url, from: self, select: action.modifierFlags.contains(.shift))
             return
         }
-        if action.targetFrame?.isMainFrame ?? true {
-            Shield.shared.tune(webView.configuration.userContentController, for: url.host())
-        }
         decisionHandler(.allow, preferences)
     }
 

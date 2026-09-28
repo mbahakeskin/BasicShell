@@ -120,21 +120,8 @@ private struct PrivacySettings: View {
     var body: some View {
         Form {
             Section("Ad and tracker blocking") {
-                LabeledContent("Block lists", value: Shield.shared.version.map { "EasyList and EasyPrivacy, \($0)" } ?? "Built-in list")
-                if let trouble = Shield.shared.trouble {
-                    Text(trouble).font(.caption).foregroundStyle(.red)
-                }
-                Button("Update Block Lists") {
-                    Task {
-                        let result = await Shield.shared.update()
-                        Windows.front?.say(result)
-                    }
-                }
-            }
-            Section("Sites where ads are allowed") {
-                SiteList(sites: Shield.shared.paused.sorted(), empty: "None. The shield in the top bar allows them on one site.") {
-                    Shield.shared.pause($0, false)
-                }
+                Text("uBlock Origin Lite blocks ads and trackers; BasicShell adds it the first time it runs. Its button in the top bar turns it off for a site; Settings › Extensions removes it.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Location") {
                 let sites = Permissions.shared.location.sorted { $0.key < $1.key }

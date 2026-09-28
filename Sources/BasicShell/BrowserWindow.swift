@@ -700,15 +700,6 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         say("Link copied")
     }
 
-    /// The blocker off, or back on, for this tab's site, and the page again
-    /// so it takes effect.
-    @objc func toggleShield(_ sender: Any?) {
-        guard let web = shell.selected?.webView, let host = web.url?.host() else { return }
-        Shield.shared.pause(host, !Shield.shared.isPaused(on: host))
-        Shield.shared.tune(web.configuration.userContentController, for: host)
-        web.reload()
-    }
-
     /// This site's tabs never sleep, or sleep again.
     @objc func toggleAwake(_ sender: Any?) {
         guard let url = shell.selected?.url else { return }
@@ -845,9 +836,6 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         case #selector(stopLoading(_:)): return tab?.isLoading == true
         case #selector(toggleAwake(_:)):
             item.title = Awake.shared.contains(tab?.url) ? "Let This Site Sleep" : "Keep This Site Awake"
-            return tab?.url?.host() != nil
-        case #selector(toggleShield(_:)):
-            item.title = Shield.shared.isPaused(on: tab?.url?.host()) ? "Block Ads on This Site" : "Allow Ads on This Site"
             return tab?.url?.host() != nil
         case #selector(nextTab(_:)), #selector(previousTab(_:)): return shell.tabs.count > 1
         case #selector(toggleSidebarPinned(_:)):

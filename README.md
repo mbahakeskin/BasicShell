@@ -14,9 +14,10 @@ the pages you open.
   kept only in memory, never on disk, and goes when the app quits; they are
   never saved in the session.
 - Several windows, each with its own tabs.
-- Ads and trackers are blocked with EasyList and EasyPrivacy, as WebKit
-  content rule lists enforced before any request is made. The shield in the
-  top bar turns blocking off for one site.
+- Ads and trackers, YouTube's included, are blocked by uBlock Origin Lite,
+  which BasicShell adds from the Chrome Web Store the first time it runs.
+  Its button in the top bar turns it off for a site; removed, it stays
+  removed.
 - Tabs off screen are frozen: no script, no timers, nothing lost. After six
   hours off screen, or when memory runs short, a tab is unloaded and comes
   back where it was. Tabs holding unsent typing, sound or a call are left
@@ -28,8 +29,11 @@ the pages you open.
   everything.
 - Google searches carry the Mac's language and region, so a VPN doesn't
   switch results to another country.
-- Chrome extensions from the Chrome Web Store (signature checked) or a
-  folder, on WebKit's own extension engine.
+- Extensions on WebKit's own extension engine: from the Chrome Web Store
+  (signature checked), from a folder, or a Safari extension loaded from
+  inside the app it came with. Chrome extensions can talk to apps on this
+  Mac the way they do in Chrome (Bitwarden's Touch ID through its desktop
+  app).
 - `⇧⌘C` copies the address.
 
 Two private WebKit features are used, each only where WebKit has it:
@@ -53,15 +57,10 @@ if the keychain has one (a self-signed certificate is enough), so macOS keeps
 the app's permissions (location, camera, microphone) from build to build;
 otherwise it signs ad hoc, and macOS asks again after each build.
 
-## Block lists
+## Network traffic
 
-The lists are not in the app. `./publish-lists.sh` fetches the latest
-EasyList and EasyPrivacy, converts them (`Tools/BlockLists.swift`), signs
-them with an Ed25519 key kept in `~/.config/basicshell/` (`Tools/SignLists.swift`)
-and uploads them to this repository's `blocklists` release. The app downloads
-them once, the first time it runs, and uses them only if the signature and
-every file's hash check out; *BasicShell › Update Block Lists* fetches newer
-ones. That, and the pages you open, is all the network traffic it makes.
+Besides the pages you open: uBlock Origin Lite from the Chrome Web Store, once,
+and the filter updates it fetches itself.
 
 The macOS 27 SDK turns SwiftUI's `@State` into a macro whose plugin ships only
 with Xcode, so views here store `State` by hand instead of using the attribute.

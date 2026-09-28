@@ -68,15 +68,64 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
         controller.delegate = self
     }
 
-    /// At launch: every extension added before.
+    /// At launch: every extension added before, then the ad blocker if it
+    /// has never been added.
     func start() {
         keepData()
+        Extensions.forgetBlockLists()
         Task {
             for item in installed {
                 do { try await load(item.id) } catch {
                     Debug.log("extension", "\(item.id) didn't load: \(error.localizedDescription)")
                     NSLog("BasicShell: extension %@ didn't load: %@", item.id, error.localizedDescription)
                 }
+            }
+            await addBlocker()
+        }
+    }
+
+    // MARK: - the ad blocker
+
+    /// uBlock Origin Lite, from the Chrome Web Store.
+    static let blocker = "ddkjiahejlhfcafbddmgiahcphecmpfh"
+    private static let blockerAdded = "blocker.added"
+
+    /// Ads and trackers are blocked by uBlock Origin Lite, which BasicShell
+    /// adds by itself the first time it runs (and tries again at the next
+    /// launch if it couldn't). Once added, it is yours: removed, it stays
+    /// removed. An uBlock already here counts.
+    private func addBlocker() async {
+        guard !UserDefaults.standard.bool(forKey: Extensions.blockerAdded) else { return }
+        if contexts.contains(where: { ($0.webExtension.displayName ?? "").localizedCaseInsensitiveContains("uBlock") }) {
+            UserDefaults.standard.set(true, forKey: Extensions.blockerAdded)
+            return
+        }
+        do {
+            let id = Extensions.blocker
+            let zip = try Crx.verifiedZip(try await Crx.fetch(id), id: id)
+            let staging = Extensions.folder.appendingPathComponent(".staging-\(id)", isDirectory: true)
+            try Crx.unpack(zip, into: staging)
+            let result = try await finish(staging, id: id, source: "store", asking: false)
+            UserDefaults.standard.set(true, forKey: Extensions.blockerAdded)
+            Debug.log("extension", "ad blocker: \(result)")
+            Windows.front?.say("uBlock Origin Lite added to block ads")
+        } catch {
+            Debug.log("extension", "ad blocker not added, tried again next launch: \(error.localizedDescription)")
+        }
+    }
+
+    /// BasicShell once blocked ads with lists of its own; what they left on
+    /// disk goes, once.
+    private static func forgetBlockLists() {
+        let key = "shield.forgotten"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        UserDefaults.standard.removeObject(forKey: "shield.paused")
+        try? FileManager.default.removeItem(at: Store.folder.appendingPathComponent("Shield", isDirectory: true))
+        let store = WKContentRuleListStore.default()
+        store?.getAvailableContentRuleListIdentifiers { identifiers in
+            for identifier in identifiers ?? [] where identifier.hasPrefix("shield-") {
+                store?.removeContentRuleList(forIdentifier: identifier) { _ in }
             }
         }
     }
@@ -215,11 +264,11 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
         return "Added \(found.displayName ?? safari.name)"
     }
 
-    private func finish(_ staging: URL, id: String, source: String) async throws -> String {
+    private func finish(_ staging: URL, id: String, source: String, asking: Bool = true) async throws -> String {
         let files = FileManager.default
         defer { try? files.removeItem(at: staging) }
         let found = try await WKWebExtension(resourceBaseURL: staging)
-        guard confirm(found) else { return "Not added" }
+        guard !asking || confirm(found) else { return "Not added" }
         if let old = contexts.first(where: { $0.uniqueIdentifier == id }) { unload(old) }
         let target = Extensions.folder(for: id)
         try? files.removeItem(at: target)

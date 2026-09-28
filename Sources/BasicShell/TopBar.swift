@@ -30,12 +30,6 @@ struct TopBarView: View {
             Spacer(minLength: 12)
             address.frame(maxWidth: 640)
             Spacer(minLength: 12)
-            if let host = tab?.url?.host() {
-                let off = Shield.shared.isPaused(on: host)
-                IconButton(symbol: off ? "shield.slash" : "shield") { window.toggleShield(nil) }
-                    .foregroundStyle(off ? Color.secondary : Color.primary)
-                    .help(off ? "Block Ads on This Site" : "Allow Ads on This Site")
-            }
             if tab?.url?.host() != nil {
                 let awake = Awake.shared.contains(tab?.url)
                 IconButton(symbol: awake ? "sun.max.fill" : "moon.zzz") { window.toggleAwake(nil) }
