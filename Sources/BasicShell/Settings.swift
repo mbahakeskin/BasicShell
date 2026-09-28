@@ -218,6 +218,17 @@ private struct ExtensionSettings: View {
                     Button("Add") { add { try await Extensions.shared.add(fromStore: link) } }
                         .disabled(link.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
+                Menu("Add Safari Extension") {
+                    let found = Extensions.safariExtensions()
+                    if found.isEmpty { Text("No Safari extensions on this Mac") }
+                    ForEach(found) { safari in
+                        Button(safari.name + (Extensions.shared.has(safari) ? " (added)" : "")) {
+                            add { try await Extensions.shared.add(safari: safari) }
+                        }
+                        .disabled(Extensions.shared.has(safari))
+                    }
+                }
+                .fixedSize()
                 Button("Add Unpacked Extension…") {
                     let panel = NSOpenPanel()
                     panel.canChooseFiles = false
@@ -228,7 +239,7 @@ private struct ExtensionSettings: View {
                 }
                 if !status.isEmpty { Text(status).font(.caption).foregroundStyle(.secondary) }
             } footer: {
-                Text("Extensions run on WebKit's own extension engine, as in Safari. One that needs a Chrome API WebKit lacks won't work. They never see private tabs.")
+                Text("Extensions run on WebKit's own extension engine, as in Safari. A Safari extension, made for it, is loaded from inside its app; one from the Chrome Web Store that needs a Chrome API WebKit lacks won't work. They never see private tabs.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Installed") {

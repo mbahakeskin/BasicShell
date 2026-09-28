@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Observation
 import WebKit
 
@@ -22,8 +23,20 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
 
     struct Installed: Codable {
         var id: String
-        /// Where it came from: "store", or "folder".
+        /// Where it came from: "store", "folder", or "safari".
         var source: String
+        /// For a Safari extension: its .appex inside the app it came with.
+        var bundle: String? = nil
+    }
+
+    /// A Safari web extension on this Mac, inside an app in Applications.
+    struct SafariExtension: Identifiable {
+        let url: URL
+        let name: String
+        let identifier: String
+        /// Its id here: the bundle identifier made into the letters a Chrome
+        /// id is written in, the same every time.
+        var id: String { Crx.letters(Array(SHA256.hash(data: Data(identifier.utf8)).prefix(16))) }
     }
 
     let controller: WKWebExtensionController
@@ -89,9 +102,17 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     }
 
     private func load(_ id: String) async throws {
-        let folder = Extensions.folder(for: id)
-        try Extensions.patch(folder)
-        let found = try await WKWebExtension(resourceBaseURL: folder)
+        let found: WKWebExtension
+        if let record = installed.first(where: { $0.id == id }), record.source == "safari", let path = record.bundle {
+            // Made for WebKit already, and inside an app signed by its
+            // maker: loaded as it is, without the fixes for Chrome ones.
+            guard let bundle = Bundle(url: URL(fileURLWithPath: path)) else { throw Crx.Refused.unpack }
+            found = try await WKWebExtension(appExtensionBundle: bundle)
+        } else {
+            let folder = Extensions.folder(for: id)
+            try Extensions.patch(folder)
+            found = try await WKWebExtension(resourceBaseURL: folder)
+        }
         let context = WKWebExtensionContext(for: found)
         context.uniqueIdentifier = id
         if let base = URL(string: "\(Extensions.scheme)://\(id)/") { context.baseURL = base }
@@ -147,6 +168,51 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
         try FileManager.default.createDirectory(at: Extensions.folder, withIntermediateDirectories: true)
         try FileManager.default.copyItem(at: source, to: staging)
         return try await finish(staging, id: id, source: "folder")
+    }
+
+    /// Safari web extensions the apps in Applications carry.
+    static func safariExtensions() -> [SafariExtension] {
+        let files = FileManager.default
+        let places = [URL(fileURLWithPath: "/Applications"), files.homeDirectoryForCurrentUser.appendingPathComponent("Applications")]
+        var found: [SafariExtension] = []
+        for place in places {
+            let apps = (try? files.contentsOfDirectory(at: place, includingPropertiesForKeys: nil)) ?? []
+            for app in apps where app.pathExtension == "app" {
+                let plugIns = app.appendingPathComponent("Contents/PlugIns", isDirectory: true)
+                for appex in (try? files.contentsOfDirectory(at: plugIns, includingPropertiesForKeys: nil)) ?? [] where appex.pathExtension == "appex" {
+                    guard let info = Bundle(url: appex)?.infoDictionary,
+                          let point = (info["NSExtension"] as? [String: Any])?["NSExtensionPointIdentifier"] as? String,
+                          point == "com.apple.Safari.web-extension",
+                          let identifier = info["CFBundleIdentifier"] as? String
+                    else { continue }
+                    let name = (info["CFBundleDisplayName"] as? String) ?? files.displayName(atPath: app.path)
+                    found.append(SafariExtension(url: appex, name: name, identifier: identifier))
+                }
+            }
+        }
+        return found.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// Whether this Safari extension is already added.
+    func has(_ safari: SafariExtension) -> Bool { installed.contains { $0.id == safari.id } }
+
+    /// A Safari web extension, loaded from inside its app where it is.
+    func add(safari: SafariExtension) async throws -> String {
+        guard let bundle = Bundle(url: safari.url) else { throw Crx.Refused.unpack }
+        let found = try await WKWebExtension(appExtensionBundle: bundle)
+        guard confirm(found) else { return "Not added" }
+        if let old = contexts.first(where: { $0.uniqueIdentifier == safari.id }) { unload(old) }
+        installed.removeAll { $0.id == safari.id }
+        installed.append(Installed(id: safari.id, source: "safari", bundle: safari.url.path))
+        Store.write(installed, to: "extensions.json")
+        do { try await load(safari.id) } catch {
+            installed.removeAll { $0.id == safari.id }
+            Store.write(installed, to: "extensions.json")
+            throw error
+        }
+        keepData()
+        Debug.log("extension", "added Safari extension \(safari.identifier) as \(safari.id)")
+        return "Added \(found.displayName ?? safari.name)"
     }
 
     private func finish(_ staging: URL, id: String, source: String) async throws -> String {
@@ -244,6 +310,13 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     ///   refuses ("No runtime.onConnect listeners found"). So a page's
     ///   connect first sends a wake-up message, then connects; what is
     ///   posted meanwhile waits.
+    /// - chrome.privacy's password and autofill settings, which a password
+    ///   manager turns off to take their place (iCloud Passwords stopped at
+    ///   start without them). BasicShell keeps no passwords of its own, so
+    ///   they read off, under the extension's control.
+    /// - webNavigation's events WebKit lacks (onHistoryStateUpdated and
+    ///   three more) exist, and never fire: iCloud Passwords stopped at
+    ///   start reaching for one.
     /// - No windows in the worker. WebKit gives a worker the windows of the
     ///   extension's pages (extension.getViews), and reading anything off
     ///   one from the worker crashes the extension's process (sampled:
@@ -263,7 +336,7 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     /// (After Search's ExtensionShims.swift, Office Commun, MIT.)
     /// Which version of the fixes a file carries; with the debug log on, a
     /// version that also reports to it (see Debug.swift).
-    private static var marker: String { "/* BasicShell: extension fixes 13\(Debug.enabled ? " debug" : "") */" }
+    private static var marker: String { "/* BasicShell: extension fixes 15\(Debug.enabled ? " debug" : "") */" }
     /// One line, so a later version can take this one's place.
     private static var fixes: String { (marker + #"""
     (()=>{for(const n of["dispose","asyncDispose"]){if(typeof Symbol[n]!=="symbol")Object.defineProperty(Symbol,n,{value:Symbol.for("Symbol."+n)})}
@@ -281,6 +354,8 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     const result=attempt(query,0);if(!callback)return result;result.then(v=>callback(v),()=>callback(absent))}};
     try{Object.defineProperty(perms,"contains",{value:call("contains",false),configurable:true,writable:true});Object.defineProperty(perms,"request",{value:call("request",false),configurable:true,writable:true});Object.defineProperty(perms,"remove",{value:call("remove",false),configurable:true,writable:true})}catch(e){}}
     const worker=typeof ServiceWorkerGlobalScope!=="undefined"&&self instanceof ServiceWorkerGlobalScope;
+    for(const ns of["chrome","browser"]){const space=pin(self,ns);if(!space||space.privacy)continue;const setting=(value)=>{let v=value;const ls=new Set();const answer=()=>({value:v,levelOfControl:"controlled_by_this_extension"});return{get:(d,cb)=>{const r=answer();if(typeof cb==="function"){cb(r);return}return Promise.resolve(r)},set:(d,cb)=>{if(d&&"value" in d){v=d.value;for(const f of[...ls])try{f(answer())}catch(e){}}if(typeof cb==="function"){cb();return}return Promise.resolve()},clear:(d,cb)=>{if(typeof cb==="function"){cb();return}return Promise.resolve()},onChange:{addListener:f=>{ls.add(f)},removeListener:f=>{ls.delete(f)},hasListener:f=>ls.has(f)}}};try{Object.defineProperty(space,"privacy",{configurable:true,writable:true,value:{services:{passwordSavingEnabled:setting(false),autofillEnabled:setting(false),autofillAddressEnabled:setting(false),autofillCreditCardEnabled:setting(false)},websites:{},network:{}}})}catch(e){}}
+    for(const ns of["chrome","browser"]){const space=pin(self,ns);const nav=space&&pin(space,"webNavigation");if(!nav)continue;for(const name of["onHistoryStateUpdated","onReferenceFragmentUpdated","onCreatedNavigationTarget","onTabReplaced"]){if(nav[name])continue;const ls=new Set();try{Object.defineProperty(nav,name,{value:{addListener:f=>{ls.add(f)},removeListener:f=>{ls.delete(f)},hasListener:f=>ls.has(f),hasListeners:()=>ls.size>0},configurable:true,writable:true})}catch(e){}}}
     if(worker)for(const ns of["chrome","browser"]){const space=pin(self,ns);const runtime=space&&pin(space,"runtime");const ext=space&&pin(space,"extension");const tabs=space&&pin(space,"tabs");if(!runtime)continue;const views=ext&&typeof ext.getViews==="function"?ext.getViews.bind(ext):null;if(views)try{Object.defineProperty(ext,"getViews",{value:()=>[],configurable:true,writable:true})}catch(e){}if(typeof runtime.getContexts!=="function")try{Object.defineProperty(runtime,"getContexts",{configurable:true,writable:true,value:async(filter)=>{const base=runtime.getURL("");const origin=base.replace(/\/$/,"");const out=[{contextType:"BACKGROUND",contextId:"background",tabId:-1,windowId:-1,frameId:-1,documentUrl:self.location.href,documentOrigin:origin,incognito:false}];try{if(views&&views({type:"popup"}).length>0)out.push({contextType:"POPUP",contextId:"popup",tabId:-1,windowId:-1,frameId:-1,documentUrl:base,documentOrigin:origin,incognito:false})}catch(e){}try{if(tabs)for(const t of await tabs.query({}))if(t.url&&t.url.startsWith(base))out.push({contextType:"TAB",contextId:"tab-"+t.id,tabId:t.id,windowId:t.windowId,frameId:0,documentUrl:t.url,documentOrigin:origin,incognito:!!t.incognito})}catch(e){}const f=filter||{};const has=(k,v)=>!Array.isArray(f[k])||f[k].includes(v);return out.filter(c=>has("contextTypes",c.contextType)&&has("contextIds",c.contextId)&&has("tabIds",c.tabId)&&has("windowIds",c.windowId)&&has("frameIds",c.frameId)&&has("documentUrls",c.documentUrl)&&has("documentOrigins",c.documentOrigin)&&(f.incognito===undefined||f.incognito===c.incognito))}})}catch(e){}}
     if(worker&&typeof self.WebSocket!=="undefined"){try{Object.defineProperty(self,"WebSocket",{value:undefined,configurable:true,writable:true})}catch(e){}}
     if(!worker){for(const ns of["chrome","browser"]){const space=pin(self,ns);const runtime=space&&pin(space,"runtime");if(!runtime)continue;for(const name of["onMessage","onConnect"]){const event=pin(runtime,name);if(!event||typeof event.addListener!=="function")continue;const add=event.addListener.bind(event),remove=event.removeListener.bind(event),wrapped=new Map(),message=name==="onMessage";try{Object.defineProperty(event,"addListener",{value:l=>{const w=(...args)=>{if(DEBUG&&message)L("got",args[0]&&(args[0].command||args[0].type||Object.keys(args[0]).join(",")));return l(...mendArgs(args,message))};wrapped.set(l,w);return add(w)},configurable:true,writable:true});Object.defineProperty(event,"removeListener",{value:l=>{const w=wrapped.get(l);wrapped.delete(l);return remove(w||l)},configurable:true,writable:true});Object.defineProperty(event,"hasListener",{value:l=>wrapped.has(l),configurable:true,writable:true})}catch(e){}}}}
@@ -412,6 +487,29 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     }
 
     // MARK: - apps on this Mac (see NativeMessaging.swift)
+
+    /// A Safari extension talks to the app it came in through that app's own
+    /// extension, which WebKit reaches by itself, but only while this
+    /// delegate doesn't answer for native messages. So it answers only while
+    /// a Chrome extension that may use them is installed.
+    nonisolated override func responds(to selector: Selector!) -> Bool {
+        let native = [
+            #selector(webExtensionController(_:connectUsing:for:completionHandler:)),
+            #selector(webExtensionController(_:sendMessage:toApplicationWithIdentifier:for:replyHandler:)),
+        ]
+        guard native.contains(selector) else { return super.responds(to: selector) }
+        // WebKit asks on the main thread, as it sends.
+        guard Thread.isMainThread else { return true }
+        return MainActor.assumeIsolated { answersNativeMessages }
+    }
+
+    private var answersNativeMessages: Bool {
+        contexts.contains { context in
+            installed.first(where: { $0.id == context.uniqueIdentifier })?.source != "safari"
+                && (context.webExtension.requestedPermissions.contains(.nativeMessaging)
+                    || context.webExtension.optionalPermissions.contains(.nativeMessaging))
+        }
+    }
 
     /// Open connections, kept until either side closes them.
     private var native: [ObjectIdentifier: NativeConnection] = [:]
