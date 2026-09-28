@@ -81,23 +81,29 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
                 }
             }
             await addBlocker()
+            await chooseFilters()
         }
     }
 
     // MARK: - the ad blocker
 
-    /// uBlock Origin Lite, from the Chrome Web Store.
-    static let blocker = "ddkjiahejlhfcafbddmgiahcphecmpfh"
-    private static let blockerAdded = "blocker.added"
+    /// AdGuard AdBlocker, from the Chrome Web Store.
+    static let blocker = "bgnkhhnnamicmpeenaelnjfhikgbkllg"
+    private static let blockerAdded = "blocker.adguard"
+    /// uBlock Origin Lite, which BasicShell added by itself before AdGuard
+    /// (videos started late on YouTube with it).
+    private static let formerBlocker = "ddkjiahejlhfcafbddmgiahcphecmpfh"
 
-    /// Ads and trackers are blocked by uBlock Origin Lite, which BasicShell
+    /// Ads and trackers are blocked by AdGuard AdBlocker, which BasicShell
     /// adds by itself the first time it runs (and tries again at the next
     /// launch if it couldn't). Once added, it is yours: removed, it stays
-    /// removed. An uBlock already here counts.
+    /// removed. An AdGuard already here counts. uBlock Origin Lite, if
+    /// BasicShell added it, goes: two blockers would do everything twice.
     private func addBlocker() async {
         guard !UserDefaults.standard.bool(forKey: Extensions.blockerAdded) else { return }
-        if contexts.contains(where: { ($0.webExtension.displayName ?? "").localizedCaseInsensitiveContains("uBlock") }) {
+        if contexts.contains(where: { $0.uniqueIdentifier == Extensions.blocker }) {
             UserDefaults.standard.set(true, forKey: Extensions.blockerAdded)
+            forgetFormerBlocker()
             return
         }
         do {
@@ -108,11 +114,73 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
             let result = try await finish(staging, id: id, source: "store", asking: false)
             UserDefaults.standard.set(true, forKey: Extensions.blockerAdded)
             Debug.log("extension", "ad blocker: \(result)")
-            Windows.front?.say("uBlock Origin Lite added to block ads")
+            forgetFormerBlocker()
+            Windows.front?.say("AdGuard added to block ads")
         } catch {
             Debug.log("extension", "ad blocker not added, tried again next launch: \(error.localizedDescription)")
         }
     }
+
+    private func forgetFormerBlocker() {
+        guard UserDefaults.standard.bool(forKey: "blocker.added") else { return }
+        UserDefaults.standard.removeObject(forKey: "blocker.added")
+        if let old = contexts.first(where: { $0.uniqueIdentifier == Extensions.formerBlocker }) {
+            remove(old)
+            Debug.log("extension", "uBlock Origin Lite removed for AdGuard")
+        }
+    }
+
+    private static let filtersChosen = "blocker.filters"
+
+    /// AdGuard by itself turns on only its ad filter. BasicShell turns on
+    /// the rest of what it recommends for ads, privacy and annoyances, once,
+    /// by sending AdGuard the messages its own settings page sends (from
+    /// that page, loaded out of sight). All but one filter: WebKit takes
+    /// 150,000 rules from an extension, and AdGuard's ad filter (78,000)
+    /// and its tracking filter (116,000) don't fit together, so the
+    /// tracking filter stays off (WebKit refuses the lot otherwise, and
+    /// AdGuard says the browser's limit was reached). The annoyance
+    /// filters want a consent AdGuard's settings page asks for; it is given
+    /// here as that page would.
+    private func chooseFilters() async {
+        guard !UserDefaults.standard.bool(forKey: Extensions.filtersChosen),
+              let context = contexts.first(where: { $0.uniqueIdentifier == Extensions.blocker }),
+              let configuration = context.webViewConfiguration
+        else { return }
+        let page = WKWebView(frame: .zero, configuration: configuration)
+        page.load(URLRequest(url: context.baseURL.appendingPathComponent("pages/options.html")))
+        for _ in 0..<150 where page.isLoading || page.url == nil {
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        do {
+            let result = try await page.callAsyncJavaScript(Extensions.filtersScript, contentWorld: .page)
+            let answer = (result as? String) ?? "?"
+            Debug.log("extension", "AdGuard filters: \(answer)")
+            if answer.hasPrefix("on:") { UserDefaults.standard.set(true, forKey: Extensions.filtersChosen) }
+        } catch {
+            Debug.log("extension", "AdGuard filters not chosen, tried again next launch: \(error.localizedDescription)")
+        }
+    }
+
+    /// AdGuard's filters by id: 2 ads (Base); 25 mail tracking; 18 to 22
+    /// cookie notices, popups, app banners, other annoyances, widgets;
+    /// 3 tracking, which doesn't fit beside 2. Base last, as its group is
+    /// already on, so AdGuard applies the lot then.
+    private static let filtersScript = """
+    const send = (type, data) => browser.runtime.sendMessage({ handlerName: "app", type, data });
+    for (let tries = 0; ; tries++) {
+      let ready = false;
+      try { ready = await send("getIsAppInitialized"); } catch (e) {}
+      if (ready) break;
+      if (tries > 120) return "AdGuard didn't start";
+      await new Promise((done) => setTimeout(done, 500));
+    }
+    await send("disableFilter", { filterId: 3 });
+    for (const filterId of [25, 18, 19, 20, 21, 22, 2]) await send("addAndEnableFilter", { filterId });
+    await send("setConsentedFilters", { filterIds: [18, 19, 20, 21, 22] });
+    await send("clearRulesLimitsWarningMv3");
+    return "on: " + (await browser.declarativeNetRequest.getEnabledRulesets()).join(", ");
+    """
 
     /// BasicShell once blocked ads with lists of its own; what they left on
     /// disk goes, once.
@@ -367,6 +435,26 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     /// - webNavigation's events WebKit lacks (onHistoryStateUpdated and
     ///   three more) exist, and never fire: iCloud Passwords stopped at
     ///   start reaching for one.
+    /// - A rule WebKit can't take, in rules added while running: WebKit
+    ///   refuses the whole list over it. Kinds of request it doesn't have
+    ///   (object, csp_report, webtransport, webbundle) are taken out of a
+    ///   rule, and a rule WebKit still refuses (a regular expression beyond
+    ///   what it matches with) is left out and the rest given again.
+    ///   AdGuard's filtering never started over one rule for "object"
+    ///   (plug-ins, which WebKit hasn't), then over one regular expression.
+    /// - declarativeNetRequest's names and numbers WebKit doesn't define
+    ///   (RuleActionType, ResourceType and the other lists of values, the
+    ///   ruleset ids, the separate limits) with Chrome's values, the limits
+    ///   kept within WebKit's (dynamic and session rules share 30,000), and
+    ///   getAvailableStaticRuleCount, which WebKit lacks: what is left of
+    ///   the 150,000 rules a WebKit content blocker takes once the enabled
+    ///   rulesets are counted. Without them AdGuard's filtering didn't
+    ///   start, and its settings said every filter was over the limit.
+    /// - runtime's events about the extension's own updates and suspension
+    ///   (onUpdateAvailable and three more) exist, and never fire, and
+    ///   requestUpdateCheck answers that there is none: AdGuard stopped
+    ///   setting itself up at its first start, filters and all, reaching
+    ///   for onUpdateAvailable.
     /// - No windows in the worker. WebKit gives a worker the windows of the
     ///   extension's pages (extension.getViews), and reading anything off
     ///   one from the worker crashes the extension's process (sampled:
@@ -386,7 +474,7 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     /// (After Search's ExtensionShims.swift, Office Commun, MIT.)
     /// Which version of the fixes a file carries; with the debug log on, a
     /// version that also reports to it (see Debug.swift).
-    private static var marker: String { "/* BasicShell: extension fixes 15\(Debug.enabled ? " debug" : "") */" }
+    private static var marker: String { "/* BasicShell: extension fixes 19\(Debug.enabled ? " debug" : "") */" }
     /// One line, so a later version can take this one's place.
     private static var fixes: String { (marker + #"""
     (()=>{for(const n of["dispose","asyncDispose"]){if(typeof Symbol[n]!=="symbol")Object.defineProperty(Symbol,n,{value:Symbol.for("Symbol."+n)})}
@@ -406,6 +494,10 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     const worker=typeof ServiceWorkerGlobalScope!=="undefined"&&self instanceof ServiceWorkerGlobalScope;
     for(const ns of["chrome","browser"]){const space=pin(self,ns);if(!space||space.privacy)continue;const setting=(value)=>{let v=value;const ls=new Set();const answer=()=>({value:v,levelOfControl:"controlled_by_this_extension"});return{get:(d,cb)=>{const r=answer();if(typeof cb==="function"){cb(r);return}return Promise.resolve(r)},set:(d,cb)=>{if(d&&"value" in d){v=d.value;for(const f of[...ls])try{f(answer())}catch(e){}}if(typeof cb==="function"){cb();return}return Promise.resolve()},clear:(d,cb)=>{if(typeof cb==="function"){cb();return}return Promise.resolve()},onChange:{addListener:f=>{ls.add(f)},removeListener:f=>{ls.delete(f)},hasListener:f=>ls.has(f)}}};try{Object.defineProperty(space,"privacy",{configurable:true,writable:true,value:{services:{passwordSavingEnabled:setting(false),autofillEnabled:setting(false),autofillAddressEnabled:setting(false),autofillCreditCardEnabled:setting(false)},websites:{},network:{}}})}catch(e){}}
     for(const ns of["chrome","browser"]){const space=pin(self,ns);const nav=space&&pin(space,"webNavigation");if(!nav)continue;for(const name of["onHistoryStateUpdated","onReferenceFragmentUpdated","onCreatedNavigationTarget","onTabReplaced"]){if(nav[name])continue;const ls=new Set();try{Object.defineProperty(nav,name,{value:{addListener:f=>{ls.add(f)},removeListener:f=>{ls.delete(f)},hasListener:f=>ls.has(f),hasListeners:()=>ls.size>0},configurable:true,writable:true})}catch(e){}}}
+    for(const ns of["chrome","browser"]){const space=pin(self,ns);const dnr=space&&pin(space,"declarativeNetRequest");if(!dnr)continue;const put=(k,v)=>{if(dnr[k]===undefined)try{Object.defineProperty(dnr,k,{value:v,configurable:true,writable:true})}catch(e){}};const en=Object.freeze;put("RuleActionType",en({BLOCK:"block",REDIRECT:"redirect",ALLOW:"allow",UPGRADE_SCHEME:"upgradeScheme",MODIFY_HEADERS:"modifyHeaders",ALLOW_ALL_REQUESTS:"allowAllRequests"}));put("ResourceType",en({MAIN_FRAME:"main_frame",SUB_FRAME:"sub_frame",STYLESHEET:"stylesheet",SCRIPT:"script",IMAGE:"image",FONT:"font",OBJECT:"object",XMLHTTPREQUEST:"xmlhttprequest",PING:"ping",CSP_REPORT:"csp_report",MEDIA:"media",WEBSOCKET:"websocket",WEBTRANSPORT:"webtransport",WEBBUNDLE:"webbundle",OTHER:"other"}));put("DomainType",en({FIRST_PARTY:"firstParty",THIRD_PARTY:"thirdParty"}));put("HeaderOperation",en({APPEND:"append",SET:"set",REMOVE:"remove"}));put("RequestMethod",en({CONNECT:"connect",DELETE:"delete",GET:"get",HEAD:"head",OPTIONS:"options",PATCH:"patch",POST:"post",PUT:"put",OTHER:"other"}));put("UnsupportedRegexReason",en({SYNTAX_ERROR:"syntaxError",MEMORY_LIMIT_EXCEEDED:"memoryLimitExceeded"}));put("DYNAMIC_RULESET_ID","_dynamic");put("SESSION_RULESET_ID","_session");const shared=dnr.MAX_NUMBER_OF_DYNAMIC_AND_SESSION_RULES||30000;put("MAX_NUMBER_OF_SESSION_RULES",5000);put("MAX_NUMBER_OF_DYNAMIC_RULES",shared-5000);put("MAX_NUMBER_OF_UNSAFE_SESSION_RULES",5000);put("MAX_NUMBER_OF_UNSAFE_DYNAMIC_RULES",5000);put("MAX_NUMBER_OF_REGEX_RULES",1000);put("GUARANTEED_MINIMUM_STATIC_RULES",150000);
+    if(typeof dnr.getAvailableStaticRuleCount!=="function"){const counts=new Map();const count=async(id)=>{if(counts.has(id))return counts.get(id);let n=0;try{const rr=((space.runtime.getManifest().declarative_net_request||{}).rule_resources||[]).find(r=>r.id===id);if(rr){const list=await(await fetch(space.runtime.getURL(rr.path))).json();n=Array.isArray(list)?list.length:0}}catch(e){}counts.set(id,n);return n};put("getAvailableStaticRuleCount",async(callback)=>{let used=0;try{for(const id of await dnr.getEnabledRulesets())used+=await count(id)}catch(e){}const left=Math.max(0,150000-used);if(typeof callback==="function"){callback(left);return}return left})}
+    const unknown=new Set(["object","csp_report","webtransport","webbundle"]);const clean=(rules)=>Array.isArray(rules)?rules.flatMap(r=>{const c=r&&r.condition;if(!c)return[r];const k={...c};if(Array.isArray(c.resourceTypes)){k.resourceTypes=c.resourceTypes.filter(t=>!unknown.has(t));if(!k.resourceTypes.length)return[]}if(Array.isArray(c.excludedResourceTypes)){k.excludedResourceTypes=c.excludedResourceTypes.filter(t=>!unknown.has(t));if(!k.excludedResourceTypes.length)delete k.excludedResourceTypes}return[{...r,condition:k}]}):rules;for(const name of["updateSessionRules","updateDynamicRules"]){if(typeof dnr[name]!=="function")continue;const real=dnr[name].bind(dnr);const update=async(options)=>{let o=options&&Array.isArray(options.addRules)?{...options,addRules:clean(options.addRules)}:options;for(let tries=0;;tries++){try{return await real(o)}catch(e){const m=/rule at index (\d+)/.exec(String(e&&e.message));if(!m||tries>=1000||!o||!Array.isArray(o.addRules)||+m[1]>=o.addRules.length)throw e;const i=+m[1];L("rule left out",JSON.stringify(o.addRules[i]).slice(0,200),String(e.message).split(": ").pop());o={...o,addRules:o.addRules.filter((r,j)=>j!==i)}}}};try{Object.defineProperty(dnr,name,{value:(options,callback)=>{const p=update(options);if(typeof callback!=="function")return p;p.then(()=>callback(),()=>callback())},configurable:true,writable:true})}catch(e){}}}
+    for(const ns of["chrome","browser"]){const space=pin(self,ns);const runtime=space&&pin(space,"runtime");if(!runtime)continue;for(const name of["onUpdateAvailable","onRestartRequired","onSuspend","onSuspendCanceled"]){if(runtime[name])continue;const ls=new Set();try{Object.defineProperty(runtime,name,{value:{addListener:f=>{ls.add(f)},removeListener:f=>{ls.delete(f)},hasListener:f=>ls.has(f),hasListeners:()=>ls.size>0},configurable:true,writable:true})}catch(e){}}if(typeof runtime.requestUpdateCheck!=="function")try{Object.defineProperty(runtime,"requestUpdateCheck",{value:(cb)=>{const r={status:"no_update"};if(typeof cb==="function"){cb(r.status,{});return}return Promise.resolve(r)},configurable:true,writable:true})}catch(e){}}
     if(worker)for(const ns of["chrome","browser"]){const space=pin(self,ns);const runtime=space&&pin(space,"runtime");const ext=space&&pin(space,"extension");const tabs=space&&pin(space,"tabs");if(!runtime)continue;const views=ext&&typeof ext.getViews==="function"?ext.getViews.bind(ext):null;if(views)try{Object.defineProperty(ext,"getViews",{value:()=>[],configurable:true,writable:true})}catch(e){}if(typeof runtime.getContexts!=="function")try{Object.defineProperty(runtime,"getContexts",{configurable:true,writable:true,value:async(filter)=>{const base=runtime.getURL("");const origin=base.replace(/\/$/,"");const out=[{contextType:"BACKGROUND",contextId:"background",tabId:-1,windowId:-1,frameId:-1,documentUrl:self.location.href,documentOrigin:origin,incognito:false}];try{if(views&&views({type:"popup"}).length>0)out.push({contextType:"POPUP",contextId:"popup",tabId:-1,windowId:-1,frameId:-1,documentUrl:base,documentOrigin:origin,incognito:false})}catch(e){}try{if(tabs)for(const t of await tabs.query({}))if(t.url&&t.url.startsWith(base))out.push({contextType:"TAB",contextId:"tab-"+t.id,tabId:t.id,windowId:t.windowId,frameId:0,documentUrl:t.url,documentOrigin:origin,incognito:!!t.incognito})}catch(e){}const f=filter||{};const has=(k,v)=>!Array.isArray(f[k])||f[k].includes(v);return out.filter(c=>has("contextTypes",c.contextType)&&has("contextIds",c.contextId)&&has("tabIds",c.tabId)&&has("windowIds",c.windowId)&&has("frameIds",c.frameId)&&has("documentUrls",c.documentUrl)&&has("documentOrigins",c.documentOrigin)&&(f.incognito===undefined||f.incognito===c.incognito))}})}catch(e){}}
     if(worker&&typeof self.WebSocket!=="undefined"){try{Object.defineProperty(self,"WebSocket",{value:undefined,configurable:true,writable:true})}catch(e){}}
     if(!worker){for(const ns of["chrome","browser"]){const space=pin(self,ns);const runtime=space&&pin(space,"runtime");if(!runtime)continue;for(const name of["onMessage","onConnect"]){const event=pin(runtime,name);if(!event||typeof event.addListener!=="function")continue;const add=event.addListener.bind(event),remove=event.removeListener.bind(event),wrapped=new Map(),message=name==="onMessage";try{Object.defineProperty(event,"addListener",{value:l=>{const w=(...args)=>{if(DEBUG&&message)L("got",args[0]&&(args[0].command||args[0].type||Object.keys(args[0]).join(",")));return l(...mendArgs(args,message))};wrapped.set(l,w);return add(w)},configurable:true,writable:true});Object.defineProperty(event,"removeListener",{value:l=>{const w=wrapped.get(l);wrapped.delete(l);return remove(w||l)},configurable:true,writable:true});Object.defineProperty(event,"hasListener",{value:l=>wrapped.has(l),configurable:true,writable:true})}catch(e){}}}}

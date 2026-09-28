@@ -120,7 +120,7 @@ private struct PrivacySettings: View {
     var body: some View {
         Form {
             Section("Ad and tracker blocking") {
-                Text("uBlock Origin Lite blocks ads and trackers; BasicShell adds it the first time it runs. Its button in the top bar turns it off for a site; Settings › Extensions removes it.")
+                Text("AdGuard AdBlocker blocks ads, trackers and annoyances; BasicShell adds it the first time it runs, with its ad, privacy and annoyance filters on. Its tracking filter stays off: WebKit takes 150,000 rules from an extension, and it doesn't fit beside the ad filter. Its button in the top bar turns it off for a site; Settings › Extensions removes it.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Location") {

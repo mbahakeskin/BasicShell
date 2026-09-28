@@ -10,7 +10,7 @@ CONFIG="${1:-release}"
 NAME="BasicShell"
 APP="build/$NAME.app"
 ID="com.mbahakeskin.basicshell"
-VERSION="0.1.0"
+VERSION="0.2.0"
 BUILD="$(date +%Y%m%d%H%M)"
 
 swift build -c "$CONFIG"

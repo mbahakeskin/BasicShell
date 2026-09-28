@@ -14,10 +14,12 @@ the pages you open.
   kept only in memory, never on disk, and goes when the app quits; they are
   never saved in the session.
 - Several windows, each with its own tabs.
-- Ads and trackers, YouTube's included, are blocked by uBlock Origin Lite,
-  which BasicShell adds from the Chrome Web Store the first time it runs.
-  Its button in the top bar turns it off for a site; removed, it stays
-  removed.
+- Ads, trackers and annoyances (cookie notices, popups), YouTube's ads
+  included, are blocked by AdGuard AdBlocker, which BasicShell adds from the
+  Chrome Web Store the first time it runs, with AdGuard's ad, privacy and
+  annoyance filters on. Its tracking filter stays off: WebKit takes 150,000
+  rules from an extension, and it doesn't fit beside the ad filter. Its
+  button in the top bar turns it off for a site; removed, it stays removed.
 - Tabs off screen are frozen: no script, no timers, nothing lost. After six
   hours off screen, or when memory runs short, a tab is unloaded and comes
   back where it was. Tabs holding unsent typing, sound or a call are left
@@ -63,18 +65,16 @@ otherwise it signs ad hoc, and macOS asks again after each build.
 
 ## Network traffic
 
-Besides the pages you open: uBlock Origin Lite from the Chrome Web Store, once,
-and the filter updates it fetches itself.
+Besides the pages you open: AdGuard AdBlocker from the Chrome Web Store, once,
+and what AdGuard fetches from its own servers (its welcome page when it is
+added, among them).
 
 The macOS 27 SDK turns SwiftUI's `@State` into a macro whose plugin ships only
 with Xcode, so views here store `State` by hand instead of using the attribute.
 
 ## Credits
 
-Parts of BasicShell (the address parser, the ad blocker, the traffic-light
+Parts of BasicShell (the address parser, the traffic-light
 placement and the Safari user-agent handling) are adapted from
 [Search](https://github.com/driceroland/Search) by Office Commun, under the
 MIT license. See [LICENSE](LICENSE).
-
-The block lists are EasyList and EasyPrivacy by The EasyList authors
-(https://easylist.to), GPLv3 / CC BY-SA 3.0.
