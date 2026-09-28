@@ -40,13 +40,19 @@ var exceptions: [Rule] = []
 var documentExceptions: [Rule] = []
 var dropped = 0
 
+/// Adblock Plus's resource types, and the short names uBlock Origin gave
+/// some, as WebKit's. Each to its own WebKit type: WebKit's "raw" is XHR,
+/// fetch, WebSocket, ping and the rest together, so `*$ping,third-party`
+/// mapped to it blocked every third-party XHR on every site.
 let resourceTypes: [String: [String]] = [
-    "script": ["script"], "image": ["image"], "stylesheet": ["style-sheet"],
+    "script": ["script"], "image": ["image"], "stylesheet": ["style-sheet"], "css": ["style-sheet"],
     "font": ["font"], "media": ["media"], "popup": ["popup"],
-    "xmlhttprequest": ["raw"], "websocket": ["raw"], "ping": ["raw"], "other": ["raw"],
-    "subdocument": ["document"], "document": ["document"],
+    "xmlhttprequest": ["fetch"], "xhr": ["fetch"], "websocket": ["websocket"],
+    "ping": ["ping"], "beacon": ["ping"], "other": ["other"],
+    "subdocument": ["document"], "frame": ["document"], "document": ["document"],
 ]
-let allTypes = ["document", "image", "style-sheet", "script", "font", "raw", "svg-document", "media"]
+let allTypes = ["document", "image", "style-sheet", "script", "font", "svg-document", "media",
+                "popup", "fetch", "websocket", "ping", "other"]
 let ignoredOptions: Set<String> = ["important", "match-case"]
 
 /// A host name WebKit accepts in if-domain: lowercase ASCII letters, digits, dots and dashes.
@@ -157,7 +163,7 @@ func trigger(_ body: String) -> (trigger: Rule, document: Bool, hides: Bool)? {
         default:
             guard let mapped = resourceTypes[name] else { return nil }
             types += mapped
-            if name == "subdocument" { trigger["load-context"] = ["child-frame"] }
+            if name == "subdocument" || name == "frame" { trigger["load-context"] = ["child-frame"] }
         }
     }
     if !notTypes.isEmpty {

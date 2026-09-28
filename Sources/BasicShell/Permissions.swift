@@ -92,12 +92,21 @@ enum Geolocation {
       const bridge = window.webkit && webkit.messageHandlers && webkit.messageHandlers.\(handlerName);
       const geo = navigator.geolocation;
       if (!bridge || !geo) return;
-      const error = (code, message) => ({ code, message, PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 });
+      // Objects of the page's own kinds, so a check like
+      // `position instanceof GeolocationPosition` holds; their own fields
+      // stand in front of the native getters, which would refuse them.
+      const make = (kind, fields) => {
+        const made = Object.create(kind && kind.prototype ? kind.prototype : Object.prototype);
+        for (const [key, value] of Object.entries(fields)) Object.defineProperty(made, key, { value, enumerable: true });
+        return made;
+      };
+      const error = (code, message) => make(window.GeolocationPositionError,
+        { code, message, PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 });
       const position = (r) => {
-        const coords = { latitude: r.lat, longitude: r.lon, accuracy: r.acc, altitude: r.alt ?? null,
+        const fields = { latitude: r.lat, longitude: r.lon, accuracy: r.acc, altitude: r.alt ?? null,
           altitudeAccuracy: r.altAcc ?? null, heading: r.heading ?? null, speed: r.speed ?? null };
-        coords.toJSON = () => ({ ...coords });
-        return { coords, timestamp: r.ts, toJSON() { return { coords: coords.toJSON(), timestamp: r.ts }; } };
+        const coords = make(window.GeolocationCoordinates, { ...fields, toJSON: () => ({ ...fields }) });
+        return make(window.GeolocationPosition, { coords, timestamp: r.ts, toJSON: () => ({ coords: { ...fields }, timestamp: r.ts }) });
       };
       const once = (ok, fail, options, permitted) => {
         const permit = permitted ? Promise.resolve({ allowed: true }) : bridge.postMessage({ op: "permit" });
@@ -123,9 +132,12 @@ enum Geolocation {
       define("watchPosition", (ok, fail, options) => {
         const id = next++;
         watches.set(id, true);
+        let last = null;
         const loop = (permitted) => {
           if (!watches.has(id)) return;
-          once((p) => watches.has(id) && ok && ok(p), (e) => watches.has(id) && fail && fail(e), options, permitted).then((allowed) => {
+          // A watch hears of a position once, and again only when a newer one comes.
+          const fresh = (p) => { if (!watches.has(id) || (last !== null && p.timestamp === last)) return; last = p.timestamp; ok && ok(p); };
+          once(fresh, (e) => watches.has(id) && fail && fail(e), options, permitted).then((allowed) => {
             if (allowed && watches.has(id)) setTimeout(() => loop(true), 5000);
           });
         };
@@ -189,16 +201,32 @@ enum Geolocation {
 
 /// Location Services for BasicShell: macOS's permission, asked the first
 /// time a site you allowed wants your location, and positions.
+///
+/// While pages keep asking (a map following you asks every few seconds),
+/// Location Services keep running and each question is answered from the
+/// latest fix; fifteen seconds after the last question they stop. Asking
+/// macOS for a fresh fix every time instead scans for Wi-Fi networks each
+/// time, which is slow and costly.
 final class LocationAccess: NSObject, CLLocationManagerDelegate {
     private static let shared = LocationAccess()
     private let manager = CLLocationManager()
     private var waiting: [(Bool) -> Void] = []
     private var fixes: [(Result<CLLocation, any Error>) -> Void] = []
+    private var running = false
+    private var lastAsked = Date.distantPast
 
     override init() {
         super.init()
         manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyBest
     }
+
+    /// At launch, so macOS's answer is known before a page asks.
+    static func start() { _ = shared }
+
+    /// macOS's answer as this app's own manager knows it; a new manager
+    /// says "not determined" until macOS has told it.
+    static var authorization: CLAuthorizationStatus { shared.manager.authorizationStatus }
 
     static func ensure(_ done: @escaping (Bool) -> Void) {
         shared.ensure(done)
@@ -215,9 +243,13 @@ final class LocationAccess: NSObject, CLLocationManagerDelegate {
         case .authorizedAlways, .authorized: done(true)
         case .notDetermined:
             waiting.append(done)
-            if waiting.count == 1 {
-                Debug.log("location", "asking macOS for Location Services")
-                manager.requestWhenInUseAuthorization()
+            guard waiting.count == 1 else { return }
+            Debug.log("location", "asking macOS for Location Services")
+            manager.requestWhenInUseAuthorization()
+            // macOS may already have an answer it hasn't told this manager
+            // yet, and then never calls back; look again.
+            for delay in [0.5, 1.5, 4.0] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.settle() }
             }
         default:
             done(false)
@@ -225,16 +257,45 @@ final class LocationAccess: NSObject, CLLocationManagerDelegate {
         }
     }
 
+    /// Answers those waiting for macOS's permission, once macOS has decided.
+    private func settle() {
+        guard manager.authorizationStatus != .notDetermined, !waiting.isEmpty else { return }
+        let allowed = [.authorizedAlways, .authorized].contains(manager.authorizationStatus)
+        let callbacks = waiting
+        waiting = []
+        callbacks.forEach { $0(allowed) }
+        if !allowed { LocationAccess.explainDenied() }
+    }
+
     private func current(maximumAge: TimeInterval, _ done: @escaping (Result<CLLocation, any Error>) -> Void) {
-        if let last = manager.location, -last.timestamp.timeIntervalSinceNow <= maximumAge {
+        lastAsked = Date()
+        // Already following, the latest fix is where you are: macOS sends a
+        // new one only when that changes.
+        let following = running
+        keepRunning()
+        if let last = manager.location, following || -last.timestamp.timeIntervalSinceNow <= maximumAge {
             return done(.success(last))
         }
         fixes.append(done)
         guard fixes.count == 1 else { return }
-        manager.requestLocation()
         DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
             guard let self, !self.fixes.isEmpty else { return }
             self.deliver(.failure(CLError(.locationUnknown)))
+        }
+    }
+
+    /// Location Services on while pages ask, off fifteen seconds after.
+    private func keepRunning() {
+        if !running {
+            running = true
+            Debug.log("location", "following position")
+            manager.startUpdatingLocation()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15.5) { [weak self] in
+            guard let self, self.running, Date().timeIntervalSince(self.lastAsked) >= 15 else { return }
+            self.running = false
+            Debug.log("location", "no page asking; position no longer followed")
+            self.manager.stopUpdatingLocation()
         }
     }
 
@@ -249,17 +310,14 @@ final class LocationAccess: NSObject, CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: any Error) {
+        // While following, a passing failure (no fix yet) is not an answer.
+        if (error as? CLError)?.code == .locationUnknown, running { return }
         deliver(.failure(error))
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         Debug.log("location", "macOS permission changed: \(CLLocationStatus.describe())")
-        guard manager.authorizationStatus != .notDetermined else { return }
-        let allowed = [.authorizedAlways, .authorized].contains(manager.authorizationStatus)
-        let callbacks = waiting
-        waiting = []
-        callbacks.forEach { $0(allowed) }
-        if !allowed, !callbacks.isEmpty { LocationAccess.explainDenied() }
+        settle()
     }
 
     private static func explainDenied() {

@@ -79,8 +79,8 @@ final class Debug {
     (() => {
       const post = (m) => { try { webkit.messageHandlers.basicShellDebug.postMessage(String(m)); } catch (e) {} };
       const geo = navigator.geolocation;
-      if (!geo) return;
       const wrap = (name) => {
+        if (!geo) return;
         const original = geo[name].bind(geo);
         geo[name] = (ok, fail, options) => {
           post(location.host + " " + name + " " + JSON.stringify(options || {}));
@@ -92,6 +92,13 @@ final class Debug {
       };
       wrap("getCurrentPosition");
       wrap("watchPosition");
+      // The page's own errors, the first fifty.
+      let left = 50;
+      const report = (kind, text) => { if (left-- > 0) post(location.host + " " + kind + ": " + String(text).slice(0, 300)); };
+      addEventListener("error", (e) => report("error", (e.message || e) + " @" + (e.filename || "").split("?")[0] + ":" + e.lineno), true);
+      addEventListener("unhandledrejection", (e) => report("unhandled rejection", e.reason && (e.reason.stack || e.reason.message) || e.reason));
+      const original = console.error.bind(console);
+      console.error = (...a) => { report("console.error", a.map((x) => x && x.message ? x.message : String(x)).join(" ")); return original(...a); };
     })();
     """, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page)
 
@@ -148,13 +155,12 @@ final class Debug {
 /// CoreLocation's answer for this app, in words.
 enum CLLocationStatus {
     static func describe() -> String {
-        let manager = CLLocationManager()
-        let status: String = switch manager.authorizationStatus {
+        let status: String = switch LocationAccess.authorization {
         case .notDetermined: "not asked yet"
         case .restricted: "restricted"
         case .denied: "denied"
         case .authorizedAlways: "allowed"
-        @unknown default: "unknown (\(manager.authorizationStatus.rawValue))"
+        @unknown default: "unknown"
         }
         return "\(status), system-wide \(CLLocationManager.locationServicesEnabled() ? "on" : "off")"
     }
