@@ -38,8 +38,10 @@ struct SidebarView: View {
 
             List {
                 let others = shell.tabs.filter { !$0.pinned }
+                newTabRow
                 ForEach(others) { row($0, in: others) }
                     .onMove { window.move(from: $0, to: $1, pinned: false) }
+                if !others.isEmpty { newTabRow }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -75,11 +77,54 @@ struct SidebarView: View {
         return false
     }
 
+    /// A New Tab button shaped like a row, above the tabs and below them.
+    private var newTabRow: some View {
+        NewTabRow { window.ask(.newTab(privately: false)) }
+            .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .moveDisabled(true)
+    }
+
     private func row(_ tab: Tab, in group: [Tab]) -> some View {
         TabRow(tab: tab, selected: tab === shell.selected, depth: depth(of: tab, in: group), window: window)
             .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)
+    }
+}
+
+struct NewTabRow: View {
+    let action: () -> Void
+    // `@State` is a macro in the macOS 27 SDK whose plugin ships only with
+    // Xcode, so the State it would expand to is stored by hand.
+    private var _hovering = State(initialValue: false)
+    private var hovering: Bool {
+        get { _hovering.wrappedValue }
+        nonmutating set { _hovering.wrappedValue = newValue }
+    }
+
+    init(action: @escaping () -> Void) { self.action = action }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "plus")
+                .font(.system(size: 12, weight: .medium))
+                .frame(width: 16, height: 16)
+            Text("New Tab").font(.system(size: 13))
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 8)
+        .frame(height: 32)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color.primary.opacity(hovering ? 0.06 : 0))
+        )
+        .contentShape(Rectangle())
+        .onTapGesture(perform: action)
+        .onHover { hovering = $0 }
+        .help("New Tab (⌘T)")
     }
 }
 

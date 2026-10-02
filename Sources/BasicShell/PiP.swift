@@ -27,6 +27,7 @@ enum PiP {
             unsafeBitCast(method, to: SetBool.self)(config.preferences, setter, true)
         }
         config.userContentController.addUserScript(watch)
+        if Debug.enabled { config.userContentController.addUserScript(captionReport) }
         config.userContentController.add(Watcher.shared, contentWorld: .page, name: "basicShellPiP")
     }
 
@@ -67,11 +68,28 @@ enum PiP {
     })();
     """, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page)
 
+    /// With the debug log on: every few seconds while a video is in
+    /// Picture in Picture, what the caption tracks the page's script made
+    /// hold, to tell a site that wrote no line from WebKit not showing one.
+    private static let captionReport = WKUserScript(source: """
+    (() => {
+      const report = (video, why) => {
+        const loaded = new Set([...video.querySelectorAll("track")].map((t) => t.track));
+        const tracks = [...(video.textTracks || [])].filter((t) => !loaded.has(t));
+        const line = tracks.map((t) => `${t.kind} "${t.label}" ${t.mode} cues ${t.cues ? t.cues.length : "-"} showing ${t.activeCues ? t.activeCues.length : "-"}`).join("; ");
+        try { webkit.messageHandlers.basicShellPiP.postMessage({ tracks: `${why} at ${Math.round(video.currentTime)} s${video.paused ? " paused" : ""}: ${line || "none"}` }); } catch (x) {}
+      };
+      addEventListener("enterpictureinpicture", (e) => report(e.target, "in"), true);
+      setInterval(() => { const v = document.pictureInPictureElement; if (v) report(v, "captions"); }, 5000);
+    })();
+    """, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page)
+
     private final class Watcher: NSObject, WKScriptMessageHandler {
         static let shared = Watcher()
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
             guard let web = message.webView, let tab = web.navigationDelegate as? Tab else { return }
             let body = message.body as? [String: Any]
+            if let tracks = body?["tracks"] as? String { return Debug.log("pip", "\(tab.name): tracks \(tracks)") }
             guard let inside = (message.body as? Bool) ?? (body?["inside"] as? Bool) else { return }
             let was = tab.inPictureInPicture
             tab.inPictureInPicture = inside

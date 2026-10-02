@@ -26,9 +26,10 @@ struct TopBarView: View {
             }
             IconButton(symbol: "chevron.left", enabled: tab?.canGoBack ?? false) { window.goBack(nil) }
             IconButton(symbol: "chevron.right", enabled: tab?.canGoForward ?? false) { window.goForward(nil) }
-            IconButton(symbol: tab?.isLoading == true ? "xmark" : "arrow.clockwise", enabled: tab?.url != nil) { window.reload(nil) }
             Spacer(minLength: 12)
             address.frame(maxWidth: 640)
+            IconButton(symbol: tab?.isLoading == true ? "xmark" : "arrow.clockwise", enabled: tab?.url != nil) { window.reload(nil) }
+                .help(tab?.isLoading == true ? "Stop Loading" : "Reload This Page (⌘R)")
             Spacer(minLength: 12)
             if tab?.url?.host() != nil {
                 let awake = Awake.shared.contains(tab?.url)

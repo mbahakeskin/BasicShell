@@ -394,7 +394,15 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     /// The window and the tab in front, the app too.
     func show(_ tab: Tab) {
+        // Asked from Picture in Picture's own window, which belongs to
+        // another process: macOS lets that request for activation go
+        // unanswered, and the window stayed on its desktop. Opening the app
+        // through Launch Services brings it forward, desktop and all, as
+        // clicking it in the Dock would.
         NSApp.activate()
+        let open = NSWorkspace.OpenConfiguration()
+        open.activates = true
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: open)
         window?.makeKeyAndOrderFront(nil)
         if tab !== shell.selected { select(tab) }
     }
