@@ -52,6 +52,9 @@ enum Session {
     static func save() {
         pending?.cancel()
         pending = nil
+        // Nothing to write before the last session is back (quitting while
+        // the extensions load): it would be written over with nothing.
+        guard restored else { return }
         // Front to back as AppKit orders them; restored back to front, so the
         // front one ends up in front again.
         let ordered = NSApp.orderedWindows.compactMap { $0.windowController as? BrowserWindow }

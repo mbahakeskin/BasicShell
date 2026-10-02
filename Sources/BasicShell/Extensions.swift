@@ -69,10 +69,20 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     }
 
     /// At launch: every extension added before, then the ad blocker if it
-    /// has never been added.
-    func start() {
+    /// has never been added. `loaded` is called once those added before are
+    /// in (or after three seconds at most), for the pages to open then: a
+    /// page already open when an extension comes in doesn't get its scripts
+    /// (WebKit refuses AdGuard's), and kept its ads.
+    func start(loaded: @escaping () -> Void) {
         keepData()
         Extensions.forgetBlockLists()
+        var called = false
+        let once = {
+            guard !called else { return }
+            called = true
+            loaded()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: once)
         Task {
             for item in installed {
                 do { try await load(item.id) } catch {
@@ -80,8 +90,54 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
                     NSLog("BasicShell: extension %@ didn't load: %@", item.id, error.localizedDescription)
                 }
             }
+            once()
             await addBlocker()
             await chooseFilters()
+            await reloadOnceBlockerIsReady()
+        }
+    }
+
+    /// AdGuard puts the scripts that keep YouTube's ads out into a page as
+    /// it loads, and only once its engine is up, a few seconds after it is
+    /// loaded; it can't put them into a page already there (WebKit refuses).
+    /// The pages BasicShell opened at launch came before that and kept
+    /// their ads, so once AdGuard says it is up, they load again, once.
+    private func reloadOnceBlockerIsReady() async {
+        let started = Date()
+        guard let answer = await inBlockerPage(Extensions.readyScript) as? Bool, answer else {
+            Debug.log("extension", "AdGuard didn't say it was up; pages not loaded again")
+            return
+        }
+        Debug.log("extension", "AdGuard up after \(String(format: "%.1f", Date().timeIntervalSince(started))) s; loading open pages again")
+        for window in Windows.all {
+            guard let tab = window.shell.selected, let web = tab.webView, !tab.isFrozen,
+                  let scheme = web.url?.scheme, ["http", "https"].contains(scheme) else { continue }
+            web.reload()
+        }
+    }
+
+    private static let readyScript = """
+    for (let tries = 0; tries < 80; tries++) {
+      try { if (await browser.runtime.sendMessage({ handlerName: "app", type: "getIsAppInitialized" })) return true; } catch (e) {}
+      await new Promise((done) => setTimeout(done, 250));
+    }
+    return false;
+    """
+
+    /// Runs a function body in one of AdGuard's own pages, loaded out of
+    /// sight, where it can send AdGuard the messages its settings page does.
+    private func inBlockerPage(_ script: String) async -> Any? {
+        guard let context = contexts.first(where: { $0.uniqueIdentifier == Extensions.blocker }),
+              let configuration = context.webViewConfiguration
+        else { return nil }
+        let page = WKWebView(frame: .zero, configuration: configuration)
+        page.load(URLRequest(url: context.baseURL.appendingPathComponent("pages/options.html")))
+        for _ in 0..<150 where page.isLoading || page.url == nil {
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        do { return try await page.callAsyncJavaScript(script, contentWorld: .page) } catch {
+            Debug.log("extension", "AdGuard's page: \(error.localizedDescription)")
+            return nil
         }
     }
 
@@ -144,22 +200,12 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     /// here as that page would.
     private func chooseFilters() async {
         guard !UserDefaults.standard.bool(forKey: Extensions.filtersChosen),
-              let context = contexts.first(where: { $0.uniqueIdentifier == Extensions.blocker }),
-              let configuration = context.webViewConfiguration
+              contexts.contains(where: { $0.uniqueIdentifier == Extensions.blocker })
         else { return }
-        let page = WKWebView(frame: .zero, configuration: configuration)
-        page.load(URLRequest(url: context.baseURL.appendingPathComponent("pages/options.html")))
-        for _ in 0..<150 where page.isLoading || page.url == nil {
-            try? await Task.sleep(for: .milliseconds(200))
-        }
-        do {
-            let result = try await page.callAsyncJavaScript(Extensions.filtersScript, contentWorld: .page)
-            let answer = (result as? String) ?? "?"
-            Debug.log("extension", "AdGuard filters: \(answer)")
-            if answer.hasPrefix("on:") { UserDefaults.standard.set(true, forKey: Extensions.filtersChosen) }
-        } catch {
-            Debug.log("extension", "AdGuard filters not chosen, tried again next launch: \(error.localizedDescription)")
-        }
+        let answer = (await inBlockerPage(Extensions.filtersScript) as? String) ?? "?"
+        Debug.log("extension", "AdGuard filters: \(answer)")
+        if answer.hasPrefix("on:") { UserDefaults.standard.set(true, forKey: Extensions.filtersChosen) }
+        else { Debug.log("extension", "AdGuard filters not chosen, tried again next launch") }
     }
 
     /// AdGuard's filters by id: 2 ads (Base); 25 mail tracking; 18 to 22

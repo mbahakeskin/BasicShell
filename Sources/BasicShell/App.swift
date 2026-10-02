@@ -18,9 +18,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         Freeze.guardScripts()
         Sleep.start()
         NSApp.mainMenu = Menus.build()
+        // Pages open once the extensions are in (see Extensions.start).
+        Extensions.shared.start { [weak self] in self?.extensionsLoaded() }
+    }
+
+    private var ready = false
+    private var waiting: [URL] = []
+
+    private func extensionsLoaded() {
+        ready = true
         if !Session.restored { Session.restore() }
-        if Windows.all.isEmpty { Windows.open() }
-        Extensions.shared.start()
+        if Windows.all.isEmpty, waiting.isEmpty { Windows.open() }
+        if !waiting.isEmpty { open(waiting) }
+        waiting = []
         NSApp.activate()
     }
 
@@ -32,13 +42,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        if !hasVisibleWindows { Windows.open() }
+        if ready, !hasVisibleWindows { Windows.open() }
         return true
     }
 
     /// Links from other apps, and files dropped on the Dock icon.
     func application(_ application: NSApplication, open urls: [URL]) {
-        // A link that launched the app comes before the last session is back.
+        // A link that launched the app waits for the extensions.
+        guard ready else { return waiting += urls }
+        open(urls)
+    }
+
+    private func open(_ urls: [URL]) {
         if !Session.restored { Session.restore() }
         let window = Windows.front ?? Windows.open(empty: true)
         for url in urls { window.open(url, select: true) }
