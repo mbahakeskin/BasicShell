@@ -392,6 +392,20 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         open(url, from: nil, select: select)
     }
 
+    /// The window and the tab in front, the app too.
+    func show(_ tab: Tab) {
+        NSApp.activate()
+        window?.makeKeyAndOrderFront(nil)
+        if tab !== shell.selected { select(tab) }
+    }
+
+    /// A tab not shown whose video came back from Picture in Picture: its
+    /// page leaves the window as any other tab's does.
+    func leftPictureInPicture(_ tab: Tab) {
+        guard tab !== shell.selected, let web = tab.webView, web.superview === page else { return }
+        if Sleep.keepsAwake(tab.url) { web.isHidden = true } else { web.removeFromSuperview() }
+    }
+
     func select(_ tab: Tab?) {
         guard let window else { return }
         let previous = shell.selected
@@ -406,7 +420,11 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             let web = current.webView
             current.leavingScreen { [weak self, weak current] in
                 guard let self, let current, let web, current !== self.shell.selected, current.webView === web else { return }
-                if Sleep.keepsAwake(current.url) || PiP.holds(current) {
+                if PiP.holds(current) {
+                    // Its video is in Picture in Picture: behind the one shown,
+                    // not hidden, so the page goes on (see PiP.keepAwake).
+                    self.page.addSubview(web, positioned: .below, relativeTo: nil)
+                } else if Sleep.keepsAwake(current.url) {
                     web.isHidden = true
                 } else {
                     web.removeFromSuperview()

@@ -45,8 +45,9 @@ Private WebKit features are used, each only where WebKit has it:
 `_persistedSites` keeps WebKit's tracking prevention from deleting an
 extension's own storage, which would stop its background worker; and
 `_setAllowsPictureInPictureMediaPlayback:` with a script run as though
-clicked (`_callAsyncJavaScript:…withUserGesture:`, in a script world of its
-own) gives picture in picture; and when an extension's background fails to
+clicked (`_callAsyncJavaScript:…withUserGesture:`) gives picture in picture,
+and `_setWindowOcclusionDetectionEnabled:` keeps a page whose video is in it
+awake on another desktop, for the captions to go on; and when an extension's background fails to
 start again after macOS ended its process, `_backgroundWebView`,
 `_webProcessIdentifier` and `_terminateServiceWorkers` let BasicShell end
 the broken processes and start it afresh.

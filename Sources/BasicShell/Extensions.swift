@@ -93,36 +93,8 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
             once()
             await addBlocker()
             await chooseFilters()
-            await reloadOnceBlockerIsReady()
         }
     }
-
-    /// AdGuard puts the scripts that keep YouTube's ads out into a page as
-    /// it loads, and only once its engine is up, a few seconds after it is
-    /// loaded; it can't put them into a page already there (WebKit refuses).
-    /// The pages BasicShell opened at launch came before that and kept
-    /// their ads, so once AdGuard says it is up, they load again, once.
-    private func reloadOnceBlockerIsReady() async {
-        let started = Date()
-        guard let answer = await inBlockerPage(Extensions.readyScript) as? Bool, answer else {
-            Debug.log("extension", "AdGuard didn't say it was up; pages not loaded again")
-            return
-        }
-        Debug.log("extension", "AdGuard up after \(String(format: "%.1f", Date().timeIntervalSince(started))) s; loading open pages again")
-        for window in Windows.all {
-            guard let tab = window.shell.selected, let web = tab.webView, !tab.isFrozen,
-                  let scheme = web.url?.scheme, ["http", "https"].contains(scheme) else { continue }
-            web.reload()
-        }
-    }
-
-    private static let readyScript = """
-    for (let tries = 0; tries < 80; tries++) {
-      try { if (await browser.runtime.sendMessage({ handlerName: "app", type: "getIsAppInitialized" })) return true; } catch (e) {}
-      await new Promise((done) => setTimeout(done, 250));
-    }
-    return false;
-    """
 
     /// Runs a function body in one of AdGuard's own pages, loaded out of
     /// sight, where it can send AdGuard the messages its settings page does.

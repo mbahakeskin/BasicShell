@@ -16,7 +16,7 @@ import WebKit
 // itself; one you moved stays until you bring it back.
 enum PiP {
     /// Tabs whose video BasicShell moved by itself, to bring back on return.
-    private static var automatic: Set<ObjectIdentifier> = []
+    fileprivate static var automatic: Set<ObjectIdentifier> = []
 
     /// Turns WebKit's Picture in Picture on for a new web view's
     /// configuration, and has its pages say when a video goes in and out.
@@ -40,7 +40,9 @@ enum PiP {
     (() => {
       const say = (inside) => { try { webkit.messageHandlers.basicShellPiP.postMessage(inside); } catch (e) {} };
       addEventListener("enterpictureinpicture", () => say(true), true);
-      addEventListener("leavepictureinpicture", () => say(false), true);
+      // Whether the video goes on: its window's button back to the page
+      // leaves it playing; closing the window pauses it.
+      addEventListener("leavepictureinpicture", (e) => { try { webkit.messageHandlers.basicShellPiP.postMessage({ inside: false, playing: !!(e.target && !e.target.paused && !e.target.ended) }); } catch (x) {} }, true);
       // A site may swap the video's source while it is in Picture in
       // Picture (YouTube going to the next video), which ends it without
       // that event; so whenever a video starts loading, where things stand.
@@ -62,20 +64,46 @@ enum PiP {
       };
       addEventListener("loadstart", clear, true);
       addEventListener("emptied", clear, true);
-      /* TEMPTT */ const tt = (why, v) => { try { webkit.messageHandlers.basicShellDebug.postMessage("TEMPTT " + why + " " + JSON.stringify([...(v || document.querySelector("video") || {textTracks: []}).textTracks].map((t) => [t.kind, t.label, t.language, t.mode, t.cues ? t.cues.length : -1, t.activeCues && t.activeCues[0] ? t.activeCues[0].text : ""]))); } catch (e) {} };
-      /* TEMPTT */ addEventListener("enterpictureinpicture", (e) => tt("enter", e.target), true);
-      /* TEMPTT */ addEventListener("loadstart", (e) => tt("loadstart", e.target), true);
-      /* TEMPTT */ addEventListener("loadedmetadata", (e) => { tt("loadedmetadata", e.target); const v = e.target; if (v && v.textTracks && !v.__ttw) { v.__ttw = 1; v.textTracks.addEventListener("addtrack", () => tt("addtrack", v)); v.textTracks.addEventListener("change", () => tt("change", v)); } }, true);
     })();
     """, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page)
 
     private final class Watcher: NSObject, WKScriptMessageHandler {
         static let shared = Watcher()
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard let tab = message.webView?.navigationDelegate as? Tab, let inside = message.body as? Bool else { return }
+            guard let web = message.webView, let tab = web.navigationDelegate as? Tab else { return }
+            let body = message.body as? [String: Any]
+            guard let inside = (message.body as? Bool) ?? (body?["inside"] as? Bool) else { return }
+            let was = tab.inPictureInPicture
             tab.inPictureInPicture = inside
-            if !inside { PiP.automatic.remove(ObjectIdentifier(tab)) }
+            PiP.keepAwake(web, inside)
+            guard !inside else { return }
+            let key = ObjectIdentifier(tab)
+            PiP.automatic.remove(key)
+            let ours = PiP.leaving.remove(key) != nil
+            guard was else { return }
+            if !ours, body?["playing"] as? Bool == true {
+                // Its window's button back to the page: to the page, as in
+                // Arc, on whatever desktop it is.
+                (tab.host as? BrowserWindow)?.show(tab)
+            } else {
+                (tab.host as? BrowserWindow)?.leftPictureInPicture(tab)
+            }
         }
+    }
+
+    /// A page whose video is in Picture in Picture stays awake although it
+    /// is out of sight: YouTube writes the captions shown there from the
+    /// page's script, which WebKit slows to a stop on a page it thinks
+    /// hidden, and they froze (in Safari too) while the video went on. So
+    /// the tab's view stays in the window, behind the one shown (see
+    /// BrowserWindow.select), and WebKit's private
+    /// `_setWindowOcclusionDetectionEnabled:` keeps a window on another
+    /// desktop, or covered, from counting as hidden for it.
+    static func keepAwake(_ web: WKWebView, _ awake: Bool) {
+        let setter = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
+        guard web.responds(to: setter), let method = class_getMethodImplementation(WKWebView.self, setter) else { return }
+        typealias SetBool = @convention(c) (AnyObject, Selector, Bool) -> Void
+        unsafeBitCast(method, to: SetBool.self)(web, setter, !awake)
     }
 
     /// Whether it is there, or on its way there by itself.
@@ -142,12 +170,18 @@ enum PiP {
         }
     }
 
+    /// Tabs whose video BasicShell is bringing back itself.
+    fileprivate static var leaving: Set<ObjectIdentifier> = []
+
     private static func leave(_ tab: Tab) {
         guard let web = tab.webView else { return }
+        leaving.insert(ObjectIdentifier(tab))
         call(web, "if (document.pictureInPictureElement) await document.exitPictureInPicture(); return \"out\";", [:]) { result, error in
             let answer = (result as? String) ?? error?.localizedDescription ?? "?"
             Debug.log("pip", "\(tab.name): back: \(answer)")
             if answer == "out" { tab.inPictureInPicture = false }
+            // Its event, if any, came before this answer.
+            leaving.remove(ObjectIdentifier(tab))
         }
     }
 

@@ -103,9 +103,12 @@ enum Sleep {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { finish(false) }
     }
 
-    /// Freezes a tab that is off screen, unless it is kept awake, playing, or
-    /// using the camera or microphone. A page that doesn't say whether it is
-    /// playing is left running rather than risk stopping it mid-song.
+    /// Freezes a tab that is off screen, unless it is kept awake, has media
+    /// (playing or paused), or uses the camera or microphone. A page that
+    /// doesn't say whether it is playing is left running rather than risk
+    /// stopping it mid-song. A paused video is left too: frozen and woken,
+    /// YouTube's couldn't play again (its video had nothing loaded any more)
+    /// until the page was reloaded.
     static func freezeIfIdle(_ tab: Tab) {
         // Never mid-load: the page would still report its loads, frozen.
         guard Freeze.enabled, let web = tab.webView, !tab.isFrozen, !tab.isOnScreen, !web.isLoading, !keepsAwake(tab.url), !PiP.holds(tab),
@@ -116,7 +119,7 @@ enum Sleep {
             MainActor.assumeIsolated {
                 guard !answered else { return }
                 answered = true
-                if state != .playing, tab.webView === web, !tab.isOnScreen, !web.isLoading { Freeze.freeze(tab) }
+                if state == .none, tab.webView === web, !tab.isOnScreen, !web.isLoading { Freeze.freeze(tab) }
             }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { answered = true }
