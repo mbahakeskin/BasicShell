@@ -65,6 +65,29 @@ enum PiP {
       };
       addEventListener("loadstart", clear, true);
       addEventListener("emptied", clear, true);
+      // YouTube makes its caption track twice as a page loads, turning the
+      // first off; now and then it goes on writing lines into that first
+      // one, which Picture in Picture doesn't show, and stays blank until
+      // the video starts again. While a video is in Picture in Picture, a
+      // line written into a track the page's script made and turned off
+      // goes to the one of the same name that is on.
+      try {
+        const add = TextTrack.prototype.addCue, remove = TextTrack.prototype.removeCue;
+        const twin = (track) => {
+          const video = document.pictureInPictureElement;
+          if (track.mode !== "disabled" || !video || !video.textTracks || ![...video.textTracks].includes(track)) return null;
+          return [...video.textTracks].find((t) => t !== track && t.mode === "showing" && t.label === track.label && t.kind === track.kind) || null;
+        };
+        TextTrack.prototype.addCue = function (cue) {
+          const other = twin(this);
+          if (other) { self.__basicShellMoved = (self.__basicShellMoved || 0) + 1; return add.call(other, cue); }
+          return add.call(this, cue);
+        };
+        TextTrack.prototype.removeCue = function (cue) {
+          if (cue && cue.track && cue.track !== this && twin(this) === cue.track) return remove.call(cue.track, cue);
+          return remove.call(this, cue);
+        };
+      } catch (x) {}
     })();
     """, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page)
 
@@ -77,7 +100,7 @@ enum PiP {
         const loaded = new Set([...video.querySelectorAll("track")].map((t) => t.track));
         const tracks = [...(video.textTracks || [])].filter((t) => !loaded.has(t));
         const line = tracks.map((t) => `${t.kind} "${t.label}" ${t.mode} cues ${t.cues ? t.cues.length : "-"} showing ${t.activeCues ? t.activeCues.length : "-"}`).join("; ");
-        try { webkit.messageHandlers.basicShellPiP.postMessage({ tracks: `${why} at ${Math.round(video.currentTime)} s${video.paused ? " paused" : ""}: ${line || "none"}` }); } catch (x) {}
+        try { webkit.messageHandlers.basicShellPiP.postMessage({ tracks: `${why} at ${Math.round(video.currentTime)} s${video.paused ? " paused" : ""}${self.__basicShellMoved ? `, ${self.__basicShellMoved} lines moved` : ""}: ${line || "none"}` }); } catch (x) {}
       };
       addEventListener("enterpictureinpicture", (e) => report(e.target, "in"), true);
       setInterval(() => { const v = document.pictureInPictureElement; if (v) report(v, "captions"); }, 5000);
