@@ -263,28 +263,29 @@ enum Freeze {
 
     /// Called as the tab comes back on screen, and before anything is done
     /// to a frozen tab's web view. The view can be used as soon as this
-    /// returns (measured).
+    /// returns (measured), if the tab still has one: a view whose process
+    /// ended meanwhile is let go.
     static func thaw(_ tab: Tab) {
         guard tab.isFrozen, let web = tab.webView else { return }
         Debug.log("sleep", "waking \(tab.name)")
         tab.isFrozen = false
         var answered = false
-        let recover = {
-            guard tab.webView === web else { return }
-            if web.url != nil { web.reload() }
-        }
+        // WebKit says no at once when the page has no process any more; the
+        // view then stays suspended and reloading it throws (Tab.lostWhileFrozen).
         let done: @convention(block) (Bool) -> Void = { worked in
             MainActor.assumeIsolated {
                 guard !answered else { return }
                 answered = true
-                if !worked { recover() }
+                if !worked, tab.webView === web { tab.lostWhileFrozen() }
             }
         }
         web.perform(resume, with: done)
+        // No answer yet: the process is there but slow, and the view is no
+        // longer suspended, so it can be loaded again.
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             guard !answered else { return }
             answered = true
-            recover()
+            if tab.webView === web, web.url != nil { web.reload() }
         }
     }
 }

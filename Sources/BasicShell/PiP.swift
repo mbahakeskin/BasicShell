@@ -89,8 +89,12 @@ enum PiP {
     const video = playing || (playingOnly ? null : videos.sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0]);
     if (!video) return "no video";
     if (document.pictureInPictureElement === video) return "already";
-    await video.requestPictureInPicture();
-    return "in";
+    try {
+      await video.requestPictureInPicture();
+      return "in";
+    } catch (e) {
+      return "refused: " + (e && e.name) + ": " + (e && e.message);
+    }
     """
 
     private static func enter(_ tab: Tab, playingOnly: Bool, automatic byItself: Bool) {
@@ -114,7 +118,11 @@ enum PiP {
         }
     }
 
-    /// Runs a function body in the page as though the person had clicked.
+    /// Runs a function body on the page as though the person had clicked,
+    /// in a script world of its own: the page's scripts (and ones a blocker
+    /// adds to it) can't change what it calls there. Run in the page's own
+    /// world it sometimes threw on YouTube, or answered with something that
+    /// wasn't a string.
     private static func call(_ web: WKWebView, _ body: String, _ arguments: [String: Any], _ done: @escaping (Any?, (any Error)?) -> Void) {
         let selector = NSSelectorFromString("_callAsyncJavaScript:arguments:inFrame:inContentWorld:withUserGesture:completionHandler:")
         guard web.responds(to: selector), let method = class_getMethodImplementation(WKWebView.self, selector) else {
@@ -124,6 +132,6 @@ enum PiP {
         let completion: @convention(block) (AnyObject?, NSError?) -> Void = { result, error in
             MainActor.assumeIsolated { done(result, error) }
         }
-        unsafeBitCast(method, to: Call.self)(web, selector, body as NSString, arguments as NSDictionary, nil, WKContentWorld.page, true, completion as AnyObject)
+        unsafeBitCast(method, to: Call.self)(web, selector, body as NSString, arguments as NSDictionary, nil, WKContentWorld.defaultClient, true, completion as AnyObject)
     }
 }

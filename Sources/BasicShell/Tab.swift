@@ -193,6 +193,26 @@ final class Tab: NSObject, Identifiable {
         isUnloaded = true
     }
 
+    /// The page's process ended while it was frozen. WebKit can't resume a
+    /// view without its process and keeps it suspended for good, and
+    /// nearly everything done to it then throws, reload included: that
+    /// crashed BasicShell (a frozen tab macOS ended for its memory). The
+    /// view is let go, keeping its history (reading that doesn't throw), and
+    /// the tab comes back like an unloaded one when next shown.
+    func lostWhileFrozen() {
+        guard let web = webView else { return }
+        Debug.log("tab", "\(name): its process ended while frozen; unloaded")
+        savedState = web.interactionState
+        isFrozen = false
+        watching = []
+        web.navigationDelegate = nil
+        web.uiDelegate = nil
+        web.removeFromSuperview()
+        webView = nil
+        configuration = nil
+        isUnloaded = true
+    }
+
     /// Lets the page go: its process ends.
     func discard() {
         watching = []
@@ -275,8 +295,12 @@ extension Tab: WKNavigationDelegate {
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        // macOS may end a frozen page's process; wake the view before reloading it.
-        Freeze.thaw(self)
+        // macOS ends a frozen page's process when it holds too much memory
+        // out of sight; that view can't be woken or reloaded any more.
+        if isFrozen {
+            lostWhileFrozen()
+            return
+        }
         // A page whose process keeps dying is not reloaded into another
         // crash: after the third in a minute it is left for a manual reload.
         let now = Date()

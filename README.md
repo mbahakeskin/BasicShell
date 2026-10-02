@@ -45,7 +45,11 @@ Private WebKit features are used, each only where WebKit has it:
 `_persistedSites` keeps WebKit's tracking prevention from deleting an
 extension's own storage, which would stop its background worker; and
 `_setAllowsPictureInPictureMediaPlayback:` with a script run as though
-clicked (`_callAsyncJavaScript:…withUserGesture:`) gives picture in picture.
+clicked (`_callAsyncJavaScript:…withUserGesture:`, in a script world of its
+own) gives picture in picture; and when an extension's background fails to
+start again after macOS ended its process, `_backgroundWebView`,
+`_webProcessIdentifier` and `_terminateServiceWorkers` let BasicShell end
+the broken processes and start it afresh.
 
 What it can't do: passkeys. WebKit gives them to a browser only with an
 entitlement Apple grants on request, tied to a paid Developer ID.
@@ -66,8 +70,8 @@ otherwise it signs ad hoc, and macOS asks again after each build.
 ## Network traffic
 
 Besides the pages you open: AdGuard AdBlocker from the Chrome Web Store, once,
-and what AdGuard fetches from its own servers (its welcome page when it is
-added, among them).
+and what AdGuard fetches from its own servers. The welcome page AdGuard opens
+on adguard.com once installed isn't opened.
 
 The macOS 27 SDK turns SwiftUI's `@State` into a macro whose plugin ships only
 with Xcode, so views here store `State` by hand instead of using the attribute.

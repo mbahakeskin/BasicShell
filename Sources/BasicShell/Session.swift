@@ -34,10 +34,7 @@ enum Session {
         var windows: [SavedWindow]
     }
 
-    private static var file: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("BasicShell/session.json")
-    }
+    private static var file: URL { Store.folder.appendingPathComponent("session.json") }
 
     // MARK: - writing
 

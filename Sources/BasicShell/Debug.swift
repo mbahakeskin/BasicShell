@@ -95,7 +95,12 @@ final class Debug {
       // The page's own errors, the first fifty.
       let left = 50;
       const report = (kind, text) => { if (left-- > 0) post(location.host + " " + kind + ": " + String(text).slice(0, 300)); };
-      addEventListener("error", (e) => report("error", (e.message || e) + " @" + (e.filename || "").split("?")[0] + ":" + e.lineno), true);
+      addEventListener("error", (e) => {
+        // A script, style or image that failed to load says nothing but its element.
+        const t = e.target;
+        if (t && t !== window && (t.src || t.href)) return report("couldn't load", (t.tagName || "") + " " + String(t.src || t.href).split("?")[0]);
+        report("error", (e.message || e) + " @" + (e.filename || "").split("?")[0] + ":" + e.lineno);
+      }, true);
       const describe = (x) => x && typeof x === "object" ? (x.name || "") + ": " + (x.message || JSON.stringify(x)) + " @" + String(x.stack || "").split("\\n")[0] : String(x);
       addEventListener("unhandledrejection", (e) => report("unhandled rejection", describe(e.reason)));
       const original = console.error.bind(console);

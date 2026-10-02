@@ -231,7 +231,20 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             }
             return handled ? nil : event
         }
-        monitors = [pointer, keys].compactMap { $0 }
+        // A click anywhere but the top bar ends the address being edited.
+        // SwiftUI doesn't always hear that its field lost focus to the page
+        // (an AppKit view), and the bar then stayed out for good.
+        let clicks = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            MainActor.assumeIsolated {
+                guard let self, event.window === self.window, self.shell.editingAddress else { return }
+                let point = self.root.convert(event.locationInWindow, from: nil)
+                guard !self.topBar.frame.contains(point) else { return }
+                self.shell.editingAddress = false
+                self.layout(animated: true)
+            }
+            return event
+        }
+        monitors = [pointer, keys, clicks].compactMap { $0 }
     }
 
     /// Esc: the field over the page, else the address being edited.
@@ -371,8 +384,11 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         new.load(url)
     }
 
-    /// Opens a link from outside (another app, the Dock).
+    /// Opens a link from outside (another app, the Dock, the menu bar). The
+    /// field a new window opens with goes: the link is what was wanted, and
+    /// the field stayed over its page.
     func open(_ url: URL, select: Bool) {
+        if select, omnibox != nil { dismissOmnibox() }
         open(url, from: nil, select: select)
     }
 
@@ -408,6 +424,9 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         }
         PiP.bringBack(tab)
         empty.isHidden = true
+        // Woken first: a frozen page whose process ended is let go here, and
+        // a new view made for it below.
+        Freeze.thaw(tab)
         let wasUnloaded = tab.isUnloaded
         let web = tab.makeWebView()
         web.isHidden = false
@@ -418,7 +437,6 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         } else {
             page.addSubview(web, positioned: .above, relativeTo: nil)
         }
-        Freeze.thaw(tab)
         // An unloaded page loads again under a picture of how it was left.
         if wasUnloaded, let data = tab.snapshot, let picture = NSImage(data: data) {
             let view = NSImageView(image: picture)
@@ -914,9 +932,18 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     func windowDidBecomeKey(_ notification: Notification) {
         Extensions.shared.controller.didFocusWindow(self)
-        // The menu bar and the Dock hide for a window in full screen only.
-        NSApp.presentationOptions = edgeToEdge ? [.autoHideMenuBar, .autoHideDock] : []
+        // The menu bar and the Dock hide for a window in BasicShell's full
+        // screen only. Only what it set is taken back: macOS's own full
+        // screen sets these options itself, and clearing them there left the
+        // menu bar a black strip with nothing in it (measured).
+        if edgeToEdge {
+            NSApp.presentationOptions = BrowserWindow.ownOptions
+        } else if NSApp.presentationOptions == BrowserWindow.ownOptions {
+            NSApp.presentationOptions = []
+        }
     }
+
+    private static let ownOptions: NSApplication.PresentationOptions = [.autoHideMenuBar, .autoHideDock]
 
     func windowWillClose(_ notification: Notification) {
         if edgeToEdge { NSApp.presentationOptions = [] }

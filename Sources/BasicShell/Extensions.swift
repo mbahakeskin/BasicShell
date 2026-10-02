@@ -256,9 +256,15 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
         contexts.append(context)
         Debug.log("extension", "loaded \(found.displayName ?? id) \(found.version ?? "")")
         for error in found.errors { Debug.log("extension", "\(found.displayName ?? id) manifest: \(error.localizedDescription)") }
-        NotificationCenter.default.addObserver(forName: WKWebExtensionContext.errorsDidUpdateNotification, object: context, queue: .main) { _ in
+        NotificationCenter.default.addObserver(forName: WKWebExtensionContext.errorsDidUpdateNotification, object: context, queue: .main) { [weak self, weak context] _ in
             MainActor.assumeIsolated {
+                guard let context else { return }
                 for error in context.errors.suffix(3) { Debug.log("extension", "\(found.displayName ?? id): \(error.localizedDescription)") }
+                let failed = context.errors.contains {
+                    let error = $0 as NSError
+                    return error.domain == WKWebExtensionContext.errorDomain && error.code == WKWebExtensionContext.Error.backgroundContentFailedToLoad.rawValue
+                }
+                if failed { self?.restartBackground(context) }
             }
         }
         for window in Windows.all { context.didOpenWindow(window) }
@@ -381,6 +387,49 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
         Store.write(installed, to: "extensions.json")
         UserDefaults.standard.removeObject(forKey: Extensions.grantedKey(id))
         keepData()
+    }
+
+    private var restarted: [String: Date] = [:]
+
+    /// The extension's background failed to load: started afresh, in a new
+    /// process. When macOS ends an extension's process (one that holds too
+    /// much memory), WebKit starts its background again in another one
+    /// while it is still loaded, and there it fails ("Script error",
+    /// `chrome` missing; Bitwarden's popup stays white); Reload, which
+    /// reuses that process, fails too. Once that process has ended, it
+    /// loads again (measured). So the process its background was given is
+    /// ended, and a few seconds later the extension is loaded again.
+    /// The process is found with WebKit's private `_backgroundWebView` and
+    /// `_webProcessIdentifier`. At most once a minute per extension.
+    private func restartBackground(_ context: WKWebExtensionContext) {
+        let id = context.uniqueIdentifier
+        let name = context.webExtension.displayName ?? id
+        if let last = restarted[id], Date().timeIntervalSince(last) < 60 { return }
+        restarted[id] = Date()
+        var process: pid_t = 0
+        let background = NSSelectorFromString("_backgroundWebView")
+        if context.responds(to: background), let web = context.perform(background)?.takeUnretainedValue() as? WKWebView,
+           web.responds(to: NSSelectorFromString("_webProcessIdentifier")),
+           let number = web.value(forKey: "_webProcessIdentifier") as? NSNumber {
+            process = number.int32Value
+        }
+        Debug.log("extension", "\(name): background failed to load; starting it afresh (process \(process))")
+        if process > 0 { kill(process, SIGKILL) }
+        // Its service worker runs in a process of its own, which keeps the
+        // broken one; WebKit's private `_terminateServiceWorkers` ends it
+        // (and any other running service worker, which starts again when
+        // next needed).
+        let terminate = NSSelectorFromString("_terminateServiceWorkers")
+        if let pool = context.webViewConfiguration?.processPool, pool.responds(to: terminate) { pool.perform(terminate) }
+        // WebKit has to see those end before a new one works.
+        Task {
+            try? await Task.sleep(for: .seconds(3))
+            guard let current = contexts.first(where: { $0.uniqueIdentifier == id }) else { return }
+            unload(current)
+            do { try await load(id) } catch {
+                Debug.log("extension", "\(name) didn't load again: \(error.localizedDescription)")
+            }
+        }
     }
 
     /// Unloads and loads it again from its folder, for one that has got
@@ -581,6 +630,15 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     }
 
     func webExtensionController(_ controller: WKWebExtensionController, openNewTabUsing configuration: WKWebExtension.TabConfiguration, for extensionContext: WKWebExtensionContext, completionHandler: @escaping ((any WKWebExtensionTab)?, (any Error)?) -> Void) {
+        // The page AdGuard opens once installed waits for its engine, then
+        // goes to a thank-you page on adguard.com; here it never got there
+        // and stayed at "Loading extension...". BasicShell added AdGuard
+        // itself, so it isn't opened.
+        if extensionContext.uniqueIdentifier == Extensions.blocker, configuration.url?.path == "/pages/post-install.html" {
+            Debug.log("extension", "AdGuard's after-install page not opened")
+            completionHandler(nil, nil)
+            return
+        }
         let window = (configuration.window as? BrowserWindow) ?? Windows.front ?? Windows.open(empty: true)
         let tab = Tab(privately: false, opening: configuration.url)
         tab.pinned = configuration.shouldBePinned
