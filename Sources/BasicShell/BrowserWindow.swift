@@ -161,8 +161,9 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         let barY: CGFloat
         let barFrame: NSRect
         if notch != nil {
-            // The whole strip beside the notch, its halves drawn inside.
-            barY = bounds.maxY - top
+            // The whole strip beside the notch, its halves drawn inside;
+            // below the menu bar while that is down.
+            barY = bounds.maxY - top - (menuBarDown ? top : 0)
             barFrame = NSRect(x: 0, y: shell.topBarOut ? barY : bounds.maxY + inset, width: bounds.width, height: top)
         } else {
             barY = bounds.maxY - top - inset - Metrics.bar
@@ -381,6 +382,57 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         guard reachable != now, edgeToEdge else { return }
         reachable = now
         NSApp.presentationOptions = now ? BrowserWindow.reachOptions : BrowserWindow.hiddenOptions
+        menuBarWatch?.invalidate()
+        menuBarWatch = nil
+        if now {
+            menuBarWatch = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.menuBarMoved() }
+            }
+        } else if menuBarDown {
+            menuBarDown = false
+            layout(animated: true)
+        }
+    }
+
+    /// Hidden again, with nothing left watching: full screen begun, ended,
+    /// or the window back in front.
+    private func resetReach() {
+        reachable = false
+        reaching?.invalidate()
+        reaching = nil
+        menuBarWatch?.invalidate()
+        menuBarWatch = nil
+        menuBarDown = false
+    }
+
+    /// The menu bar is down over the strip beside the notch: the top bar
+    /// makes way, below it.
+    private var menuBarDown = false
+    private var menuBarWatch: Timer?
+
+    /// Checked while the menu bar is within reach: macOS says nothing when
+    /// it comes down or goes up. `menuBarVisible()` turns false as soon as
+    /// the pointer leaves it, though it stays down a while longer (measured),
+    /// so its window is looked at instead: the Window Server's, at the main
+    /// menu's level, more than half of it on the screen.
+    private func menuBarMoved() {
+        guard let screen = window?.screen else { return }
+        let level = Int(CGWindowLevelForKey(.mainMenuWindow))
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+        // Quartz measures down from the top of the first screen.
+        let screenTop = (NSScreen.screens.first?.frame.maxY ?? screen.frame.maxY) - screen.frame.maxY
+        let down = windows.contains { info in
+            guard info[kCGWindowOwnerName as String] as? String == "Window Server",
+                  info[kCGWindowLayer as String] as? Int == level,
+                  let bounds = info[kCGWindowBounds as String] as? [String: CGFloat],
+                  let x = bounds["X"], let y = bounds["Y"], let height = bounds["Height"], height > 0,
+                  x >= screen.frame.minX - 1, x < screen.frame.maxX, y < screenTop + height
+            else { return false }
+            return y > screenTop - height / 2
+        }
+        guard down != menuBarDown else { return }
+        menuBarDown = down
+        layout(animated: true)
     }
 
     private func pointerLeft() {
@@ -1018,6 +1070,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         if window.edgeToEdge {
             window.edgeToEdge = false
             shell.fullScreen = false
+            resetReach()
             NSApp.presentationOptions = []
             window.isMovable = true
             if let frame = windowedFrame { window.setFrame(frame, display: true, animate: true) }
@@ -1027,7 +1080,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             windowedFrame = window.frame
             window.edgeToEdge = true
             shell.fullScreen = true
-            reachable = false
+            resetReach()
             NSApp.presentationOptions = BrowserWindow.hiddenOptions
             window.isMovable = false
             window.setFrame(screen.frame, display: true, animate: true)
@@ -1132,7 +1185,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         // screen sets these options itself, and clearing them there left the
         // menu bar a black strip with nothing in it (measured).
         if edgeToEdge {
-            reachable = false
+            resetReach()
             NSApp.presentationOptions = BrowserWindow.hiddenOptions
         } else if [BrowserWindow.hiddenOptions, BrowserWindow.reachOptions].contains(NSApp.presentationOptions) {
             NSApp.presentationOptions = []
@@ -1154,6 +1207,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         menuObservers.forEach(NotificationCenter.default.removeObserver)
         menuObservers = []
         reaching?.invalidate()
+        menuBarWatch?.invalidate()
         for tab in shell.tabs {
             Extensions.shared.closed(tab, windowClosing: true)
             tab.discard()

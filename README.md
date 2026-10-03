@@ -10,7 +10,8 @@ the pages you open.
 - Full screen uses every pixel: the same bars, the same edges. On a screen
   with a notch the top bar sits on either side of it, in the strip the menu
   bar would have; the menu bar comes down only once the pointer has rested
-  against the top for a moment, the Dock as soon as it reaches the bottom.
+  against the top for a moment, moving the top bar down below it, and the
+  Dock as soon as the pointer reaches the bottom.
 - A new tab starts as a field over the current page; the tab exists only
   once you enter an address or a search.
 - Private tabs sit beside ordinary ones. They share one cookie jar that is

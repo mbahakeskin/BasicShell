@@ -1,7 +1,7 @@
 import SwiftUI
 import WebKit
 
-/// Back, forward, reload, the address, and the traffic lights at its left
+/// Back, forward, the address with reload in it, and the traffic lights at its left
 /// end, on glass along the top; in BasicShell's own full screen, on either
 /// side of the notch.
 struct TopBarView: View {
@@ -52,7 +52,6 @@ struct TopBarView: View {
                     IconButton(symbol: "chevron.right", enabled: tab?.canGoForward ?? false) { window.goForward(nil) }
                     Spacer(minLength: 12)
                     address.frame(maxWidth: 640)
-                    reload
                     Spacer(minLength: 12)
                     tools
                 }
@@ -80,7 +79,6 @@ struct TopBarView: View {
     @ViewBuilder private var navigation: some View {
         IconButton(symbol: "chevron.left", enabled: tab?.canGoBack ?? false) { window.goBack(nil) }
         IconButton(symbol: "chevron.right", enabled: tab?.canGoForward ?? false) { window.goForward(nil) }
-        reload
     }
 
     private var reload: some View {
@@ -122,24 +120,30 @@ struct TopBarView: View {
                 .frame(height: 28)
                 .background(Capsule().fill(Color.primary.opacity(0.08)))
         } else {
-            Button { shell.editingAddress = true } label: {
-                HStack(spacing: 6) {
-                    if let url = tab?.url {
-                        if url.scheme == "https" {
-                            Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(.secondary)
+            // Reload at the right end, inside; as much room at the left, so
+            // the address stays in the middle.
+            HStack(spacing: 0) {
+                Color.clear.frame(width: 28, height: 1)
+                Button { shell.editingAddress = true } label: {
+                    HStack(spacing: 6) {
+                        if let url = tab?.url {
+                            if url.scheme == "https" {
+                                Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(.secondary)
+                            }
+                            Text(Address.pretty(url)).lineLimit(1).truncationMode(.middle)
+                        } else {
+                            Text("Search or enter address").foregroundStyle(.secondary)
                         }
-                        Text(Address.pretty(url)).lineLimit(1).truncationMode(.middle)
-                    } else {
-                        Text("Search or enter address").foregroundStyle(.secondary)
                     }
+                    .font(.system(size: 13))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 28)
+                    .contentShape(Rectangle())
                 }
-                .font(.system(size: 13))
-                .frame(maxWidth: .infinity)
-                .frame(height: 28)
-                .background(Capsule().fill(Color.primary.opacity(0.05)))
-                .contentShape(Capsule())
+                .buttonStyle(.plain)
+                reload
             }
-            .buttonStyle(.plain)
+            .background(Capsule().fill(Color.primary.opacity(0.05)))
         }
     }
 }
