@@ -80,6 +80,7 @@ with Xcode, so views here store `State` by hand instead of using the attribute.
 ## Credits
 
 Parts of BasicShell (the address parser, the traffic-light
-placement and the Safari user-agent handling) are adapted from
+placement, the Safari user-agent handling and the WebSocket an extension's
+worker gets) are adapted from
 [Search](https://github.com/driceroland/Search) by Office Commun, under the
 MIT license. See [LICENSE](LICENSE).
