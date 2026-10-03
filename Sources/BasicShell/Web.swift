@@ -41,7 +41,25 @@ enum Web {
         Debug.attach(to: config)
         // Extensions work in private tabs as well (see Extensions.opened).
         config.webExtensionController = Extensions.shared.controller
+        // Off in WebKit unless turned on, and so off in Safari: scripts that
+        // ask for it then do their work at once instead of when the page is
+        // idle. Bitwarden's, which look over the page for fields whenever it
+        // changes, among them.
+        enable("RequestIdleCallbackEnabled", in: config.preferences)
         return config
+    }
+
+    /// Turns on one of WebKit's features by its key, with WebKit's private
+    /// `_features` and `_setEnabled:forFeature:`; nothing if they are gone.
+    private static func enable(_ key: String, in preferences: WKPreferences) {
+        let list = NSSelectorFromString("_features"), set = NSSelectorFromString("_setEnabled:forFeature:")
+        guard let meta = object_getClass(WKPreferences.self), class_respondsToSelector(meta, list),
+              let features = (WKPreferences.self as AnyObject).perform(list)?.takeUnretainedValue() as? [NSObject],
+              let feature = features.first(where: { ($0.value(forKey: "key") as? String) == key }),
+              preferences.responds(to: set), let method = class_getMethodImplementation(WKPreferences.self, set)
+        else { return }
+        typealias SetFeature = @convention(c) (AnyObject, Selector, Bool, AnyObject) -> Void
+        unsafeBitCast(method, to: SetFeature.self)(preferences, set, true, feature)
     }
 }
 

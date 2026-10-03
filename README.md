@@ -51,7 +51,9 @@ and `_setWindowOcclusionDetectionEnabled:` keeps a page whose video is in it
 awake on another desktop, for the captions to go on; and when an extension's background fails to
 start again after macOS ended its process, `_backgroundWebView`,
 `_webProcessIdentifier` and `_terminateServiceWorkers` let BasicShell end
-the broken processes and start it afresh.
+the broken processes and start it afresh; and `_features` with
+`_setEnabled:forFeature:` turn on `requestIdleCallback`, which WebKit has
+but keeps off.
 
 What it can't do: passkeys. WebKit gives them to a browser only with an
 entitlement Apple grants on request, tied to a paid Developer ID.
