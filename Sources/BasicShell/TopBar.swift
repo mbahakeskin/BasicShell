@@ -19,8 +19,9 @@ struct TopBarView: View {
     var body: some View {
         Group {
             if let notch = shell.notch {
-                // Beside the notch, in the strip the menu bar would have:
-                // the buttons to its left, the address to its right.
+                // One bar across the strip the menu bar would have, the
+                // notch in its middle: the buttons to its left, the address
+                // to its right.
                 HStack(spacing: 0) {
                     HStack(spacing: 2) {
                         FullScreenLights(window: window).padding(.horizontal, 8)
@@ -28,15 +29,13 @@ struct TopBarView: View {
                         Spacer(minLength: 8)
                         tools
                     }
-                    .padding(.horizontal, 4)
-                    .frame(width: notch.leftWidth, height: notch.height)
-                    .glassEffect(.regular, in: .rect(cornerRadius: min(Metrics.radius, notch.height / 2)))
+                    .frame(width: notch.leftWidth)
                     Spacer(minLength: 0)
-                    address
-                        .padding(.horizontal, 3)
-                        .frame(width: notch.rightWidth, height: notch.height)
-                        .glassEffect(.regular, in: .rect(cornerRadius: min(Metrics.radius, notch.height / 2)))
+                    address.frame(width: notch.rightWidth)
                 }
+                .padding(.horizontal, 4)
+                .frame(height: notch.height)
+                .glassEffect(.regular, in: .rect(cornerRadius: min(Metrics.radius, notch.height / 2)))
                 .padding(.horizontal, Metrics.inset)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {

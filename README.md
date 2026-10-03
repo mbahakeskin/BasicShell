@@ -8,10 +8,11 @@ the pages you open.
   the pointer reaches the left edge; back, forward, reload and the address
   come down from the top edge. Either can be pinned open (View menu).
 - Full screen uses every pixel: the same bars, the same edges. On a screen
-  with a notch the top bar sits on either side of it, in the strip the menu
-  bar would have; the menu bar comes down only once the pointer has rested
-  against the top for a moment, moving the top bar down below it, and the
-  Dock as soon as the pointer reaches the bottom.
+  with a notch the top bar runs through the strip the menu bar would have,
+  the notch in its middle, and the window's corners are the screen's own;
+  the menu bar comes down only once the pointer has rested against the top
+  for a moment, moving the top bar down below it, and the Dock as soon as
+  the pointer reaches the bottom.
 - A new tab starts as a field over the current page; the tab exists only
   once you enter an address or a search.
 - Private tabs sit beside ordinary ones. They share one cookie jar that is

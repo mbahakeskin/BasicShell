@@ -21,6 +21,9 @@ enum Motion {
     /// How long the pointer rests against the top in BasicShell's own full
     /// screen before the menu bar comes down over the top bar.
     static let menuBar: TimeInterval = 0.6
+    /// How long the top bar stays once the pointer leaves it, after the menu
+    /// bar was down over it.
+    static let lowered: TimeInterval = 0.5
 }
 
 /// A small icon button for the bars.

@@ -163,7 +163,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         if notch != nil {
             // The whole strip beside the notch, its halves drawn inside;
             // below the menu bar while that is down.
-            barY = bounds.maxY - top - (menuBarDown ? top : 0)
+            barY = bounds.maxY - top - (menuBarDown || barLowered ? top : 0)
             barFrame = NSRect(x: 0, y: shell.topBarOut ? barY : bounds.maxY + inset, width: bounds.width, height: top)
         } else {
             barY = bounds.maxY - top - inset - Metrics.bar
@@ -247,8 +247,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
               let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea
         else { return nil }
         let gap: CGFloat = 8
-        return Notch(leftWidth: max(0, left.width - Metrics.inset - gap),
-                     rightWidth: max(0, right.width - Metrics.inset - gap),
+        return Notch(leftWidth: max(0, left.width - Metrics.inset - 4 - gap),
+                     rightWidth: max(0, right.width - Metrics.inset - 4 - gap),
                      height: max(28, screen.safeAreaInsets.top - 4))
     }
 
@@ -361,6 +361,10 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         if point.y <= 1 {
             setReachable(true)
         } else if bounds.maxY - point.y <= 1 {
+            if barLowered, !menuBarDown {
+                barLowered = false
+                layout(animated: true)
+            }
             guard !reachable, reaching == nil else { return }
             reaching = Timer.scheduledTimer(withTimeInterval: Motion.menuBar, repeats: false) { [weak self] _ in
                 MainActor.assumeIsolated {
@@ -403,12 +407,17 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         menuBarWatch?.invalidate()
         menuBarWatch = nil
         menuBarDown = false
+        barLowered = false
     }
 
     /// The menu bar is down over the strip beside the notch: the top bar
     /// makes way, below it.
     private var menuBarDown = false
     private var menuBarWatch: Timer?
+    /// The top bar stays below where the menu bar was once that has gone back
+    /// up, so it doesn't move out from under the pointer, and lingers a
+    /// little longer, until it goes or the pointer is back at the top.
+    private var barLowered = false
 
     /// Checked while the menu bar is within reach: macOS says nothing when
     /// it comes down or goes up. `menuBarVisible()` turns false as soon as
@@ -432,6 +441,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         }
         guard down != menuBarDown else { return }
         menuBarDown = down
+        if down { barLowered = true }
         layout(animated: true)
     }
 
@@ -467,7 +477,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     /// The pointer wandered off a panel: it goes unless it comes back.
     private func linger(_ edge: Edge) {
         guard hiding[edge] == nil else { return }
-        hiding[edge] = Timer.scheduledTimer(withTimeInterval: Motion.linger, repeats: false) { [weak self] _ in
+        let wait = edge == .top && barLowered ? Motion.lowered : Motion.linger
+        hiding[edge] = Timer.scheduledTimer(withTimeInterval: wait, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.hiding[edge] = nil
@@ -509,6 +520,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         case .top:
             guard shell.topBarShown != shown else { return }
             shell.topBarShown = shown
+            if !shown { barLowered = false }
         }
         layout(animated: true)
     }
@@ -1243,7 +1255,42 @@ final class RootView: NSView {
 /// The browser's window: its full screen may be BasicShell's own (see
 /// BrowserWindow.coversNotch), which covers the menu bar's place.
 final class ShellWindow: NSWindow {
-    var edgeToEdge = false
+    var edgeToEdge = false {
+        didSet { if edgeToEdge != oldValue { squareCorners(edgeToEdge) } }
+    }
+
+    /// In BasicShell's own full screen the window has square corners: the
+    /// screen's own curve at the top, square at the bottom, as the screen
+    /// is. AppKit rounds a titled window's corners whatever it is told
+    /// (its private radius, set or overridden, changed nothing: measured),
+    /// so the window leaves its title bar off meanwhile; the top bar draws
+    /// its own traffic lights there anyway.
+    private var titledStyle: NSWindow.StyleMask?
+
+    private func squareCorners(_ square: Bool) {
+        // Changing the style hands the keyboard back to the window itself.
+        let responder = firstResponder
+        defer { if let responder, responder !== firstResponder { makeFirstResponder(responder) } }
+        if square {
+            titledStyle = styleMask
+            styleMask.remove(.titled)
+        } else if let titledStyle {
+            styleMask = titledStyle
+            self.titledStyle = nil
+        }
+    }
+
+    // Without a title bar a window would no longer take the keyboard.
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+
+    /// Without a title bar there is no close button, and AppKit would only
+    /// beep.
+    override func performClose(_ sender: Any?) {
+        guard !styleMask.contains(.titled) else { return super.performClose(sender) }
+        if delegate?.windowShouldClose?(self) ?? true { close() }
+    }
+
     /// Takes the request and answers whether it did; otherwise macOS's own.
     var onFullScreen: (() -> Bool)?
 
