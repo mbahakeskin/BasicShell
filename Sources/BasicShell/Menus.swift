@@ -21,7 +21,7 @@ enum Menus {
 
     private static func app() -> NSMenu {
         let menu = NSMenu(title: "BasicShell")
-        menu.addItem(item("About BasicShell", #selector(NSApplication.orderFrontStandardAboutPanel(_:))))
+        menu.addItem(item("About BasicShell", #selector(AppDelegate.showAbout(_:))))
         menu.addItem(.separator())
         menu.addItem(item("Settings…", #selector(AppDelegate.showSettings(_:)), ","))
         menu.addItem(.separator())

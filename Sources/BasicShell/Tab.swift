@@ -304,8 +304,7 @@ extension Tab: WKNavigationDelegate {
     // going to, so Reload and the page's own button go there again.
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
         let error = error as NSError
-        let failing = (error.userInfo[NSURLErrorFailingURLErrorKey] as? URL)
-            ?? (error.userInfo[NSURLErrorFailingURLStringErrorKey] as? String).flatMap(URL.init(string:))
+        let failing = error.userInfo[NSURLErrorFailingURLErrorKey] as? URL
         Debug.log("tab", "\(name): couldn't open \(failing?.host() ?? "?"): \(error.domain) \(error.code) \(error.localizedDescription)")
         // Stopped on purpose: by the person, by a download or another app
         // taking the address, by a new address before this one came.
