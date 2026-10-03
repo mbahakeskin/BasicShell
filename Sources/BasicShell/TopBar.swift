@@ -2,7 +2,8 @@ import SwiftUI
 import WebKit
 
 /// Back, forward, reload, the address, and the traffic lights at its left
-/// end, on glass along the top.
+/// end, on glass along the top; in BasicShell's own full screen, on either
+/// side of the notch.
 struct TopBarView: View {
     let shell: Shell
     let window: BrowserWindow
@@ -16,60 +17,96 @@ struct TopBarView: View {
     private var tab: Tab? { shell.selected }
 
     var body: some View {
-        HStack(spacing: 2) {
-            // Where the traffic lights sit (see Lights.swift); in full screen
-            // the bar draws its own.
-            if shell.fullScreen {
-                FullScreenLights(window: window).padding(.horizontal, 8)
+        Group {
+            if let notch = shell.notch {
+                // Beside the notch, in the strip the menu bar would have:
+                // the buttons to its left, the address to its right.
+                HStack(spacing: 0) {
+                    HStack(spacing: 2) {
+                        FullScreenLights(window: window).padding(.horizontal, 8)
+                        navigation
+                        Spacer(minLength: 8)
+                        tools
+                    }
+                    .padding(.horizontal, 4)
+                    .frame(width: notch.leftWidth, height: notch.height)
+                    .glassEffect(.regular, in: .rect(cornerRadius: min(Metrics.radius, notch.height / 2)))
+                    Spacer(minLength: 0)
+                    address
+                        .padding(.horizontal, 3)
+                        .frame(width: notch.rightWidth, height: notch.height)
+                        .glassEffect(.regular, in: .rect(cornerRadius: min(Metrics.radius, notch.height / 2)))
+                }
+                .padding(.horizontal, Metrics.inset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                Color.clear.frame(width: 68, height: 1)
+                HStack(spacing: 2) {
+                    // Where the traffic lights sit (see Lights.swift); in full
+                    // screen the bar draws its own.
+                    if shell.fullScreen {
+                        FullScreenLights(window: window).padding(.horizontal, 8)
+                    } else {
+                        Color.clear.frame(width: 68, height: 1)
+                    }
+                    IconButton(symbol: "chevron.left", enabled: tab?.canGoBack ?? false) { window.goBack(nil) }
+                    IconButton(symbol: "chevron.right", enabled: tab?.canGoForward ?? false) { window.goForward(nil) }
+                    Spacer(minLength: 12)
+                    address.frame(maxWidth: 640)
+                    reload
+                    Spacer(minLength: 12)
+                    tools
+                }
+                .padding(.horizontal, 6)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .gesture(WindowDragGesture())
+                        .onTapGesture(count: 2) { window.window?.performZoom(nil) }
+                }
+                .glassEffect(.regular, in: .rect(cornerRadius: Metrics.radius))
             }
-            IconButton(symbol: "chevron.left", enabled: tab?.canGoBack ?? false) { window.goBack(nil) }
-            IconButton(symbol: "chevron.right", enabled: tab?.canGoForward ?? false) { window.goForward(nil) }
-            Spacer(minLength: 12)
-            address.frame(maxWidth: 640)
-            IconButton(symbol: tab?.isLoading == true ? "xmark" : "arrow.clockwise", enabled: tab?.url != nil) { window.reload(nil) }
-                .help(tab?.isLoading == true ? "Stop Loading" : "Reload This Page (⌘R)")
-            Spacer(minLength: 12)
-            if tab?.url?.host() != nil {
-                let awake = Awake.shared.contains(tab?.url)
-                IconButton(symbol: awake ? "sun.max.fill" : "moon.zzz") { window.toggleAwake(nil) }
-                    .foregroundStyle(awake ? Color.orange : Color.primary)
-                    .help(awake ? "Let This Site Sleep" : "Keep This Site Awake")
-            }
-            ForEach(Extensions.shared.contexts, id: \.uniqueIdentifier) { context in
-                ExtensionButton(context: context, tab: tab, shell: shell)
-            }
-            if !Downloads.shared.items.isEmpty || shell.downloadsOpen {
-                DownloadsButton(shell: shell, window: window)
-            }
-            if tab?.url != nil {
-                let kept = Bookmarks.shared.contains(tab?.url)
-                IconButton(symbol: kept ? "star.fill" : "star") { window.bookmarkPage(nil) }
-                    .foregroundStyle(kept ? Color.yellow : Color.primary)
-                    .help(kept ? "Remove Bookmark (⌘D)" : "Bookmark This Page (⌘D)")
-            }
-            IconButton(symbol: "link", enabled: tab?.url != nil) { window.copyAddress(nil) }
-                .help("Copy Address (⇧⌘C)")
-            IconButton(symbol: "plus") { window.ask(.newTab(privately: false)) }
-                .help("New Tab")
         }
-        .padding(.horizontal, 6)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .coordinateSpace(.named("bar"))
-        .background {
-            Color.clear
-                .contentShape(Rectangle())
-                .gesture(WindowDragGesture())
-                .onTapGesture(count: 2) { window.window?.performZoom(nil) }
-        }
-        .glassEffect(.regular, in: .rect(cornerRadius: Metrics.radius))
         .onChange(of: shell.editingAddress) { _, editing in
             if editing { text = tab?.url?.absoluteString ?? "" }
             focused = editing
         }
         .onChange(of: focused) { _, now in
             if !now { shell.editingAddress = false }
+        }
+    }
+
+    @ViewBuilder private var navigation: some View {
+        IconButton(symbol: "chevron.left", enabled: tab?.canGoBack ?? false) { window.goBack(nil) }
+        IconButton(symbol: "chevron.right", enabled: tab?.canGoForward ?? false) { window.goForward(nil) }
+        reload
+    }
+
+    private var reload: some View {
+        IconButton(symbol: tab?.isLoading == true ? "xmark" : "arrow.clockwise", enabled: tab?.url != nil) { window.reload(nil) }
+            .help(tab?.isLoading == true ? "Stop Loading" : "Reload This Page (⌘R)")
+    }
+
+    /// The site's own: kept awake, its extensions, downloads, the bookmark.
+    @ViewBuilder private var tools: some View {
+        if tab?.url?.host() != nil {
+            let awake = Awake.shared.contains(tab?.url)
+            IconButton(symbol: awake ? "sun.max.fill" : "moon.zzz") { window.toggleAwake(nil) }
+                .foregroundStyle(awake ? Color.orange : Color.primary)
+                .help(awake ? "Let This Site Sleep" : "Keep This Site Awake")
+        }
+        ForEach(Extensions.shared.contexts, id: \.uniqueIdentifier) { context in
+            ExtensionButton(context: context, tab: tab, shell: shell)
+        }
+        if !Downloads.shared.items.isEmpty || shell.downloadsOpen {
+            DownloadsButton(shell: shell, window: window)
+        }
+        if tab?.url != nil {
+            let kept = Bookmarks.shared.contains(tab?.url)
+            IconButton(symbol: kept ? "star.fill" : "star") { window.bookmarkPage(nil) }
+                .foregroundStyle(kept ? Color.yellow : Color.primary)
+                .help(kept ? "Remove Bookmark (⌘D)" : "Bookmark This Page (⌘D)")
         }
     }
 

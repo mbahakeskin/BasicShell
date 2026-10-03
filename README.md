@@ -7,7 +7,10 @@ the pages you open.
 - The page takes the whole window. Tabs live in a sidebar that comes out when
   the pointer reaches the left edge; back, forward, reload and the address
   come down from the top edge. Either can be pinned open (View menu).
-- Full screen uses every pixel: the same bars, the same edges.
+- Full screen uses every pixel: the same bars, the same edges. On a screen
+  with a notch the top bar sits on either side of it, in the strip the menu
+  bar would have; the menu bar comes down only once the pointer has rested
+  against the top for a moment, the Dock as soon as it reaches the bottom.
 - A new tab starts as a field over the current page; the tab exists only
   once you enter an address or a search.
 - Private tabs sit beside ordinary ones. They share one cookie jar that is

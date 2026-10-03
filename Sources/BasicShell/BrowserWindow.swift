@@ -30,9 +30,20 @@ final class Shell {
     var downloadsOpen = false
     /// Where each extension's button is in the top bar, for its popup.
     var extensionButtons: [String: CGRect] = [:]
+    /// In BasicShell's own full screen on a screen with a notch, the room on
+    /// either side of it, where the top bar goes.
+    var notch: Notch?
 
     var sidebarOut: Bool { sidebarPinned || sidebarShown }
     var topBarOut: Bool { topBarPinned || topBarShown || editingAddress || popupOpen || downloadsOpen }
+}
+
+/// The top bar's two halves beside the notch: their widths, and their height
+/// in the strip the menu bar would have.
+struct Notch: Equatable {
+    var leftWidth: CGFloat
+    var rightWidth: CGFloat
+    var height: CGFloat
 }
 
 /// A browser window: its tabs, the page on show, and the two panels that
@@ -56,6 +67,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     private var popupWatch: (any NSObjectProtocol)?
     private var lights: Lights?
     private var monitors: [Any] = []
+    private var menuObservers: [NSObjectProtocol] = []
 
     private enum Edge { case side, top }
     private var revealing: [Edge: Timer] = [:]
@@ -144,11 +156,21 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         let bounds = root.bounds
         let inset = Metrics.inset
         let top = menuBarAllowance
-        let barY = bounds.maxY - top - inset - Metrics.bar
-        let barFrame = NSRect(
-            x: inset, y: shell.topBarOut ? barY : bounds.maxY + inset,
-            width: bounds.width - inset * 2, height: Metrics.bar
-        )
+        let notch = notchRoom
+        if shell.notch != notch { shell.notch = notch }
+        let barY: CGFloat
+        let barFrame: NSRect
+        if notch != nil {
+            // The whole strip beside the notch, its halves drawn inside.
+            barY = bounds.maxY - top
+            barFrame = NSRect(x: 0, y: shell.topBarOut ? barY : bounds.maxY + inset, width: bounds.width, height: top)
+        } else {
+            barY = bounds.maxY - top - inset - Metrics.bar
+            barFrame = NSRect(
+                x: inset, y: shell.topBarOut ? barY : bounds.maxY + inset,
+                width: bounds.width - inset * 2, height: Metrics.bar
+            )
+        }
         // In BasicShell's own full screen the strip beside the notch is free
         // until the menu bar is asked for, so the sidebar alone goes up to
         // the top; under the top bar when that is out.
@@ -216,6 +238,19 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     private var edgeToEdge: Bool { (window as? ShellWindow)?.edgeToEdge == true }
 
+    /// The room beside the notch in BasicShell's own full screen, from what
+    /// the screen says of the areas left and right of it; the halves keep
+    /// 8 points from it and the bar's inset from the screen's edges.
+    private var notchRoom: Notch? {
+        guard edgeToEdge, let screen = window?.screen, screen.safeAreaInsets.top > 0,
+              let left = screen.auxiliaryTopLeftArea, let right = screen.auxiliaryTopRightArea
+        else { return nil }
+        let gap: CGFloat = 8
+        return Notch(leftWidth: max(0, left.width - Metrics.inset - gap),
+                     rightWidth: max(0, right.width - Metrics.inset - gap),
+                     height: max(28, screen.safeAreaInsets.top - 4))
+    }
+
     /// How far down from the top the pointer brings the bar out: in full
     /// screen only the very top, where the menu bar comes down too, so the
     /// page beside the notch stays the page's.
@@ -263,6 +298,14 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             return event
         }
         monitors = [pointer, keys, clicks].compactMap { $0 }
+        let centre = NotificationCenter.default
+        let began = centre.addObserver(forName: NSMenu.didBeginTrackingNotification, object: NSApp.mainMenu, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.menuOpen = true }
+        }
+        let ended = centre.addObserver(forName: NSMenu.didEndTrackingNotification, object: NSApp.mainMenu, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.menuOpen = false }
+        }
+        menuObservers = [began, ended]
     }
 
     /// Esc: the field over the page, else the address being edited.
@@ -286,6 +329,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     private func pointer(at point: NSPoint) {
         let bounds = root.bounds
+        reach(point)
         if !shell.sidebarPinned {
             if point.x <= Metrics.edge, !shell.sidebarShown { arm(.side) } else { disarm(.side) }
             if shell.sidebarShown {
@@ -298,6 +342,45 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
                 if point.y < topBar.frame.minY - Metrics.slack { linger(.top) } else { stay(.top) }
             }
         }
+    }
+
+    /// The menu bar and the Dock within reach (see hiddenOptions).
+    private var reachable = false
+    private var reaching: Timer?
+    /// A menu of the menu bar is open: the menu bar stays for it.
+    private var menuOpen = false
+
+    /// In BasicShell's own full screen: the Dock as soon as the pointer
+    /// reaches the bottom edge, as before; the menu bar only once it has
+    /// rested against the top for a moment, the top bar having come out
+    /// first. Both go away again once the pointer is back on the page.
+    private func reach(_ point: NSPoint) {
+        guard edgeToEdge, NSApp.isActive else { return }
+        let bounds = root.bounds
+        if point.y <= 1 {
+            setReachable(true)
+        } else if bounds.maxY - point.y <= 1 {
+            guard !reachable, reaching == nil else { return }
+            reaching = Timer.scheduledTimer(withTimeInterval: Motion.menuBar, repeats: false) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.reaching = nil
+                    guard let screen = self.window?.screen, NSEvent.mouseLocation.y >= screen.frame.maxY - 2 else { return }
+                    self.setReachable(true)
+                }
+            }
+        } else {
+            reaching?.invalidate()
+            reaching = nil
+            let clear = bounds.maxY - point.y > menuBarAllowance + 40 && point.y > 160
+            if reachable, clear, !menuOpen { setReachable(false) }
+        }
+    }
+
+    private func setReachable(_ now: Bool) {
+        guard reachable != now, edgeToEdge else { return }
+        reachable = now
+        NSApp.presentationOptions = now ? BrowserWindow.reachOptions : BrowserWindow.hiddenOptions
     }
 
     private func pointerLeft() {
@@ -944,7 +1027,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             windowedFrame = window.frame
             window.edgeToEdge = true
             shell.fullScreen = true
-            NSApp.presentationOptions = [.autoHideMenuBar, .autoHideDock]
+            reachable = false
+            NSApp.presentationOptions = BrowserWindow.hiddenOptions
             window.isMovable = false
             window.setFrame(screen.frame, display: true, animate: true)
         }
@@ -1048,18 +1132,28 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         // screen sets these options itself, and clearing them there left the
         // menu bar a black strip with nothing in it (measured).
         if edgeToEdge {
-            NSApp.presentationOptions = BrowserWindow.ownOptions
-        } else if NSApp.presentationOptions == BrowserWindow.ownOptions {
+            reachable = false
+            NSApp.presentationOptions = BrowserWindow.hiddenOptions
+        } else if [BrowserWindow.hiddenOptions, BrowserWindow.reachOptions].contains(NSApp.presentationOptions) {
             NSApp.presentationOptions = []
         }
     }
 
-    private static let ownOptions: NSApplication.PresentationOptions = [.autoHideMenuBar, .autoHideDock]
+    /// In BasicShell's own full screen the menu bar and the Dock are put
+    /// away outright, so the top bar has the strip beside the notch to
+    /// itself; pressed against their edge they come within reach, as macOS's
+    /// auto-hiding ones (see reach(_:)). macOS hides the menu bar only with
+    /// the Dock.
+    private static let hiddenOptions: NSApplication.PresentationOptions = [.hideMenuBar, .hideDock]
+    private static let reachOptions: NSApplication.PresentationOptions = [.autoHideMenuBar, .autoHideDock]
 
     func windowWillClose(_ notification: Notification) {
         if edgeToEdge { NSApp.presentationOptions = [] }
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
+        menuObservers.forEach(NotificationCenter.default.removeObserver)
+        menuObservers = []
+        reaching?.invalidate()
         for tab in shell.tabs {
             Extensions.shared.closed(tab, windowClosing: true)
             tab.discard()

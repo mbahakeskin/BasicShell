@@ -18,6 +18,9 @@ enum Motion {
     /// crossing the edge on the way into the window doesn't open it.
     static let dwell: TimeInterval = 0.12
     static let linger: TimeInterval = 0.12
+    /// How long the pointer rests against the top in BasicShell's own full
+    /// screen before the menu bar comes down over the top bar.
+    static let menuBar: TimeInterval = 0.6
 }
 
 /// A small icon button for the bars.
