@@ -37,7 +37,9 @@ struct OmniboxView: View {
         guard !typed.isEmpty else { return [] }
         var list: [Suggestion] = [.typed(typed)]
         var seen: Set<URL> = []
-        for tab in Windows.all.flatMap({ $0.shell.tabs }) {
+        // Not the tab whose own address this is.
+        let editing = shell.asking == .address ? shell.selected : nil
+        for tab in Windows.all.flatMap({ $0.shell.tabs }) where tab !== editing {
             guard let url = tab.url, tab.isPrivate == privately, matches(typed, title: tab.title, url: url), seen.insert(url).inserted else { continue }
             list.append(.tab(tab))
             if list.count >= 3 { break }
