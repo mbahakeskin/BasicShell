@@ -16,9 +16,10 @@ the pages you open.
 - Several windows, each with its own tabs.
 - Ads and trackers, YouTube's ads included, are blocked by uBlock Origin
   Lite, the Safari extension that comes with its app from the App Store.
-  BasicShell adds it from inside that app when it is on the Mac; the first
-  launch without it asks whether to get it, and with a yes it is added as
-  soon as it is there (Settings › Privacy turns that off). Its button in the
+  BasicShell adds it when that app is on the Mac, running it from a copy of
+  the app's files that keeps WebKit from compiling its rules anew at every
+  launch; the first launch without it asks whether to get it, and with a
+  yes it is added as soon as it is there (Settings › Privacy turns that off). Its button in the
   top bar turns it off for a site; removed, it stays removed.
 - Tabs off screen are frozen: no script, no timers, nothing lost. After six
   hours off screen, or when memory runs short, a tab is unloaded and comes
