@@ -55,6 +55,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSMicrophoneUsageDescription</key><string>A web page you are visiting wants to use the microphone.</string>
   <key>NSLocationUsageDescription</key><string>A web page you allowed wants to know where you are.</string>
   <key>NSLocationWhenInUseUsageDescription</key><string>A web page you allowed wants to know where you are.</string>
+  <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoadsInWebContent</key><true/></dict>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>

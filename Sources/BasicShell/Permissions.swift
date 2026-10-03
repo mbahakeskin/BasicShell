@@ -27,6 +27,14 @@ final class Permissions {
         location[site] = allowed
         UserDefaults.standard.set(location, forKey: "permissions.location")
     }
+
+    /// Site to whether it may show notifications (see WebNotifications).
+    private(set) var notifications: [String: Bool] = UserDefaults.standard.dictionary(forKey: "permissions.notifications") as? [String: Bool] ?? [:]
+
+    func setNotifications(_ site: String, _ allowed: Bool?) {
+        notifications[site] = allowed
+        UserDefaults.standard.set(notifications, forKey: "permissions.notifications")
+    }
 }
 
 extension Tab {

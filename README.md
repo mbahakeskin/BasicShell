@@ -39,6 +39,14 @@ the pages you open.
   inside the app it came with. Chrome extensions can talk to apps on this
   Mac the way they do in Chrome (Bitwarden's Touch ID through its desktop
   app).
+- An address typed as http is tried over https first, falling back to http
+  when the site has none; tracking parameters (`fbclid`, `gclid` and the
+  like) come off the links you follow, from the list macOS keeps for Safari.
+- Notifications from the sites you allow (WhatsApp, Gmail, Discord…) go to
+  Notification Center; a click brings their tab forward. Each site asks once
+  and is remembered (never for a private tab); Settings › Privacy takes it
+  back. Only while the site is open in a tab: there is no push to a closed
+  one.
 - `⇧⌘C` copies the address.
 
 Private WebKit features are used, each only where WebKit has it:
@@ -52,8 +60,8 @@ awake on another desktop, for the captions to go on; and when an extension's bac
 start again after macOS ended its process, `_backgroundWebView`,
 `_webProcessIdentifier` and `_terminateServiceWorkers` let BasicShell end
 the broken processes and start it afresh; and `_features` with
-`_setEnabled:forFeature:` turn on `requestIdleCallback`, which WebKit has
-but keeps off; `_setDeveloperExtrasEnabled:` puts Inspect Element in a
+`_setEnabled:forFeature:` turn on `requestIdleCallback`, HTTPS first and
+the removal of tracking parameters, which WebKit has but keeps off; `_setDeveloperExtrasEnabled:` puts Inspect Element in a
 page's right-click menu, which `_webView:contextMenu:forElement:` lets
 BasicShell arrange. Outside WebKit, SkyLight's `CGSCopyManagedDisplaySpaces` and
 `CGSCopySpacesForWindows` tell which way you went to another desktop, for a

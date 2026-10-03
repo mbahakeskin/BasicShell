@@ -40,6 +40,8 @@ final class Tab: NSObject, Identifiable {
 
     /// Location answers given in this tab, by site (see Permissions.swift).
     @ObservationIgnored var locationAnswers: [String: Bool] = [:]
+    /// Notification answers likewise (see Notifications.swift).
+    @ObservationIgnored var notificationAnswers: [String: Bool] = [:]
     /// Its page is suspended (see Freeze in Sleep.swift).
     @ObservationIgnored var isFrozen = false
     /// When it was last on screen.

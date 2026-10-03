@@ -154,6 +154,24 @@ private struct PrivacySettings: View {
                     }
                 }
             }
+            Section("Notifications") {
+                let sites = Permissions.shared.notifications.sorted { $0.key < $1.key }
+                if sites.isEmpty {
+                    Text("No site has asked to show notifications.").foregroundStyle(.secondary)
+                }
+                ForEach(sites, id: \.key) { site, allowed in
+                    HStack {
+                        Text(site)
+                        Spacer()
+                        Text(allowed ? "Allowed" : "Denied").foregroundStyle(.secondary)
+                        Button {
+                            Permissions.shared.setNotifications(site, nil)
+                            WebNotifications.tell(site, "default")
+                        } label: { Image(systemName: "xmark.circle.fill") }
+                            .buttonStyle(.borderless)
+                    }
+                }
+            }
             Section("Browsing data") {
                 Button("Clear History…") { confirm("Clear all history?", "Every page in History is forgotten.") { History.shared.clear() } }
                 Button("Remove All Website Data…") {

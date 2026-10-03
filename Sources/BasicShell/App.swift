@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Debug.start()
         LocationAccess.start()
+        WebNotifications.start()
         Freeze.guardScripts()
         Sleep.start()
         NSApp.mainMenu = Menus.build()

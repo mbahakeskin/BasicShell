@@ -38,6 +38,7 @@ enum Web {
         config.allowsAirPlayForMediaPlayback = true
         config.userContentController.addUserScript(Sleep.typingWatch)
         Geolocation.attach(to: config)
+        WebNotifications.attach(to: config)
         Debug.attach(to: config)
         // Extensions work in private tabs as well (see Extensions.opened).
         config.webExtensionController = Extensions.shared.controller
@@ -46,6 +47,11 @@ enum Web {
         // idle. Bitwarden's, which look over the page for fields whenever it
         // changes, among them.
         enable("RequestIdleCallbackEnabled", in: config.preferences)
+        // Tracking parameters (fbclid, gclid and the like) taken off links,
+        // from the list macOS keeps for Safari; and an http address tried
+        // over https first, falling back when that fails.
+        enable("FilterLinkDecorationByDefaultEnabled", in: config.preferences)
+        enable("HTTPSByDefaultEnabled", in: config.preferences)
         // Inspect Element in a page's right-click menu (WebKit's private
         // `_setDeveloperExtrasEnabled:`); nothing runs until it is chosen.
         let extras = NSSelectorFromString("_setDeveloperExtrasEnabled:")
