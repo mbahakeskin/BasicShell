@@ -36,12 +36,6 @@ final class Bookmarks {
         return true
     }
 
-    func rename(_ id: UUID, to title: String) {
-        guard let index = marks.firstIndex(where: { $0.id == id }) else { return }
-        marks[index].title = title
-        save()
-    }
-
     func remove(_ ids: Set<UUID>) {
         marks.removeAll { ids.contains($0.id) }
         save()

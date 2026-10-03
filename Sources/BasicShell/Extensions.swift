@@ -83,7 +83,10 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
             called = true
             loaded()
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: once)
+        Task {
+            try? await Task.sleep(for: .seconds(3))
+            once()
+        }
         Task {
             for item in installed {
                 do { try await load(item.id) } catch {
