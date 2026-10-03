@@ -24,6 +24,8 @@ final class Tab: NSObject, Identifiable {
 
     private(set) var title = ""
     private(set) var url: URL?
+    /// The address BasicShell's page about a failed load stands in for.
+    @ObservationIgnored private var errorShown: URL?
     private(set) var isLoading = false
     private(set) var progress = 0.0
     private(set) var canGoBack = false
@@ -290,8 +292,56 @@ extension Tab: WKNavigationDelegate {
             }
         }
         host?.painted(self)
+        // Not BasicShell's own page saying it couldn't be opened.
+        if let shown = errorShown, webView.url == shown { errorShown = nil; return }
         if !isPrivate, let url = webView.url { History.shared.record(url, title: webView.title ?? "") }
         Favicons.fetch(for: self)
+    }
+
+    // A page that couldn't be reached left the tab blank, with nothing for
+    // Reload to try again (a search on a shaky connection, typed into a new
+    // tab). Now, as in Safari, the tab shows why at the address it was
+    // going to, so Reload and the page's own button go there again.
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+        let error = error as NSError
+        let failing = (error.userInfo[NSURLErrorFailingURLErrorKey] as? URL)
+            ?? (error.userInfo[NSURLErrorFailingURLStringErrorKey] as? String).flatMap(URL.init(string:))
+        Debug.log("tab", "\(name): couldn't open \(failing?.host() ?? "?"): \(error.domain) \(error.code) \(error.localizedDescription)")
+        // Stopped on purpose: by the person, by a download or another app
+        // taking the address, by a new address before this one came.
+        let stopped = (error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled)
+            || (error.domain == "WebKitErrorDomain" && [102, 204].contains(error.code))
+        guard !stopped, let failing, ["http", "https"].contains(failing.scheme?.lowercased() ?? "") else { return }
+        errorShown = failing
+        webView.loadSimulatedRequest(URLRequest(url: failing), responseHTML: Tab.errorPage(for: failing, error))
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+        let error = error as NSError
+        guard !(error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled) else { return }
+        Debug.log("tab", "\(name): stopped loading: \(error.domain) \(error.code) \(error.localizedDescription)")
+    }
+
+    private static func errorPage(for url: URL, _ error: NSError) -> String {
+        let escape = { (text: String) in
+            text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
+                .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
+        }
+        let host = escape(url.host() ?? url.absoluteString)
+        return """
+        <!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light dark">
+        <title>\(host)</title><style>
+        body { font: 14px -apple-system, system-ui; display: grid; place-items: center; min-height: 90vh; margin: 0; color: CanvasText; background: Canvas; }
+        main { max-width: 440px; padding: 24px; text-align: center; }
+        h1 { font-size: 20px; font-weight: 600; margin: 0 0 8px; }
+        p { color: GrayText; margin: 0 0 20px; line-height: 1.45; }
+        button { font: inherit; padding: 6px 16px; border-radius: 8px; border: 0; background: AccentColor; color: AccentColorText; }
+        </style></head><body><main>
+        <h1>Can't open \(host)</h1>
+        <p>\(escape(error.localizedDescription))</p>
+        <button onclick="location.reload()">Try Again</button>
+        </main></body></html>
+        """
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

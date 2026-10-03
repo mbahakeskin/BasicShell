@@ -751,8 +751,11 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     }
 
     @objc func reload(_ sender: Any?) {
-        guard let web = shell.selected?.webView else { return }
-        if web.isLoading { web.stopLoading() } else { web.reload() }
+        guard let tab = shell.selected, let web = tab.webView else { return }
+        if web.isLoading { web.stopLoading() }
+        // Nothing shown yet (its first address never came): that address again.
+        else if web.url == nil, let url = tab.url { tab.load(url) }
+        else { web.reload() }
     }
 
     @objc func goBack(_ sender: Any?) { shell.selected?.webView?.goBack() }
