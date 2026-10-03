@@ -7,16 +7,16 @@ struct SidebarView: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            HStack(spacing: 2) {
-                IconButton(symbol: "plus") { window.ask(.newTab(privately: false)) }
-                    .help("New Tab")
-                IconButton(symbol: "eyeglasses") { window.ask(.newTab(privately: true)) }
-                    .help("New Private Tab")
-                Spacer()
-                IconButton(symbol: shell.sidebarPinned ? "sidebar.left" : "pin") { window.toggleSidebarPinned(nil) }
-                    .help(shell.sidebarPinned ? "Hide Sidebar When Not in Use" : "Keep Sidebar Open")
+            if shell.sidebarOnly {
+                controls
+            } else {
+                HStack(spacing: 2) {
+                    newTabButtons
+                    Spacer()
+                    pinButton
+                }
+                .padding(.horizontal, 4)
             }
-            .padding(.horizontal, 4)
 
             // Pinned tabs: three to a row, each a tile with its icon.
             let pinned = shell.tabs.filter(\.pinned)
@@ -46,9 +46,61 @@ struct SidebarView: View {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
         }
-        .padding(8)
+        .padding(.horizontal, 8)
+        .padding(.bottom, 8)
+        // In the sidebar-only layout the traffic lights sit in its first
+        // row, centred where Lights puts them.
+        .padding(.top, shell.sidebarOnly ? 6 : 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .glassEffect(.regular, in: .rect(cornerRadius: Metrics.radius))
+        .coordinateSpace(.named("bar"))
+    }
+
+    private var newTabButtons: some View {
+        Group {
+            IconButton(symbol: "plus") { window.ask(.newTab(privately: false)) }
+                .help("New Tab")
+            IconButton(symbol: "eyeglasses") { window.ask(.newTab(privately: true)) }
+                .help("New Private Tab")
+        }
+    }
+
+    private var pinButton: some View {
+        IconButton(symbol: shell.sidebarPinned ? "sidebar.left" : "pin") { window.toggleSidebarPinned(nil) }
+            .help(shell.sidebarPinned ? "Hide Sidebar When Not in Use" : "Keep Sidebar Open")
+    }
+
+    /// What the top bar has, when there is none (Settings › General): the
+    /// traffic lights, back and forward, and the window is dragged from
+    /// there; the site, reload in it; the site's own buttons.
+    @ViewBuilder private var controls: some View {
+        let tab = shell.selected
+        HStack(spacing: 2) {
+            if shell.fullScreen {
+                FullScreenLights(window: window).padding(.horizontal, 6)
+            } else {
+                Color.clear.frame(width: 64, height: 1)
+            }
+            IconButton(symbol: "chevron.left", enabled: tab?.canGoBack ?? false) { window.goBack(nil) }
+            IconButton(symbol: "chevron.right", enabled: tab?.canGoForward ?? false) { window.goForward(nil) }
+            Spacer()
+            pinButton
+        }
+        .padding(.horizontal, 4)
+        .background {
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(WindowDragGesture())
+                .onTapGesture(count: 2) { window.window?.performZoom(nil) }
+        }
+        SiteField(shell: shell, window: window)
+            .padding(.vertical, 2)
+        HStack(spacing: 2) {
+            newTabButtons
+            Spacer(minLength: 4)
+            SiteTools(shell: shell, window: window, downloadsEdge: .trailing)
+        }
+        .padding(.horizontal, 4)
     }
 
     /// How far in a tab sits: one step under the tab a link in it came from,

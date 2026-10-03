@@ -68,4 +68,10 @@ enum Address {
         let path = url.path()
         return path.isEmpty || path == "/" ? bare : bare + path
     }
+
+    /// The site alone: its host, without "www.".
+    static func site(_ url: URL) -> String {
+        guard let host = url.host() else { return url.absoluteString }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
 }

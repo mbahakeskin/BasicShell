@@ -42,9 +42,15 @@ private struct GeneralSettings: View {
     @AppStorage("engine.region") private var region = true
     @AppStorage("debug.enabled") private var debug = false
     @AppStorage("fullscreen.notch") private var notch = true
+    @AppStorage("layout.sidebarOnly") private var sidebarOnly = false
 
     var body: some View {
         Form {
+            Picker("Layout", selection: $sidebarOnly) {
+                Text("Top bar and sidebar").tag(false)
+                Text("Sidebar only").tag(true)
+            }
+            .onChange(of: sidebarOnly) { _, only in Windows.all.forEach { $0.setSidebarOnly(only) } }
             Picker("Search with", selection: $engine) {
                 ForEach(Engine.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
             }

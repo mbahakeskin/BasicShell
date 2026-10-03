@@ -6,7 +6,10 @@ the pages you open.
 
 - The page takes the whole window. Tabs live in a sidebar that comes out when
   the pointer reaches the left edge; back, forward, reload and the address
-  come down from the top edge. Either can be pinned open (View menu).
+  come down from the top edge. Either can be pinned open (View menu). Or,
+  in Settings › General, there is no top bar: the sidebar has the traffic
+  lights, back and forward, the site (a click brings up its whole address
+  over the page) and the site's buttons above the tabs.
 - Full screen uses every pixel: the same bars, the same edges. On a screen
   with a notch the top bar runs through the strip the menu bar would have,
   the notch in its middle, and the window's corners are the screen's own;

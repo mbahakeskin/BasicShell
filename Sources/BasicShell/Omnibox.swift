@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// The field in the middle of the window, over the page, for a new tab.
+/// The field in the middle of the window, over the page, for a new tab (or,
+/// in the sidebar-only layout, for the tab's own address).
 /// Nothing is created until an address or a search is entered; Esc or a
 /// click outside puts it away. Under it: what was typed, then open tabs,
 /// bookmarks and history that match, walked with the arrow keys.
@@ -21,7 +22,9 @@ struct OmniboxView: View {
     }
     @FocusState private var focused: Bool
 
-    private var privately: Bool { shell.asking == .newTab(privately: true) }
+    private var privately: Bool {
+        shell.asking == .newTab(privately: true) || (shell.asking == .address && shell.selected?.isPrivate == true)
+    }
 
     enum Suggestion {
         case typed(String)
@@ -97,7 +100,11 @@ struct OmniboxView: View {
             .glassEffect(.regular, in: .rect(cornerRadius: 18))
             .padding(.top, 150)
         }
-        .onAppear { focused = true }
+        .onAppear {
+            // The tab's own address, to change.
+            if shell.asking == .address, let url = shell.selected?.url { text = url.absoluteString }
+            focused = true
+        }
     }
 
     private func row(_ suggestion: Suggestion, chosen: Bool) -> some View {

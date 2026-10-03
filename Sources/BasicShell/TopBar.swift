@@ -18,7 +18,11 @@ struct TopBarView: View {
 
     var body: some View {
         Group {
-            if let notch = shell.notch {
+            if shell.sidebarOnly {
+                // Its buttons are in the sidebar; drawn here as well, the
+                // extensions' would say they were here (see present(_:for:)).
+                Color.clear
+            } else if let notch = shell.notch {
                 // One bar across the strip the menu bar would have, the
                 // notch in its middle: the buttons to its left, the address
                 // to its right.
@@ -27,7 +31,7 @@ struct TopBarView: View {
                         FullScreenLights(window: window).padding(.horizontal, 8)
                         navigation
                         Spacer(minLength: 8)
-                        tools
+                        SiteTools(shell: shell, window: window)
                     }
                     .frame(width: notch.leftWidth)
                     Spacer(minLength: 0)
@@ -52,7 +56,7 @@ struct TopBarView: View {
                     Spacer(minLength: 12)
                     address.frame(maxWidth: 640)
                     Spacer(minLength: 12)
-                    tools
+                    SiteTools(shell: shell, window: window)
                 }
                 .padding(.horizontal, 6)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -83,28 +87,6 @@ struct TopBarView: View {
     private var reload: some View {
         IconButton(symbol: tab?.isLoading == true ? "xmark" : "arrow.clockwise", enabled: tab?.url != nil) { window.reload(nil) }
             .help(tab?.isLoading == true ? "Stop Loading" : "Reload This Page (⌘R)")
-    }
-
-    /// The site's own: kept awake, its extensions, downloads, the bookmark.
-    @ViewBuilder private var tools: some View {
-        if tab?.url?.host() != nil {
-            let awake = Awake.shared.contains(tab?.url)
-            IconButton(symbol: awake ? "sun.max.fill" : "moon.zzz") { window.toggleAwake(nil) }
-                .foregroundStyle(awake ? Color.orange : Color.primary)
-                .help(awake ? "Let This Site Sleep" : "Keep This Site Awake")
-        }
-        ForEach(Extensions.shared.contexts, id: \.uniqueIdentifier) { context in
-            ExtensionButton(context: context, tab: tab, shell: shell)
-        }
-        if !Downloads.shared.items.isEmpty || shell.downloadsOpen {
-            DownloadsButton(shell: shell, window: window)
-        }
-        if tab?.url != nil {
-            let kept = Bookmarks.shared.contains(tab?.url)
-            IconButton(symbol: kept ? "star.fill" : "star") { window.bookmarkPage(nil) }
-                .foregroundStyle(kept ? Color.yellow : Color.primary)
-                .help(kept ? "Remove Bookmark (⌘D)" : "Bookmark This Page (⌘D)")
-        }
     }
 
     @ViewBuilder private var address: some View {
@@ -144,6 +126,73 @@ struct TopBarView: View {
             }
             .background(Capsule().fill(Color.primary.opacity(0.05)))
         }
+    }
+}
+
+/// The site's own, in the top bar or the sidebar: kept awake, its
+/// extensions, downloads, the bookmark.
+struct SiteTools: View {
+    let shell: Shell
+    let window: BrowserWindow
+    /// Which side of its button the downloads open on.
+    var downloadsEdge: Edge = .bottom
+
+    private var tab: Tab? { shell.selected }
+
+    var body: some View {
+        if tab?.url?.host() != nil {
+            let awake = Awake.shared.contains(tab?.url)
+            IconButton(symbol: awake ? "sun.max.fill" : "moon.zzz") { window.toggleAwake(nil) }
+                .foregroundStyle(awake ? Color.orange : Color.primary)
+                .help(awake ? "Let This Site Sleep" : "Keep This Site Awake")
+        }
+        ForEach(Extensions.shared.contexts, id: \.uniqueIdentifier) { context in
+            ExtensionButton(context: context, tab: tab, shell: shell)
+        }
+        if !Downloads.shared.items.isEmpty || shell.downloadsOpen {
+            DownloadsButton(shell: shell, window: window, edge: downloadsEdge)
+        }
+        if tab?.url != nil {
+            let kept = Bookmarks.shared.contains(tab?.url)
+            IconButton(symbol: kept ? "star.fill" : "star") { window.bookmarkPage(nil) }
+                .foregroundStyle(kept ? Color.yellow : Color.primary)
+                .help(kept ? "Remove Bookmark (⌘D)" : "Bookmark This Page (⌘D)")
+        }
+    }
+}
+
+/// The site in the sidebar: its name only, reload at the right end; a click
+/// brings the field up over the page with the whole address.
+struct SiteField: View {
+    let shell: Shell
+    let window: BrowserWindow
+
+    private var tab: Tab? { shell.selected }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Color.clear.frame(width: 28, height: 1)
+            Button { window.openLocation(nil) } label: {
+                HStack(spacing: 6) {
+                    if let url = tab?.url {
+                        if url.scheme == "https" {
+                            Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(.secondary)
+                        }
+                        Text(Address.site(url)).lineLimit(1).truncationMode(.middle)
+                    } else {
+                        Text("Search or enter address").foregroundStyle(.secondary)
+                    }
+                }
+                .font(.system(size: 13))
+                .frame(maxWidth: .infinity)
+                .frame(height: 28)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            IconButton(symbol: tab?.isLoading == true ? "xmark" : "arrow.clockwise", enabled: tab?.url != nil) { window.reload(nil) }
+                .help(tab?.isLoading == true ? "Stop Loading" : "Reload This Page (⌘R)")
+        }
+        .background(Capsule().fill(Color.primary.opacity(0.06)))
     }
 }
 
@@ -190,6 +239,7 @@ struct FullScreenLights: View {
 struct DownloadsButton: View {
     let shell: Shell
     let window: BrowserWindow
+    var edge: Edge = .bottom
 
     var body: some View {
         let running = Downloads.shared.items.filter { $0.state == .running }
@@ -216,7 +266,7 @@ struct DownloadsButton: View {
         }
         .buttonStyle(.borderless)
         .help("Downloads")
-        .popover(isPresented: open, arrowEdge: .bottom) { DownloadsPopover() }
+        .popover(isPresented: open, arrowEdge: edge) { DownloadsPopover() }
     }
 }
 

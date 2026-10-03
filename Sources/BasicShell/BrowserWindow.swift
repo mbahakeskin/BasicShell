@@ -6,6 +6,8 @@ import WebKit
 /// What the address field in the middle of the window is up for.
 enum Ask: Equatable {
     case newTab(privately: Bool)
+    /// The tab's own address, edited over the page (the sidebar-only layout).
+    case address
 }
 
 /// One window's state, which its SwiftUI parts draw from.
@@ -34,8 +36,13 @@ final class Shell {
     /// either side of it, where the top bar goes.
     var notch: Notch?
 
-    var sidebarOut: Bool { sidebarPinned || sidebarShown }
-    var topBarOut: Bool { topBarPinned || topBarShown || editingAddress || popupOpen || downloadsOpen }
+    /// No top bar: what it has is at the top of the sidebar (Settings ›
+    /// General).
+    var sidebarOnly = UserDefaults.standard.bool(forKey: "layout.sidebarOnly")
+
+    var sidebarOut: Bool { sidebarPinned || sidebarShown || (sidebarOnly && (popupOpen || downloadsOpen)) }
+    var topBarKept: Bool { topBarPinned && !sidebarOnly }
+    var topBarOut: Bool { !sidebarOnly && (topBarPinned || topBarShown || editingAddress || popupOpen || downloadsOpen) }
 }
 
 /// The top bar's two halves beside the notch: their widths, and their height
@@ -175,21 +182,21 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         // In BasicShell's own full screen the strip beside the notch is free
         // until the menu bar is asked for, so the sidebar alone goes up to
         // the top; under the top bar when that is out.
-        let sideTop = shell.topBarOut ? barY - inset : bounds.maxY - (edgeToEdge ? 0 : top) - inset
+        let sideTop = shell.topBarOut ? barY - inset : bounds.maxY - (edgeToEdge ? (menuBarDown ? top : 0) : top) - inset
         let sideFrame = NSRect(
             x: shell.sidebarOut ? inset : -Metrics.sidebar - inset,
             y: inset, width: Metrics.sidebar, height: max(0, sideTop - inset)
         )
 
         var pageFrame = bounds
-        let framed = shell.sidebarPinned || shell.topBarPinned
+        let framed = shell.sidebarPinned || shell.topBarKept
         if framed {
             pageFrame = bounds.insetBy(dx: inset, dy: inset)
             if shell.sidebarPinned {
                 pageFrame.origin.x = sideFrame.maxX + inset
                 pageFrame.size.width = bounds.maxX - inset - pageFrame.minX
             }
-            if shell.topBarPinned {
+            if shell.topBarKept {
                 pageFrame.size.height = barY - inset - pageFrame.minY
             }
         }
@@ -224,7 +231,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         omnibox?.frame = bounds
         panelHost?.frame = bounds
         toastView?.frame = NSRect(x: 0, y: bounds.maxY - 120, width: bounds.width, height: 60)
-        lights?.show(shell.topBarOut, animated: animated)
+        lights?.show(shell.sidebarOnly ? shell.sidebarOut : shell.topBarOut, animated: animated)
     }
 
     /// In full screen the menu bar comes down over the top of the window
@@ -337,7 +344,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
                 if point.x > sidebar.frame.maxX + Metrics.slack { linger(.side) } else { stay(.side) }
             }
         }
-        if !shell.topBarPinned {
+        if !shell.topBarKept, !shell.sidebarOnly {
             if bounds.maxY - point.y <= topReach, !shell.topBarShown { arm(.top) } else { disarm(.top) }
             if shell.topBarShown {
                 if point.y < topBar.frame.minY - Metrics.slack { linger(.top) } else { stay(.top) }
@@ -783,6 +790,11 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     func commit(_ typed: String) {
         guard let url = Address.resolve(typed) else { return }
+        if shell.asking == .address, let tab = shell.selected {
+            dismissOmnibox()
+            tab.load(url)
+            return
+        }
         let privately = if case .newTab(let p)? = shell.asking { p } else { false }
         dismissOmnibox()
         let tab = Tab(privately: privately)
@@ -801,19 +813,32 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     // MARK: - extensions
 
-    /// An extension's popup, under its button; the top bar stays out while it is open.
+    /// The layout changed in Settings: the top bar, or everything in the
+    /// sidebar.
+    func setSidebarOnly(_ only: Bool) {
+        shell.sidebarOnly = only
+        shell.topBarShown = false
+        shell.editingAddress = false
+        layout(animated: true)
+    }
+
+    /// An extension's popup, under its button (beside it, in the sidebar);
+    /// the bar it is in stays out while it is open.
     func present(_ popover: NSPopover, for context: WKWebExtensionContext) {
         shell.popupOpen = true
         layout(animated: true)
         window?.makeKeyAndOrderFront(nil)
         DispatchQueue.main.asyncAfter(deadline: .now() + Motion.reveal) { [weak self] in
             guard let self else { return }
-            let bar = self.topBar!
+            let side = self.shell.sidebarOnly
+            let bar: NSView = side ? self.sidebar : self.topBar
             var rect = self.shell.extensionButtons[context.uniqueIdentifier]
                 ?? NSRect(x: bar.bounds.maxX - 60, y: 6, width: 28, height: 28)
             if !bar.isFlipped { rect.origin.y = bar.bounds.height - rect.maxY }
+            // In the sidebar, out past its edge, level with the button.
+            if side { rect = NSRect(x: bar.bounds.maxX - 1, y: rect.minY, width: 1, height: rect.height) }
             popover.behavior = .transient
-            popover.show(relativeTo: rect, of: bar, preferredEdge: bar.isFlipped ? .maxY : .minY)
+            popover.show(relativeTo: rect, of: bar, preferredEdge: side ? .maxX : bar.isFlipped ? .maxY : .minY)
             Debug.log("extension", "popup on screen: \(popover.isShown), size \(Int(popover.contentSize.width))×\(Int(popover.contentSize.height))")
             if let old = self.popupWatch { NotificationCenter.default.removeObserver(old) }
             self.popupWatch = NotificationCenter.default.addObserver(forName: NSPopover.didCloseNotification, object: popover, queue: .main) { [weak self] _ in
@@ -892,6 +917,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     @objc func openLocation(_ sender: Any?) {
         guard shell.selected != nil else { return ask(.newTab(privately: false)) }
+        if shell.sidebarOnly { return ask(.address) }
         shell.editingAddress = true
         layout(animated: true)
     }
@@ -1042,8 +1068,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             item.state = shell.sidebarPinned ? .on : .off
             return true
         case #selector(toggleTopBarPinned(_:)):
-            item.state = shell.topBarPinned ? .on : .off
-            return true
+            item.state = shell.topBarKept ? .on : .off
+            return !shell.sidebarOnly
         default: return true
         }
     }
