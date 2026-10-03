@@ -26,11 +26,13 @@ final class Shell {
     var panel: Panel?
     /// An extension's popup is open under its button in the top bar.
     var popupOpen = false
+    /// The downloads under their button in the top bar are showing.
+    var downloadsOpen = false
     /// Where each extension's button is in the top bar, for its popup.
     var extensionButtons: [String: CGRect] = [:]
 
     var sidebarOut: Bool { sidebarPinned || sidebarShown }
-    var topBarOut: Bool { topBarPinned || topBarShown || editingAddress || popupOpen }
+    var topBarOut: Bool { topBarPinned || topBarShown || editingAddress || popupOpen || downloadsOpen }
 }
 
 /// A browser window: its tabs, the page on show, and the two panels that
@@ -41,6 +43,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     private let root = RootView()
     private let page = NSView()
     private var empty: NSHostingView<EmptyPage>!
+    private var loading: LoadingHost!
     private var sidebar: NSHostingView<SidebarView>!
     private var topBar: NSHostingView<TopBarView>!
     /// The time, beside the notch, while full screen hides the menu bar.
@@ -106,6 +109,9 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         page.wantsLayer = true
         page.layer?.masksToBounds = true
         root.addSubview(page)
+        loading = LoadingHost(rootView: LoadingLine(shell: shell))
+        loading.sizingOptions = []
+        loading.safeAreaRegions = []
 
         empty = hosting(EmptyPage(shell: shell, window: self))
         empty.frame = page.bounds
@@ -114,6 +120,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
         sidebar = hosting(SidebarView(shell: shell, window: self))
         topBar = hosting(TopBarView(shell: shell, window: self))
+        root.addSubview(loading)
         root.addSubview(sidebar)
         root.addSubview(topBar)
         clock.sizingOptions = []
@@ -133,7 +140,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     /// Where everything goes for the current state. The panels float over the
     /// page unless pinned, in which case the page makes room for them.
-    private func layout(animated: Bool) {
+    func layout(animated: Bool) {
         let bounds = root.bounds
         let inset = Metrics.inset
         let top = menuBarAllowance
@@ -162,6 +169,12 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         }
 
         let strip = menuBarAllowance
+        let lineWidth: CGFloat = 160
+        loading.frame = NSRect(x: (bounds.width - lineWidth) / 2, y: bounds.maxY - top - 7, width: lineWidth, height: 3)
+        // The window's own gray behind a page that hasn't drawn yet (see Tab).
+        root.effectiveAppearance.performAsCurrentDrawingAppearance {
+            self.page.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        }
         let clockWidth: CGFloat = 64
         clock.frame = NSRect(x: bounds.maxX - clockWidth - 10, y: bounds.maxY - strip, width: clockWidth, height: strip)
         let change = {
@@ -964,7 +977,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     func windowDidChangeOcclusionState(_ notification: Notification) {
         guard let window, let tab = shell.selected else { return }
         if window.occlusionState.contains(.visible) {
-            if window.isOnActiveSpace { PiP.bringBack(tab) }
+            if window.isOnActiveSpace { bringBackOnceSeen(tab) }
         } else if !window.isOnActiveSpace {
             PiP.follow(tab, slide: Spaces.direction(from: window))
         } else if window.isMiniaturized {
@@ -992,9 +1005,23 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     @objc private func spaceChanged(_ notification: Notification) {
         guard let window, let tab = shell.selected else { return }
         if window.isOnActiveSpace {
-            if window.occlusionState.contains(.visible) { PiP.bringBack(tab) }
+            if window.occlusionState.contains(.visible) { bringBackOnceSeen(tab) }
         } else {
             PiP.follow(tab, slide: Spaces.direction(from: window))
+        }
+    }
+
+    /// Back from Picture in Picture, but not while Mission Control shows the
+    /// window small: the video grew to fill the screen on its way into it,
+    /// then shrank. Once Mission Control closes, if it is still in sight;
+    /// three seconds at most, so a video is never left out.
+    private func bringBackOnceSeen(_ tab: Tab, tries: Int = 30) {
+        guard Spaces.missionControl, tries > 0 else { return PiP.bringBack(tab) }
+        if tries == 30 { Debug.log("pip", "\(tab.name): back once Mission Control is closed") }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self, weak tab] in
+            guard let self, let window = self.window, let tab, tab === self.shell.selected,
+                  window.isOnActiveSpace, window.occlusionState.contains(.visible) else { return }
+            self.bringBackOnceSeen(tab, tries: tries - 1)
         }
     }
 
@@ -1106,4 +1133,31 @@ final class ClockHost: NSHostingView<MenuBarClock> {
 /// hosting view itself from taking them).
 final class ToastHost: NSHostingView<ToastView> {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+/// The loading line under the notch: seen, never in the way of a click.
+final class LoadingHost: NSHostingView<LoadingLine> {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+/// How far the page on show has loaded, in a short line at the top middle
+/// of the window (under the notch in full screen) while the top bar, which
+/// has its own, is away.
+struct LoadingLine: View {
+    let shell: Shell
+
+    var body: some View {
+        let tab = shell.selected
+        let showing = tab?.isLoading == true && !shell.topBarOut
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.primary.opacity(0.15))
+                Capsule().fill(Color.accentColor)
+                    .frame(width: geo.size.width * max(0.06, min(1, tab?.progress ?? 0)))
+                    .animation(.linear(duration: 0.15), value: tab?.progress ?? 0)
+            }
+        }
+        .opacity(showing ? 1 : 0)
+        .animation(.easeOut(duration: 0.25), value: showing)
+    }
 }

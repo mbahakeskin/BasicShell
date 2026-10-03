@@ -109,6 +109,14 @@ final class Tab: NSObject, Identifiable {
         web.allowsMagnification = true
         web.isInspectable = true
         webView = web
+        // Clear until the page first draws something, over the window's own
+        // gray: a new page was a white flash before.
+        Tab.drawsBackground(web, false)
+        let observe = NSSelectorFromString("_setObservedRenderingProgressEvents:")
+        if web.responds(to: observe), let method = class_getMethodImplementation(WKWebView.self, observe) {
+            typealias SetEvents = @convention(c) (AnyObject, Selector, UInt) -> Void
+            unsafeBitCast(method, to: SetEvents.self)(web, observe, Tab.firstVisuallyNonEmptyLayout)
+        }
         watch(web)
         if let savedState {
             web.interactionState = savedState
@@ -301,6 +309,25 @@ extension Tab: WKNavigationDelegate {
         if let shown = errorShown, webView.url == shown { errorShown = nil; return }
         if !isPrivate, let url = webView.url { History.shared.record(url, title: webView.title ?? "") }
         Favicons.fetch(for: self)
+    }
+
+    /// WebKit's `_WKRenderingProgressEventFirstVisuallyNonEmptyLayout`.
+    static let firstVisuallyNonEmptyLayout: UInt = 1 << 1
+
+    /// WebKit's private `_setDrawsBackground:`.
+    static func drawsBackground(_ web: WKWebView, _ draws: Bool) {
+        let set = NSSelectorFromString("_setDrawsBackground:")
+        guard web.responds(to: set), let method = class_getMethodImplementation(WKWebView.self, set) else { return }
+        typealias SetBool = @convention(c) (AnyObject, Selector, Bool) -> Void
+        unsafeBitCast(method, to: SetBool.self)(web, set, draws)
+    }
+
+    /// The page has drawn something: from now on it draws its own background
+    /// (white for a page that names none, as everywhere).
+    @objc(_webView:renderingProgressDidChange:)
+    func renderingProgressDidChange(_ webView: WKWebView, _ events: UInt) {
+        guard events & Tab.firstVisuallyNonEmptyLayout != 0 else { return }
+        Tab.drawsBackground(webView, true)
     }
 
     // A page that couldn't be reached left the tab blank, with nothing for

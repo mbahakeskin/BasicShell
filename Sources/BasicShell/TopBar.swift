@@ -40,6 +40,9 @@ struct TopBarView: View {
             ForEach(Extensions.shared.contexts, id: \.uniqueIdentifier) { context in
                 ExtensionButton(context: context, tab: tab, shell: shell)
             }
+            if !Downloads.shared.items.isEmpty || shell.downloadsOpen {
+                DownloadsButton(shell: shell, window: window)
+            }
             if tab?.url != nil {
                 let kept = Bookmarks.shared.contains(tab?.url)
                 IconButton(symbol: kept ? "star.fill" : "star") { window.bookmarkPage(nil) }
@@ -149,6 +152,73 @@ struct FullScreenLights: View {
         }
         .buttonStyle(.plain)
         .disabled(action == nil)
+    }
+}
+
+/// This session's downloads, under a button that fills a ring as they come
+/// in; it shows once something has been downloaded, as in Safari.
+struct DownloadsButton: View {
+    let shell: Shell
+    let window: BrowserWindow
+
+    var body: some View {
+        let running = Downloads.shared.items.filter { $0.state == .running }
+        let fraction = running.isEmpty ? 0 : running.map(\.fraction).reduce(0, +) / Double(running.count)
+        let open = Binding(get: { shell.downloadsOpen }, set: { showing in
+            shell.downloadsOpen = showing
+            window.layout(animated: true)
+        })
+        Button { open.wrappedValue.toggle() } label: {
+            ZStack {
+                if !running.isEmpty {
+                    Circle().stroke(Color.primary.opacity(0.15), lineWidth: 2)
+                    Circle().trim(from: 0, to: max(0.03, fraction))
+                        .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .animation(.linear(duration: 0.2), value: fraction)
+                }
+                Image(systemName: running.isEmpty ? "arrow.down.circle" : "arrow.down")
+                    .font(.system(size: running.isEmpty ? 13 : 9, weight: running.isEmpty ? .medium : .bold))
+            }
+            .frame(width: 18, height: 18)
+            .frame(width: 28, height: 28)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .help("Downloads")
+        .popover(isPresented: open, arrowEdge: .bottom) { DownloadsPopover() }
+    }
+}
+
+/// The downloads under the top bar's button: this session's, newest first.
+struct DownloadsPopover: View {
+    var body: some View {
+        let items = Downloads.shared.items
+        VStack(spacing: 0) {
+            if items.isEmpty {
+                Text("No downloads").foregroundStyle(.secondary).frame(height: 60)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) { ForEach(items) { DownloadRow(item: $0) } }
+                        .padding(.vertical, 4)
+                }
+                .frame(height: min(CGFloat(items.count) * 48 + 8, 300))
+            }
+            Divider()
+            HStack {
+                Button("Clear") { Downloads.shared.clearFinished() }
+                    .disabled(!items.contains { $0.state != .running })
+                Spacer()
+                Button("Show in Finder") {
+                    NSWorkspace.shared.open(FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0])
+                }
+            }
+            .buttonStyle(.borderless)
+            .font(.system(size: 12))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+        .frame(width: 320)
     }
 }
 
