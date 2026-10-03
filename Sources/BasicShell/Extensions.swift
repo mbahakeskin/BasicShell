@@ -120,6 +120,133 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
         return safariExtensions().first { $0.identifier == blockerIdentifier }
     }
 
+    /// uBlock Origin Lite had WebKit compile its 110,000 rules anew at every
+    /// launch, rules unchanged: six seconds of work and a gigabyte at the
+    /// peak. It turns its rule sets off and on again once a launch, for a
+    /// Safari bug with private tab groups (WebKit 300236) that BasicShell,
+    /// with one extension controller and private tabs in ordinary windows,
+    /// doesn't have; and its session rules, gone at every quit, make the
+    /// rules differ from the compiled ones WebKit kept. So it runs from a
+    /// copy of its files with one module more, first among its background
+    /// page's imports, that takes care of both (blockerFix). Copied again
+    /// when the App Store brings a new version. (Its files are GPL; the copy
+    /// stays on this Mac.)
+    static func blockerCopy(of bundle: Bundle) throws -> URL {
+        let files = FileManager.default
+        guard let source = bundle.resourceURL else { throw Crx.Refused.unpack }
+        let folder = Extensions.folder(for: blockerID)
+        let stamp = folder.appendingPathComponent("basicshell-copy.txt")
+        let version = (bundle.infoDictionary?["CFBundleVersion"] as? String ?? "") + " " + blockerFixMarker
+        if (try? String(contentsOf: stamp, encoding: .utf8)) == version { return folder }
+        try? files.removeItem(at: folder)
+        try files.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try files.copyItem(at: source, to: folder)
+        let background = folder.appendingPathComponent("js/background.js")
+        let text = try String(contentsOf: background, encoding: .utf8)
+        try ("import './basicshell-fix.js';\n" + text).write(to: background, atomically: true, encoding: .utf8)
+        try blockerFix.write(to: folder.appendingPathComponent("js/basicshell-fix.js"), atomically: true, encoding: .utf8)
+        try version.write(to: stamp, atomically: true, encoding: .utf8)
+        Debug.log("extension", "uBlock Origin Lite copied from its app (\(version))")
+        return folder
+    }
+
+    private static let blockerFixMarker = "fix 4"
+    private static let blockerFix = """
+    // BasicShell (see Extensions.blockerCopy). WebKit compiles every rule
+    // anew for any change, and keeps the compiled list for the next launch
+    // only if the rules are the same then. So:
+    // - a change to the rule sets that leaves the same ones on is skipped;
+    // - session rules, gone at every quit and added again at every launch,
+    //   are kept as dynamic rules numbered from a billion, hidden from
+    //   uBlock's own, and written only when they differ from last time.
+    // The namespace, which WebKit hands out anew on every read, is pinned,
+    // so uBlock's own modules get the one changed here.
+    const space = self.browser;
+    const dnr = space && space.declarativeNetRequest;
+    // uBlock's Safari code calls some of these with a callback, some
+    // without: both are answered.
+    const define = (name, fn) => {
+      const value = (...args) => {
+        const callback = typeof args[args.length - 1] === "function" ? args.pop() : null;
+        const promise = fn(...args);
+        if (!callback) return promise;
+        promise.then((v) => callback(v), () => callback(undefined));
+      };
+      try { Object.defineProperty(dnr, name, { configurable: true, writable: true, value }); } catch (e) {}
+    };
+    if (dnr && typeof dnr.updateEnabledRulesets === "function" && typeof dnr.getEnabledRulesets === "function") {
+      const update = dnr.updateEnabledRulesets.bind(dnr), enabled = dnr.getEnabledRulesets.bind(dnr);
+      define("updateEnabledRulesets", async (options = {}) => {
+        try {
+          const on = new Set(await enabled());
+          const next = new Set([...on].filter((id) => !(options.disableRulesetIds || []).includes(id)));
+          for (const id of options.enableRulesetIds || []) next.add(id);
+          if (next.size === on.size && [...next].every((id) => on.has(id))) return;
+        } catch (e) {}
+        return update(options);
+      });
+    }
+    if (dnr && typeof dnr.getDynamicRules === "function" && typeof dnr.updateDynamicRules === "function" && space.storage && space.storage.local && space.storage.session) {
+      const FIRST = 1000000000, KEY = "basicShell.sessionRules";
+      const getDynamic = dnr.getDynamicRules.bind(dnr), setDynamic = dnr.updateDynamicRules.bind(dnr);
+      const { local, session } = space.storage;
+      const canon = (v) => Array.isArray(v) ? "[" + v.map(canon).join(",") + "]"
+        : v && typeof v === "object" ? "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + canon(v[k])).join(",") + "}"
+        : JSON.stringify(v);
+      const keyOf = (rules) => rules.map(canon).sort().join("\\n");
+      const kept = async () => (await getDynamic()).filter((r) => r.id >= FIRST);
+      let rules = null, timer = null, chain = Promise.resolve();
+      // A launch starts with none, as session rules do; a background page
+      // started again within a launch finds the ones kept.
+      const start = async () => {
+        if (rules) return rules;
+        let going = false;
+        try { going = !!(await session.get(KEY))[KEY]; } catch (e) {}
+        const found = going ? (await kept()).map((r) => ({ ...r, id: r.id - FIRST })) : [];
+        if (!rules) rules = found;
+        return rules;
+      };
+      // A rule WebKit refuses is left out, and remembered, so the same
+      // rules next time still count as the same.
+      const sync = async () => {
+        const saved = (await local.get(KEY))[KEY] || {};
+        const refused = new Set(saved.refused || []);
+        let want = rules.filter((r) => !refused.has(canon(r)));
+        const have = await kept();
+        if (saved.key !== keyOf(want) || have.length !== want.length) {
+          for (let tries = 0; ; tries++) {
+            try {
+              await setDynamic({ removeRuleIds: have.map((r) => r.id), addRules: want.map((r) => ({ ...r, id: r.id + FIRST })) });
+              break;
+            } catch (e) {
+              const at = /rule at index (\\d+)/.exec(String(e && e.message));
+              if (!at || tries >= 100 || +at[1] >= want.length) throw e;
+              refused.add(canon(want[+at[1]]));
+              want = want.filter((r, i) => i !== +at[1]);
+            }
+          }
+          await local.set({ [KEY]: { key: keyOf(want), refused: [...refused] } });
+        }
+        await session.set({ [KEY]: true });
+      };
+      define("updateSessionRules", async (options = {}) => {
+        await start();
+        const add = Array.isArray(options.addRules) ? options.addRules : [];
+        const gone = new Set([...(options.removeRuleIds || []), ...add.map((r) => r.id)]);
+        rules = rules.filter((r) => !gone.has(r.id)).concat(add);
+        clearTimeout(timer);
+        timer = setTimeout(() => { chain = chain.then(sync).catch((e) => console.error("BasicShell: session rules not kept", e)); }, 1500);
+      });
+      define("getSessionRules", async (filter) => {
+        await start();
+        const ids = filter && Array.isArray(filter.ruleIds) ? filter.ruleIds : null;
+        return rules.filter((r) => !ids || ids.includes(r.id)).map((r) => ({ ...r }));
+      });
+      define("getDynamicRules", async (filter) => (await (filter ? getDynamic(filter) : getDynamic())).filter((r) => r.id < FIRST));
+    }
+    if (dnr) try { Object.defineProperty(space, "declarativeNetRequest", { configurable: true, writable: true, enumerable: true, value: dnr }); } catch (e) {}
+    """
+
     /// Adds uBlock Origin Lite if it is wanted (or not asked about yet) and
     /// on this Mac; else, the first time, asks whether to get it. At launch,
     /// and whenever BasicShell comes forward while it is wanted but not
@@ -220,7 +347,11 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
             // Made for WebKit already, and inside an app signed by its
             // maker: loaded as it is, without the fixes for Chrome ones.
             guard let bundle = Bundle(url: URL(fileURLWithPath: path)) else { throw Crx.Refused.unpack }
-            found = try await WKWebExtension(appExtensionBundle: bundle)
+            if id == Extensions.blockerID, let copy = try? Extensions.blockerCopy(of: bundle) {
+                found = try await WKWebExtension(resourceBaseURL: copy)
+            } else {
+                found = try await WKWebExtension(appExtensionBundle: bundle)
+            }
         } else {
             let folder = Extensions.folder(for: id)
             try Extensions.patch(folder)
