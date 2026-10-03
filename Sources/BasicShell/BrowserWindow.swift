@@ -120,9 +120,9 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
         sidebar = hosting(SidebarView(shell: shell, window: self))
         topBar = hosting(TopBarView(shell: shell, window: self))
-        root.addSubview(loading)
         root.addSubview(sidebar)
         root.addSubview(topBar)
+        root.addSubview(loading)
         clock.sizingOptions = []
         clock.safeAreaRegions = []
         clock.alphaValue = 0
@@ -170,7 +170,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
         let strip = menuBarAllowance
         let lineWidth: CGFloat = 160
-        loading.frame = NSRect(x: (bounds.width - lineWidth) / 2, y: bounds.maxY - top - 7, width: lineWidth, height: 3)
+        loading.frame = NSRect(x: (bounds.width - lineWidth) / 2, y: bounds.maxY - top - 4.5, width: lineWidth, height: 3)
         // The window's own gray behind a page that hasn't drawn yet (see Tab).
         root.effectiveAppearance.performAsCurrentDrawingAppearance {
             self.page.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
@@ -1141,14 +1141,13 @@ final class LoadingHost: NSHostingView<LoadingLine> {
 }
 
 /// How far the page on show has loaded, in a short line at the top middle
-/// of the window (under the notch in full screen) while the top bar, which
-/// has its own, is away.
+/// of the window (under the notch in full screen, above the top bar).
 struct LoadingLine: View {
     let shell: Shell
 
     var body: some View {
         let tab = shell.selected
-        let showing = tab?.isLoading == true && !shell.topBarOut
+        let showing = tab?.isLoading == true
         GeometryReader { geo in
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.white.opacity(0.2))

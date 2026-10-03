@@ -100,16 +100,6 @@ struct TopBarView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 28)
                 .background(Capsule().fill(Color.primary.opacity(0.05)))
-                .overlay(alignment: .bottom) {
-                    if let tab, tab.isLoading {
-                        GeometryReader { geo in
-                            Capsule().fill(Color.accentColor)
-                                .frame(width: geo.size.width * tab.progress, height: 2)
-                        }
-                        .frame(height: 2)
-                        .padding(.horizontal, 10)
-                    }
-                }
                 .contentShape(Capsule())
             }
             .buttonStyle(.plain)
