@@ -149,7 +149,10 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             x: inset, y: shell.topBarOut ? barY : bounds.maxY + inset,
             width: bounds.width - inset * 2, height: Metrics.bar
         )
-        let sideTop = shell.topBarOut ? barY - inset : bounds.maxY - top - inset
+        // In BasicShell's own full screen the strip beside the notch is free
+        // until the menu bar is asked for, so the sidebar alone goes up to
+        // the top; under the top bar when that is out.
+        let sideTop = shell.topBarOut ? barY - inset : bounds.maxY - (edgeToEdge ? 0 : top) - inset
         let sideFrame = NSRect(
             x: shell.sidebarOut ? inset : -Metrics.sidebar - inset,
             y: inset, width: Metrics.sidebar, height: max(0, sideTop - inset)
