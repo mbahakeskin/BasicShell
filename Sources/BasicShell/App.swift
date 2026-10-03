@@ -34,6 +34,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApp.activate()
     }
 
+    /// Back from the App Store with uBlock Origin Lite, perhaps.
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard ready, UserDefaults.standard.object(forKey: Extensions.blockerWanted) as? Bool == true,
+              !Extensions.shared.hasBlocker else { return }
+        Task { await Extensions.shared.addBlocker(asking: false) }
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         Session.saveBeforeQuitting { NSApp.reply(toApplicationShouldTerminate: true) }
         return .terminateLater

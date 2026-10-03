@@ -117,10 +117,26 @@ private struct TabSettings: View {
 }
 
 private struct PrivacySettings: View {
+    @AppStorage(Extensions.blockerWanted) private var blocker = false
+
     var body: some View {
         Form {
-            Section("Ad and tracker blocking") {
-                Text("AdGuard AdBlocker blocks ads, trackers and annoyances; BasicShell adds it the first time it runs, with its ad, privacy and annoyance filters on. Its tracking filter stays off: WebKit takes 150,000 rules from an extension, and it doesn't fit beside the ad filter. Its button in the top bar turns it off for a site; Settings › Extensions removes it.")
+            Section {
+                Toggle(isOn: $blocker) {
+                    Text("Block ads with uBlock Origin Lite")
+                    Text("The Safari extension that comes with its app from the App Store; BasicShell adds it whenever it is on this Mac.")
+                }
+                .onChange(of: blocker) { _, on in
+                    guard on else { return }
+                    Task { await Extensions.shared.addBlocker(asking: false) }
+                }
+                if blocker, !Extensions.shared.hasBlocker, Extensions.blockerOnThisMac() == nil {
+                    Button("Get It from the App Store") { NSWorkspace.shared.open(Extensions.blockerInStore) }
+                }
+            } header: {
+                Text("Ad and tracker blocking")
+            } footer: {
+                Text("Its button in the top bar turns it off for a site; Settings › Extensions removes it.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Location") {

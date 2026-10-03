@@ -36,7 +36,8 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
         let identifier: String
         /// Its id here: the bundle identifier made into the letters a Chrome
         /// id is written in, the same every time.
-        var id: String { Crx.letters(Array(SHA256.hash(data: Data(identifier.utf8)).prefix(16))) }
+        var id: String { SafariExtension.id(for: identifier) }
+        static func id(for identifier: String) -> String { Crx.letters(Array(SHA256.hash(data: Data(identifier.utf8)).prefix(16))) }
     }
 
     let controller: WKWebExtensionController
@@ -68,11 +69,11 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
         controller.delegate = self
     }
 
-    /// At launch: every extension added before, then the ad blocker if it
-    /// has never been added. `loaded` is called once those added before are
-    /// in (or after three seconds at most), for the pages to open then: a
-    /// page already open when an extension comes in doesn't get its scripts
-    /// (WebKit refuses AdGuard's), and kept its ads.
+    /// At launch: every extension added before, then the ad blocker (see
+    /// below). `loaded` is called once those added before are in (or after
+    /// three seconds at most), for the pages to open then: a page already
+    /// open when an extension comes in doesn't get its scripts, and kept its
+    /// ads.
     func start(loaded: @escaping () -> Void) {
         keepData()
         Extensions.forgetBlockLists()
@@ -91,114 +92,91 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
                 }
             }
             once()
-            await addBlocker()
-            await chooseFilters()
-        }
-    }
-
-    /// Runs a function body in one of AdGuard's own pages, loaded out of
-    /// sight, where it can send AdGuard the messages its settings page does.
-    private func inBlockerPage(_ script: String) async -> Any? {
-        guard let context = contexts.first(where: { $0.uniqueIdentifier == Extensions.blocker }),
-              let configuration = context.webViewConfiguration
-        else { return nil }
-        let page = WKWebView(frame: .zero, configuration: configuration)
-        page.load(URLRequest(url: context.baseURL.appendingPathComponent("pages/options.html")))
-        for _ in 0..<150 where page.isLoading || page.url == nil {
-            try? await Task.sleep(for: .milliseconds(200))
-        }
-        do { return try await page.callAsyncJavaScript(script, contentWorld: .page) } catch {
-            Debug.log("extension", "AdGuard's page: \(error.localizedDescription)")
-            return nil
+            await addBlocker(asking: true)
         }
     }
 
     // MARK: - the ad blocker
 
-    /// AdGuard AdBlocker, from the Chrome Web Store.
-    static let blocker = "bgnkhhnnamicmpeenaelnjfhikgbkllg"
-    private static let blockerAdded = "blocker.adguard"
-    /// uBlock Origin Lite, which BasicShell added by itself before AdGuard
-    /// (videos started late on YouTube with it).
-    private static let formerBlocker = "ddkjiahejlhfcafbddmgiahcphecmpfh"
+    /// uBlock Origin Lite, the Safari extension inside its App Store app:
+    /// made for WebKit, kept up to date by the App Store, and with its page
+    /// scripts registered with WebKit, so a page loaded as BasicShell starts
+    /// gets them without waiting for the extension's own code. The Chrome
+    /// Web Store's is never used.
+    static let blockerIdentifier = "net.raymondhill.uBlock-Origin-Lite.Extension"
+    static let blockerID = SafariExtension.id(for: blockerIdentifier)
+    static let blockerInStore = URL(string: "macappstore://apps.apple.com/app/id6745342698")!
+    /// Whether BasicShell adds it when it is on this Mac: unset until the
+    /// first launch without it asks, then the answer (Settings › Privacy).
+    /// Removing it in Settings › Extensions turns this off.
+    static let blockerWanted = "blocker.ubol"
+    /// AdGuard AdBlocker, which BasicShell added by itself before; its
+    /// fixes stay, for one added by hand.
+    static let adGuard = "bgnkhhnnamicmpeenaelnjfhikgbkllg"
 
-    /// Ads and trackers are blocked by AdGuard AdBlocker, which BasicShell
-    /// adds by itself the first time it runs (and tries again at the next
-    /// launch if it couldn't). Once added, it is yours: removed, it stays
-    /// removed. An AdGuard already here counts. uBlock Origin Lite, if
-    /// BasicShell added it, goes: two blockers would do everything twice.
-    private func addBlocker() async {
-        guard !UserDefaults.standard.bool(forKey: Extensions.blockerAdded) else { return }
-        if contexts.contains(where: { $0.uniqueIdentifier == Extensions.blocker }) {
-            UserDefaults.standard.set(true, forKey: Extensions.blockerAdded)
-            forgetFormerBlocker()
-            return
+    var hasBlocker: Bool { contexts.contains { $0.uniqueIdentifier == Extensions.blockerID } }
+
+    static func blockerOnThisMac() -> SafariExtension? {
+        return safariExtensions().first { $0.identifier == blockerIdentifier }
+    }
+
+    /// Adds uBlock Origin Lite if it is wanted (or not asked about yet) and
+    /// on this Mac; else, the first time, asks whether to get it. At launch,
+    /// and whenever BasicShell comes forward while it is wanted but not
+    /// here (back from the App Store).
+    func addBlocker(asking: Bool) async {
+        let defaults = UserDefaults.standard
+        let wanted = defaults.object(forKey: Extensions.blockerWanted) as? Bool
+        guard wanted != false, !hasBlocker || wanted == nil else { return }
+        if let found = Extensions.blockerOnThisMac() {
+            if !has(found) {
+                do {
+                    let result = try await add(safari: found, asking: false)
+                    Debug.log("extension", "ad blocker: \(result)")
+                    Windows.front?.say("uBlock Origin Lite added to block ads")
+                } catch {
+                    Debug.log("extension", "uBlock Origin Lite not added: \(error.localizedDescription)")
+                    return
+                }
+            }
+            defaults.set(true, forKey: Extensions.blockerWanted)
+            forgetFormerBlockers()
+        } else if wanted == nil, asking {
+            askForBlocker()
         }
-        do {
-            let id = Extensions.blocker
-            let zip = try Crx.verifiedZip(try await Crx.fetch(id), id: id)
-            let staging = Extensions.folder.appendingPathComponent(".staging-\(id)", isDirectory: true)
-            try Crx.unpack(zip, into: staging)
-            let result = try await finish(staging, id: id, source: "store", asking: false)
-            UserDefaults.standard.set(true, forKey: Extensions.blockerAdded)
-            Debug.log("extension", "ad blocker: \(result)")
-            forgetFormerBlocker()
-            Windows.front?.say("AdGuard added to block ads")
-        } catch {
-            Debug.log("extension", "ad blocker not added, tried again next launch: \(error.localizedDescription)")
+    }
+
+    private func askForBlocker() {
+        let alert = NSAlert()
+        alert.messageText = "Block ads with uBlock Origin Lite?"
+        alert.informativeText = "BasicShell blocks ads and trackers with uBlock Origin Lite, a free Safari extension that comes with its app from the App Store. Get it there, and BasicShell adds it as soon as it is on this Mac. You can change this in Settings › Privacy."
+        alert.addButton(withTitle: "Get It from the App Store")
+        alert.addButton(withTitle: "No Thanks")
+        let answer = { (response: NSApplication.ModalResponse) in
+            let yes = response == .alertFirstButtonReturn
+            UserDefaults.standard.set(yes, forKey: Extensions.blockerWanted)
+            Debug.log("extension", "uBlock Origin Lite \(yes ? "wanted; App Store opened" : "not wanted")")
+            if yes { NSWorkspace.shared.open(Extensions.blockerInStore) }
         }
+        if let window = Windows.front?.window { alert.beginSheetModal(for: window, completionHandler: answer) }
+        else { answer(alert.runModal()) }
     }
 
-    private func forgetFormerBlocker() {
-        guard UserDefaults.standard.bool(forKey: "blocker.added") else { return }
-        UserDefaults.standard.removeObject(forKey: "blocker.added")
-        if let old = contexts.first(where: { $0.uniqueIdentifier == Extensions.formerBlocker }) {
-            remove(old)
-            Debug.log("extension", "uBlock Origin Lite removed for AdGuard")
+    /// The blockers BasicShell added by itself before, once uBlock Origin
+    /// Lite is in: two would do everything twice.
+    private func forgetFormerBlockers() {
+        let defaults = UserDefaults.standard
+        for (key, id, name) in [("blocker.adguard", Extensions.adGuard, "AdGuard AdBlocker"),
+                                ("blocker.added", "ddkjiahejlhfcafbddmgiahcphecmpfh", "uBlock Origin Lite from the Chrome Web Store")] {
+            guard defaults.bool(forKey: key) else { continue }
+            defaults.removeObject(forKey: key)
+            if let old = contexts.first(where: { $0.uniqueIdentifier == id }) {
+                remove(old)
+                Debug.log("extension", "\(name) removed for uBlock Origin Lite")
+            }
         }
+        defaults.removeObject(forKey: "blocker.filters")
     }
-
-    private static let filtersChosen = "blocker.filters"
-
-    /// AdGuard by itself turns on only its ad filter. BasicShell turns on
-    /// the rest of what it recommends for ads, privacy and annoyances, once,
-    /// by sending AdGuard the messages its own settings page sends (from
-    /// that page, loaded out of sight). All but one filter: WebKit takes
-    /// 150,000 rules from an extension, and AdGuard's ad filter (78,000)
-    /// and its tracking filter (116,000) don't fit together, so the
-    /// tracking filter stays off (WebKit refuses the lot otherwise, and
-    /// AdGuard says the browser's limit was reached). The annoyance
-    /// filters want a consent AdGuard's settings page asks for; it is given
-    /// here as that page would.
-    private func chooseFilters() async {
-        guard !UserDefaults.standard.bool(forKey: Extensions.filtersChosen),
-              contexts.contains(where: { $0.uniqueIdentifier == Extensions.blocker })
-        else { return }
-        let answer = (await inBlockerPage(Extensions.filtersScript) as? String) ?? "?"
-        Debug.log("extension", "AdGuard filters: \(answer)")
-        if answer.hasPrefix("on:") { UserDefaults.standard.set(true, forKey: Extensions.filtersChosen) }
-        else { Debug.log("extension", "AdGuard filters not chosen, tried again next launch") }
-    }
-
-    /// AdGuard's filters by id: 2 ads (Base); 25 mail tracking; 18 to 22
-    /// cookie notices, popups, app banners, other annoyances, widgets;
-    /// 3 tracking, which doesn't fit beside 2. Base last, as its group is
-    /// already on, so AdGuard applies the lot then.
-    private static let filtersScript = """
-    const send = (type, data) => browser.runtime.sendMessage({ handlerName: "app", type, data });
-    for (let tries = 0; ; tries++) {
-      let ready = false;
-      try { ready = await send("getIsAppInitialized"); } catch (e) {}
-      if (ready) break;
-      if (tries > 120) return "AdGuard didn't start";
-      await new Promise((done) => setTimeout(done, 500));
-    }
-    await send("disableFilter", { filterId: 3 });
-    for (const filterId of [25, 18, 19, 20, 21, 22, 2]) await send("addAndEnableFilter", { filterId });
-    await send("setConsentedFilters", { filterIds: [18, 19, 20, 21, 22] });
-    await send("clearRulesLimitsWarningMv3");
-    return "on: " + (await browser.declarativeNetRequest.getEnabledRulesets()).join(", ");
-    """
 
     /// BasicShell once blocked ads with lists of its own; what they left on
     /// disk goes, once.
@@ -339,10 +317,10 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     func has(_ safari: SafariExtension) -> Bool { installed.contains { $0.id == safari.id } }
 
     /// A Safari web extension, loaded from inside its app where it is.
-    func add(safari: SafariExtension) async throws -> String {
+    func add(safari: SafariExtension, asking: Bool = true) async throws -> String {
         guard let bundle = Bundle(url: safari.url) else { throw Crx.Refused.unpack }
         let found = try await WKWebExtension(appExtensionBundle: bundle)
-        guard confirm(found) else { return "Not added" }
+        guard !asking || confirm(found) else { return "Not added" }
         if let old = contexts.first(where: { $0.uniqueIdentifier == safari.id }) { unload(old) }
         installed.removeAll { $0.id == safari.id }
         installed.append(Installed(id: safari.id, source: "safari", bundle: safari.url.path))
@@ -395,6 +373,8 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
 
     func remove(_ context: WKWebExtensionContext) {
         let id = context.uniqueIdentifier
+        // Removed by hand, the ad blocker stays removed.
+        if id == Extensions.blockerID { UserDefaults.standard.set(false, forKey: Extensions.blockerWanted) }
         unload(context)
         controller.fetchDataRecord(ofTypes: WKWebExtensionController.allExtensionDataTypes, for: context) { [weak self] record in
             guard let record else { return }
@@ -680,7 +660,7 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
         // goes to a thank-you page on adguard.com; here it never got there
         // and stayed at "Loading extension...". BasicShell added AdGuard
         // itself, so it isn't opened.
-        if extensionContext.uniqueIdentifier == Extensions.blocker, configuration.url?.path == "/pages/post-install.html" {
+        if extensionContext.uniqueIdentifier == Extensions.adGuard, configuration.url?.path == "/pages/post-install.html" {
             Debug.log("extension", "AdGuard's after-install page not opened")
             completionHandler(nil, nil)
             return

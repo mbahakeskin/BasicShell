@@ -14,12 +14,12 @@ the pages you open.
   kept only in memory, never on disk, and goes when the app quits; they are
   never saved in the session.
 - Several windows, each with its own tabs.
-- Ads, trackers and annoyances (cookie notices, popups), YouTube's ads
-  included, are blocked by AdGuard AdBlocker, which BasicShell adds from the
-  Chrome Web Store the first time it runs, with AdGuard's ad, privacy and
-  annoyance filters on. Its tracking filter stays off: WebKit takes 150,000
-  rules from an extension, and it doesn't fit beside the ad filter. Its
-  button in the top bar turns it off for a site; removed, it stays removed.
+- Ads and trackers, YouTube's ads included, are blocked by uBlock Origin
+  Lite, the Safari extension that comes with its app from the App Store.
+  BasicShell adds it from inside that app when it is on the Mac; the first
+  launch without it asks whether to get it, and with a yes it is added as
+  soon as it is there (Settings › Privacy turns that off). Its button in the
+  top bar turns it off for a site; removed, it stays removed.
 - Tabs off screen are frozen: no script, no timers, nothing lost. After six
   hours off screen, or when memory runs short, a tab is unloaded and comes
   back where it was. Tabs holding unsent typing, sound or a call are left
@@ -70,9 +70,9 @@ otherwise it signs ad hoc, and macOS asks again after each build.
 
 ## Network traffic
 
-Besides the pages you open: AdGuard AdBlocker from the Chrome Web Store, once,
-and what AdGuard fetches from its own servers. The welcome page AdGuard opens
-on adguard.com once installed isn't opened.
+Besides the pages you open: nothing of BasicShell's own. uBlock Origin Lite's
+lists come with its app, which the App Store keeps up to date. An extension you
+add from the Chrome Web Store is fetched from Google, once.
 
 The macOS 27 SDK turns SwiftUI's `@State` into a macro whose plugin ships only
 with Xcode, so views here store `State` by hand instead of using the attribute.
