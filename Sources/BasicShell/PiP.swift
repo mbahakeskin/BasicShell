@@ -100,7 +100,9 @@ enum PiP {
         const loaded = new Set([...video.querySelectorAll("track")].map((t) => t.track));
         const tracks = [...(video.textTracks || [])].filter((t) => !loaded.has(t));
         const line = tracks.map((t) => `${t.kind} "${t.label}" ${t.mode} cues ${t.cues ? t.cues.length : "-"} showing ${t.activeCues ? t.activeCues.length : "-"}`).join("; ");
-        try { webkit.messageHandlers.basicShellPiP.postMessage({ tracks: `${why} at ${Math.round(video.currentTime)} s${video.paused ? " paused" : ""}${self.__basicShellMoved ? `, ${self.__basicShellMoved} lines moved` : ""}: ${line || "none"}` }); } catch (x) {}
+        const cc = document.querySelector(".ytp-subtitles-button");
+        const button = cc ? `, CC button ${cc.getAttribute("aria-pressed") === "true" ? "on" : "off"}` : "";
+        try { webkit.messageHandlers.basicShellPiP.postMessage({ tracks: `${why} at ${Math.round(video.currentTime)} s${button}${video.paused ? " paused" : ""}${self.__basicShellMoved ? `, ${self.__basicShellMoved} lines moved` : ""}: ${line || "none"}` }); } catch (x) {}
       };
       addEventListener("enterpictureinpicture", (e) => report(e.target, "in"), true);
       setInterval(() => { const v = document.pictureInPictureElement; if (v) report(v, "captions"); }, 5000);
