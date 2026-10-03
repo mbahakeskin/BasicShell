@@ -23,7 +23,7 @@ enum Motion {
     static let menuBar: TimeInterval = 0.6
     /// How long the top bar stays once the pointer leaves it, after the menu
     /// bar was down over it.
-    static let lowered: TimeInterval = 0.5
+    static let afterMenuBar: TimeInterval = 0.5
 }
 
 /// A small icon button for the bars.

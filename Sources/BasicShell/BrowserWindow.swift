@@ -163,7 +163,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         if notch != nil {
             // The whole strip beside the notch, its halves drawn inside;
             // below the menu bar while that is down.
-            barY = bounds.maxY - top - (menuBarDown || barLowered ? top : 0)
+            barY = bounds.maxY - top - (menuBarDown ? top : 0)
             barFrame = NSRect(x: 0, y: shell.topBarOut ? barY : bounds.maxY + inset, width: bounds.width, height: top)
         } else {
             barY = bounds.maxY - top - inset - Metrics.bar
@@ -361,10 +361,6 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         if point.y <= 1 {
             setReachable(true)
         } else if bounds.maxY - point.y <= 1 {
-            if barLowered, !menuBarDown {
-                barLowered = false
-                layout(animated: true)
-            }
             guard !reachable, reaching == nil else { return }
             reaching = Timer.scheduledTimer(withTimeInterval: Motion.menuBar, repeats: false) { [weak self] _ in
                 MainActor.assumeIsolated {
@@ -407,17 +403,17 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         menuBarWatch?.invalidate()
         menuBarWatch = nil
         menuBarDown = false
-        barLowered = false
+        menuBarWasDown = false
     }
 
     /// The menu bar is down over the strip beside the notch: the top bar
     /// makes way, below it.
     private var menuBarDown = false
     private var menuBarWatch: Timer?
-    /// The top bar stays below where the menu bar was once that has gone back
-    /// up, so it doesn't move out from under the pointer, and lingers a
-    /// little longer, until it goes or the pointer is back at the top.
-    private var barLowered = false
+    /// The menu bar has been down since the top bar came out: once it has
+    /// gone back up, the top bar, back beside the notch, stays a little
+    /// longer after the pointer leaves it, to be reached again.
+    private var menuBarWasDown = false
 
     /// Checked while the menu bar is within reach: macOS says nothing when
     /// it comes down or goes up. `menuBarVisible()` turns false as soon as
@@ -441,7 +437,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         }
         guard down != menuBarDown else { return }
         menuBarDown = down
-        if down { barLowered = true }
+        if down { menuBarWasDown = true }
         layout(animated: true)
     }
 
@@ -477,7 +473,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     /// The pointer wandered off a panel: it goes unless it comes back.
     private func linger(_ edge: Edge) {
         guard hiding[edge] == nil else { return }
-        let wait = edge == .top && barLowered ? Motion.lowered : Motion.linger
+        let wait = edge == .top && menuBarWasDown ? Motion.afterMenuBar : Motion.linger
         hiding[edge] = Timer.scheduledTimer(withTimeInterval: wait, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
@@ -520,7 +516,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         case .top:
             guard shell.topBarShown != shown else { return }
             shell.topBarShown = shown
-            if !shown { barLowered = false }
+            if !shown { menuBarWasDown = false }
         }
         layout(animated: true)
     }
@@ -1273,7 +1269,9 @@ final class ShellWindow: NSWindow {
         defer { if let responder, responder !== firstResponder { makeFirstResponder(responder) } }
         if square {
             titledStyle = styleMask
-            styleMask.remove(.titled)
+            // Not resizable either: at the screen's edges the pointer
+            // turned into a resize arrow.
+            styleMask.remove([.titled, .resizable])
         } else if let titledStyle {
             styleMask = titledStyle
             self.titledStyle = nil
