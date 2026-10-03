@@ -254,6 +254,8 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     func addBlocker(asking: Bool) async {
         let defaults = UserDefaults.standard
         let wanted = defaults.object(forKey: Extensions.blockerWanted) as? Bool
+        // An older BasicShell on this Mac may have added AdGuard again.
+        if hasBlocker { forgetFormerBlockers() }
         guard wanted != false, !hasBlocker || wanted == nil else { return }
         if let found = Extensions.blockerOnThisMac() {
             if !has(found) {
