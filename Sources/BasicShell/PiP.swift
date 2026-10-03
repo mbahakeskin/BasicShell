@@ -134,9 +134,11 @@ enum PiP {
         Object.defineProperty(TextTrack.prototype, "mode", {
           configurable: true, enumerable: modes.enumerable, get: modes.get,
           set: function (value) {
-            if (value === "showing" && this.label === "YouTube Captions") {
+            if (this.label === "YouTube Captions") {
+              // What YouTube wants, given back when Picture in Picture ends.
+              this.__basicShellWanted = value;
               const video = document.pictureInPictureElement;
-              if (video && [...video.textTracks].includes(this) && current(video)) value = "hidden";
+              if (value === "showing" && video && [...video.textTracks].includes(this) && current(video)) value = "hidden";
             }
             return modes.set.call(this, value);
           },
@@ -156,13 +158,24 @@ enum PiP {
             for (const [start, end, line] of found.cues) { try { state.track.addCue(new VTTCue(start, end, line)); } catch (x) {} }
             state.version = found.version;
           }
-          for (const track of video.textTracks) if (track.label === "YouTube Captions" && track.mode === "showing") modes.set.call(track, "hidden");
+          for (const track of video.textTracks) {
+            if (track.label !== "YouTube Captions" || track.mode !== "showing") continue;
+            if (track.__basicShellWanted === undefined) track.__basicShellWanted = "showing";
+            modes.set.call(track, "hidden");
+          }
           if (state.track.mode !== "showing") modes.set.call(state.track, "showing");
         };
         addEventListener("enterpictureinpicture", () => { bridge(); if (!bridging) bridging = setInterval(bridge, 250); }, true);
+        // Out of Picture in Picture: YouTube's tracks as YouTube left them.
+        // Kept hidden, YouTube took its captions for on and drew none on the
+        // page, until the caption button was pressed twice.
         addEventListener("leavepictureinpicture", (e) => {
           const state = ours.get(e.target);
           if (state && state.track) modes.set.call(state.track, "disabled");
+          for (const track of e.target.textTracks || []) {
+            if (track.label !== "YouTube Captions" || track.__basicShellWanted === undefined) continue;
+            if (track.mode !== track.__basicShellWanted) modes.set.call(track, track.__basicShellWanted);
+          }
         }, true);
         addEventListener("loadstart", (e) => { const state = ours.get(e.target); if (state) state.version = 0; }, true);
       }

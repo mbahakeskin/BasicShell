@@ -1151,12 +1151,14 @@ struct LoadingLine: View {
         let showing = tab?.isLoading == true && !shell.topBarOut
         GeometryReader { geo in
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.primary.opacity(0.15))
-                Capsule().fill(Color.accentColor)
+                Capsule().fill(Color.white.opacity(0.2))
+                Capsule().fill(Color.white)
                     .frame(width: geo.size.width * max(0.06, min(1, tab?.progress ?? 0)))
                     .animation(.linear(duration: 0.15), value: tab?.progress ?? 0)
             }
         }
+        // Seen on a white page too.
+        .shadow(color: .black.opacity(0.35), radius: 1.5)
         .opacity(showing ? 1 : 0)
         .animation(.easeOut(duration: 0.25), value: showing)
     }
