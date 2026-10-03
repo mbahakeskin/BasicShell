@@ -98,7 +98,7 @@ struct SidebarView: View {
         HStack(spacing: 2) {
             newTabButtons
             Spacer(minLength: 4)
-            // The extensions are in the menu bar (ExtensionMenuBar).
+            // The extensions are in the Extensions menu (ExtensionsMenu).
             SiteTools(shell: shell, window: window, downloadsEdge: .trailing, extensions: false)
         }
         .padding(.horizontal, 4)

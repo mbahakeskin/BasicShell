@@ -5,7 +5,7 @@ import AppKit
 enum Menus {
     static func build() -> NSMenu {
         let main = NSMenu()
-        for menu in [app(), file(), edit(), view(), history(), bookmarks(), tab(), window()] {
+        for menu in [app(), file(), edit(), view(), history(), bookmarks(), tab(), ExtensionsMenu.build(), window()] {
             let item = NSMenuItem(title: menu.title, action: nil, keyEquivalent: "")
             item.submenu = menu
             main.addItem(item)

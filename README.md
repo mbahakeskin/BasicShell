@@ -9,8 +9,8 @@ the pages you open.
   come down from the top edge. Either can be pinned open (View menu). Or,
   in Settings › General, there is no top bar: the sidebar has the traffic
   lights, back and forward, the site (a click brings up its whole address
-  over the page) and the site's buttons above the tabs, and the extensions'
-  buttons go to the menu bar.
+  over the page) and the site's buttons above the tabs; the extensions are
+  in the Extensions menu, as in Arc.
 - Full screen uses every pixel: the same bars, the same edges. On a screen
   with a notch the top bar runs through the strip the menu bar would have,
   the notch in its middle, and the window's corners are the screen's own;

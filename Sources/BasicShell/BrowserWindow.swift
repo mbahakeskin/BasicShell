@@ -357,9 +357,6 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     private var reaching: Timer?
     /// A menu of the menu bar is open: the menu bar stays for it.
     private var menuOpen = false
-    /// An extension's popup is open under its button in the menu bar: so
-    /// does the menu bar.
-    private var menuBarPopup = false
 
     /// In BasicShell's own full screen: the Dock as soon as the pointer
     /// reaches the bottom edge, as before; the menu bar only once it has
@@ -384,7 +381,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             reaching?.invalidate()
             reaching = nil
             let clear = bounds.maxY - point.y > menuBarAllowance + 40 && point.y > 160
-            if reachable, clear, !menuOpen, !menuBarPopup { setReachable(false) }
+            if reachable, clear, !menuOpen { setReachable(false) }
         }
     }
 
@@ -823,14 +820,14 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         shell.topBarShown = false
         shell.editingAddress = false
         layout(animated: true)
-        ExtensionMenuBar.update()
     }
 
     /// An extension's popup, under its button (beside it, in the sidebar);
     /// the bar it is in stays out while it is open.
     func present(_ popover: NSPopover, for context: WKWebExtensionContext) {
-        if let button = ExtensionMenuBar.button(for: context) {
-            return presentInMenuBar(popover, under: button)
+        if shell.sidebarOnly {
+            window?.makeKeyAndOrderFront(nil)
+            return presentFromMenu(popover)
         }
         shell.popupOpen = true
         layout(animated: true)
@@ -917,27 +914,19 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         }
     }
 
-    /// An extension's popup under its button in the menu bar. In BasicShell's
-    /// own full screen the menu bar, come down for it, stays down while the
-    /// popup is open: going up it would take the popup with it.
-    private func presentInMenuBar(_ popover: NSPopover, under button: NSStatusBarButton) {
-        if edgeToEdge { NSApp.presentationOptions = [.autoHideDock] }
-        menuBarPopup = true
+    /// An extension's popup in the sidebar-only layout, chosen from the
+    /// Extensions menu: at the top of the window, under where it was
+    /// chosen (below the strip beside the notch in BasicShell's own full
+    /// screen).
+    private func presentFromMenu(_ popover: NSPopover) {
+        let bounds = root.bounds
+        let chosen = ExtensionsMenu.chosenAt.map { $0.x - (window?.frame.minX ?? 0) } ?? bounds.maxX - 200
+        let x = min(max(chosen, 24), bounds.maxX - 24)
+        let top = edgeToEdge ? menuBarAllowance : 0
+        let y = root.isFlipped ? top + 1 : bounds.maxY - top - 2
         popover.behavior = .transient
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        Debug.log("extension", "popup on screen under the menu bar: \(popover.isShown)")
-        if let old = popupWatch { NotificationCenter.default.removeObserver(old) }
-        popupWatch = NotificationCenter.default.addObserver(forName: NSPopover.didCloseNotification, object: popover, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                if let watch = self.popupWatch { NotificationCenter.default.removeObserver(watch) }
-                self.popupWatch = nil
-                self.menuBarPopup = false
-                if self.edgeToEdge {
-                    NSApp.presentationOptions = self.reachable ? BrowserWindow.reachOptions : BrowserWindow.hiddenOptions
-                }
-            }
-        }
+        popover.show(relativeTo: NSRect(x: x, y: y, width: 1, height: 1), of: root, preferredEdge: root.isFlipped ? .maxY : .minY)
+        Debug.log("extension", "popup on screen under the Extensions menu: \(popover.isShown)")
     }
 
     // MARK: - menu actions
@@ -1244,7 +1233,6 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     func windowDidBecomeKey(_ notification: Notification) {
         Extensions.shared.controller.didFocusWindow(self)
-        ExtensionMenuBar.update()
         // The menu bar and the Dock hide for a window in BasicShell's full
         // screen only. Only what it set is taken back: macOS's own full
         // screen sets these options itself, and clearing them there left the

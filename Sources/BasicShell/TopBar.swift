@@ -136,7 +136,8 @@ struct SiteTools: View {
     let window: BrowserWindow
     /// Which side of its button the downloads open on.
     var downloadsEdge: Edge = .bottom
-    /// The extensions' buttons here, not in the menu bar (ExtensionMenuBar).
+    /// The extensions' buttons here; in the sidebar they are left to the
+    /// Extensions menu (ExtensionsMenu).
     var extensions = true
 
     private var tab: Tab? { shell.selected }

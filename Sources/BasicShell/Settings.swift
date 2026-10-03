@@ -6,7 +6,8 @@ import WebKit
 enum SettingsWindow {
     private static var window: NSWindow?
 
-    static func show() {
+    static func show(_ tab: String? = nil) {
+        if let tab { UserDefaults.standard.set(tab, forKey: "settings.tab") }
         if window == nil {
             let made = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 580, height: 520),
@@ -25,12 +26,14 @@ enum SettingsWindow {
 }
 
 struct SettingsView: View {
+    @AppStorage("settings.tab") private var tab = "general"
+
     var body: some View {
-        TabView {
-            GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
-            TabSettings().tabItem { Label("Tabs", systemImage: "square.on.square") }
-            PrivacySettings().tabItem { Label("Privacy", systemImage: "hand.raised") }
-            ExtensionSettings().tabItem { Label("Extensions", systemImage: "puzzlepiece.extension") }
+        TabView(selection: $tab) {
+            GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }.tag("general")
+            TabSettings().tabItem { Label("Tabs", systemImage: "square.on.square") }.tag("tabs")
+            PrivacySettings().tabItem { Label("Privacy", systemImage: "hand.raised") }.tag("privacy")
+            ExtensionSettings().tabItem { Label("Extensions", systemImage: "puzzlepiece.extension") }.tag("extensions")
         }
         .padding(.top, 28)
         .frame(width: 580, height: 520)
