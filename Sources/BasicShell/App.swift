@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if Windows.all.isEmpty, waiting.isEmpty { Windows.open() }
         if !waiting.isEmpty { open(waiting) }
         waiting = []
+        ExtensionMenuBar.update()
         NSApp.activate()
     }
 

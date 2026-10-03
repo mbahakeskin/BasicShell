@@ -136,6 +136,8 @@ struct SiteTools: View {
     let window: BrowserWindow
     /// Which side of its button the downloads open on.
     var downloadsEdge: Edge = .bottom
+    /// The extensions' buttons here, not in the menu bar (ExtensionMenuBar).
+    var extensions = true
 
     private var tab: Tab? { shell.selected }
 
@@ -146,8 +148,10 @@ struct SiteTools: View {
                 .foregroundStyle(awake ? Color.orange : Color.primary)
                 .help(awake ? "Let This Site Sleep" : "Keep This Site Awake")
         }
-        ForEach(Extensions.shared.contexts, id: \.uniqueIdentifier) { context in
-            ExtensionButton(context: context, tab: tab, shell: shell)
+        if extensions {
+            ForEach(Extensions.shared.contexts, id: \.uniqueIdentifier) { context in
+                ExtensionButton(context: context, tab: tab, shell: shell)
+            }
         }
         if !Downloads.shared.items.isEmpty || shell.downloadsOpen {
             DownloadsButton(shell: shell, window: window, edge: downloadsEdge)
