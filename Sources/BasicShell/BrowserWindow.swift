@@ -81,6 +81,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         lights = Lights(window)
         layout(animated: false)
         watchPointer()
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(spaceChanged(_:)),
+                                                          name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
     }
 
     @available(*, unavailable)
@@ -954,9 +956,52 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     /// Out of sight (another desktop, minimized, covered): a video playing
     /// goes into Picture in Picture; back in sight, it comes back.
+    ///
+    /// Back in sight on another desktop only once macOS has finished moving
+    /// there: a swipe toward this desktop shows the window from its first
+    /// moment, and a swipe let go before halfway goes back. The video came
+    /// back as the swipe began and stayed back when it didn't happen.
     func windowDidChangeOcclusionState(_ notification: Notification) {
         guard let window, let tab = shell.selected else { return }
-        if window.occlusionState.contains(.visible) { PiP.bringBack(tab) } else { PiP.follow(tab) }
+        if window.occlusionState.contains(.visible) {
+            if window.isOnActiveSpace { PiP.bringBack(tab) }
+        } else if !window.isOnActiveSpace {
+            PiP.follow(tab, slide: Spaces.direction(from: window))
+        } else if window.isMiniaturized {
+            PiP.follow(tab)
+        } else {
+            // Covered on this desktop, or the move to another not yet
+            // registered: looked at again every 50 ms for up to 300, and
+            // gone with as soon as the desktop has changed, the animation
+            // as early as it can be.
+            watchForMove(tab, tries: 6)
+        }
+    }
+
+    private func watchForMove(_ tab: Tab, tries: Int) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak tab] in
+            guard let self, let window = self.window, let tab, tab === self.shell.selected,
+                  !window.occlusionState.contains(.visible) else { return }
+            if !window.isOnActiveSpace { return PiP.follow(tab, slide: Spaces.direction(from: window)) }
+            if tries > 1 { return self.watchForMove(tab, tries: tries - 1) }
+            PiP.follow(tab)
+        }
+    }
+
+    /// A move to another desktop is over (see windowDidChangeOcclusionState).
+    @objc private func spaceChanged(_ notification: Notification) {
+        guard let window, let tab = shell.selected else { return }
+        if window.isOnActiveSpace {
+            if window.occlusionState.contains(.visible) { PiP.bringBack(tab) }
+        } else {
+            PiP.follow(tab, slide: Spaces.direction(from: window))
+        }
+    }
+
+    /// Whether this tab's page is out of sight: not the one shown, or its
+    /// window not seen.
+    func outOfSight(_ tab: Tab) -> Bool {
+        tab !== shell.selected || !(window?.occlusionState.contains(.visible) ?? false) || !(window?.isOnActiveSpace ?? false)
     }
 
     func windowDidBecomeKey(_ notification: Notification) {

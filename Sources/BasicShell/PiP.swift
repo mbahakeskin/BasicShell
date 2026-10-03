@@ -58,13 +58,114 @@ enum PiP {
         if (!(video instanceof HTMLMediaElement) || !video.textTracks) return;
         const loaded = new Set([...video.querySelectorAll("track")].map((t) => t.track));
         for (const track of video.textTracks) {
-          if (loaded.has(track) || !track.cues) continue;
+          if (loaded.has(track) || !track.cues || track.label === "BasicShell Captions") continue;
           // Emptied, not removed: YouTube keeps one cue and rewrites it.
           for (const cue of [...track.cues]) { try { if ("text" in cue) cue.text = ""; } catch (x) {} }
         }
       };
       addEventListener("loadstart", clear, true);
       addEventListener("emptied", clear, true);
+      // YouTube's own captions in Picture in Picture can't be counted on:
+      // its one line, rewritten from its script, froze when the page was
+      // out of sight, and for some page loads was never written. Its
+      // captions come down whole, with their times, when they are turned on
+      // (/api/timedtext); a copy is kept as they arrive, and shown in
+      // Picture in Picture from a track of BasicShell's (below).
+      if (/(^|\\.)youtube\\.com$/.test(location.hostname)) {
+        const captions = new Map();
+        const take = (address, text) => {
+          try {
+            const url = new URL(address, location.href);
+            if (!url.pathname.endsWith("/api/timedtext") || !text) return;
+            const data = JSON.parse(text);
+            const cues = [];
+            for (const event of data.events || []) {
+              if (!event.segs || event.aAppend) continue;
+              const line = event.segs.map((s) => s.utf8 || "").join("").trim();
+              if (!line) continue;
+              const start = (event.tStartMs || 0) / 1000;
+              cues.push([start, start + (event.dDurationMs || 2000) / 1000, line]);
+            }
+            if (cues.length) {
+              captions.set(url.searchParams.get("v"), { cues, version: Date.now() });
+              try { webkit.messageHandlers.basicShellPiP.postMessage({ tracks: `captions kept: ${cues.length} lines (${url.searchParams.get("lang") || "?"}${url.searchParams.get("tlang") ? " → " + url.searchParams.get("tlang") : ""})` }); } catch (x) {}
+            }
+          } catch (x) {}
+        };
+        const fetching = window.fetch;
+        window.fetch = function (input, init) {
+          const answer = fetching.apply(this, arguments);
+          try {
+            const address = typeof input === "string" ? input : input && input.url;
+            if (address && String(address).includes("/api/timedtext")) answer.then((r) => r.clone().text()).then((t) => take(address, t)).catch(() => {});
+          } catch (x) {}
+          return answer;
+        };
+        const opening = XMLHttpRequest.prototype.open, sending = XMLHttpRequest.prototype.send;
+        XMLHttpRequest.prototype.open = function (method, address) { this.__basicShellAddress = address; return opening.apply(this, arguments); };
+        XMLHttpRequest.prototype.send = function () {
+          const address = this.__basicShellAddress;
+          if (address && String(address).includes("/api/timedtext")) {
+            this.addEventListener("load", () => {
+              try { take(address, this.responseType === "" || this.responseType === "text" ? this.responseText : JSON.stringify(this.response)); } catch (x) {}
+            });
+          }
+          return sending.apply(this, arguments);
+        };
+        // In Picture in Picture, with the caption button on and the video's
+        // captions kept, BasicShell's track is the one shown and YouTube's is
+        // kept hidden (YouTube turns it on again; a hidden one it stays). Its
+        // lines carry their times, so WebKit shows each in step with the
+        // video, page script or not: YouTube's one line, rewritten from its
+        // script, froze when the page was out of sight and at times was
+        // never written at all for a page load.
+        const ours = new WeakMap();
+        const videoId = () => {
+          try { const player = document.getElementById("movie_player"); const id = player && player.getVideoData && player.getVideoData().video_id; if (id) return id; } catch (x) {}
+          return new URL(location.href).searchParams.get("v");
+        };
+        const current = (video) => {
+          if (document.pictureInPictureElement !== video) return null;
+          const button = document.querySelector(".ytp-subtitles-button");
+          if (button && button.getAttribute("aria-pressed") !== "true") return null;
+          return captions.get(videoId()) || null;
+        };
+        const modes = Object.getOwnPropertyDescriptor(TextTrack.prototype, "mode");
+        Object.defineProperty(TextTrack.prototype, "mode", {
+          configurable: true, enumerable: modes.enumerable, get: modes.get,
+          set: function (value) {
+            if (value === "showing" && this.label === "YouTube Captions") {
+              const video = document.pictureInPictureElement;
+              if (video && [...video.textTracks].includes(this) && current(video)) value = "hidden";
+            }
+            return modes.set.call(this, value);
+          },
+        });
+        let bridging = null;
+        const bridge = () => {
+          const video = document.pictureInPictureElement;
+          if (!video || !video.textTracks) { clearInterval(bridging); bridging = null; return; }
+          const found = current(video);
+          const state = ours.get(video) || { track: null, version: 0 };
+          ours.set(video, state);
+          if (!found) { if (state.track) modes.set.call(state.track, "disabled"); return; }
+          if (!state.track) state.track = video.addTextTrack("captions", "BasicShell Captions", document.documentElement.lang || "");
+          if (state.version !== found.version) {
+            modes.set.call(state.track, "hidden");
+            for (const cue of [...(state.track.cues || [])]) { try { state.track.removeCue(cue); } catch (x) {} }
+            for (const [start, end, line] of found.cues) { try { state.track.addCue(new VTTCue(start, end, line)); } catch (x) {} }
+            state.version = found.version;
+          }
+          for (const track of video.textTracks) if (track.label === "YouTube Captions" && track.mode === "showing") modes.set.call(track, "hidden");
+          if (state.track.mode !== "showing") modes.set.call(state.track, "showing");
+        };
+        addEventListener("enterpictureinpicture", () => { bridge(); if (!bridging) bridging = setInterval(bridge, 250); }, true);
+        addEventListener("leavepictureinpicture", (e) => {
+          const state = ours.get(e.target);
+          if (state && state.track) modes.set.call(state.track, "disabled");
+        }, true);
+        addEventListener("loadstart", (e) => { const state = ours.get(e.target); if (state) state.version = 0; }, true);
+      }
       // YouTube makes its caption track twice as a page loads, turning the
       // first off; now and then it goes on writing lines into that first
       // one, which Picture in Picture doesn't show, and stays blank until
@@ -168,9 +269,30 @@ enum PiP {
     }
 
     /// The video playing in a tab going out of sight, into Picture in Picture.
-    static func follow(_ tab: Tab) {
-        guard !isActive(tab), !tab.isFrozen, tab.webView != nil else { return }
-        enter(tab, playingOnly: true, automatic: true)
+    /// `slide`: the window went to another desktop, -1 if the desktop now
+    /// shown is to the left (so the window's went off to the right), 1 to
+    /// the right. The video is moved first, out of sight, by a screen's
+    /// width the way its desktop went, so the system brings it into its
+    /// floating window from that side, as if it had come along; 0 leaves it
+    /// where it is.
+    static func follow(_ tab: Tab, slide: Int = 0) {
+        let key = ObjectIdentifier(tab)
+        guard !isActive(tab), !automatic.contains(key), !tab.isFrozen, let web = tab.webView else { return }
+        // Not while the page is in (or has just left) its own full screen:
+        // asked then, the video element was left "processing" a request for
+        // good and refused every one after it, until the page was reloaded;
+        // and leaving full screen stuck halfway. Asked again once it settles,
+        // if the video is still out of sight.
+        guard web.fullscreenState == .notInFullscreen else { return }
+        let settle = 0.5 - Date().timeIntervalSince(tab.fullscreenChanged)
+        if settle > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + settle) {
+                guard let window = tab.host as? BrowserWindow, window.outOfSight(tab) else { return }
+                follow(tab, slide: slide)
+            }
+            return
+        }
+        enter(tab, playingOnly: true, automatic: true, slide: slide)
     }
 
     /// The tab is in sight again: a video moved by itself comes back.
@@ -190,6 +312,18 @@ enum PiP {
     const video = playing || (playingOnly ? null : videos.sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0]);
     if (!video) return "no video";
     if (document.pictureInPictureElement === video) return "already";
+    // The window went to another desktop: the video, unseen, is moved a
+    // screen's width the way the desktop went, where the system's animation
+    // starts from. Put back once it is in.
+    if (slide) {
+      const style = video.style, kept = [style.transform, style.transition];
+      style.transition = "none";
+      style.transform = `translateX(${-slide * screen.width}px)`;
+      let restored = false;
+      const restore = () => { if (restored) return; restored = true; [style.transform, style.transition] = kept; };
+      video.addEventListener("enterpictureinpicture", () => setTimeout(restore, 100), { once: true });
+      setTimeout(restore, 2500);
+    }
     try {
       await video.requestPictureInPicture();
       return "in";
@@ -198,11 +332,11 @@ enum PiP {
     }
     """
 
-    private static func enter(_ tab: Tab, playingOnly: Bool, automatic byItself: Bool) {
+    private static func enter(_ tab: Tab, playingOnly: Bool, automatic byItself: Bool, slide: Int = 0) {
         guard let web = tab.webView else { return }
         let key = ObjectIdentifier(tab)
         if byItself { automatic.insert(key) }
-        call(web, request, ["playingOnly": playingOnly]) { result, error in
+        call(web, request, ["playingOnly": playingOnly, "slide": slide]) { result, error in
             let answer = (result as? String) ?? error?.localizedDescription ?? "?"
             Debug.log("pip", "\(tab.name): \(byItself ? "by itself" : "asked"): \(answer)")
             if answer == "in" || answer == "already" { tab.inPictureInPicture = true }

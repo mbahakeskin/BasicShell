@@ -53,7 +53,9 @@ start again after macOS ended its process, `_backgroundWebView`,
 `_webProcessIdentifier` and `_terminateServiceWorkers` let BasicShell end
 the broken processes and start it afresh; and `_features` with
 `_setEnabled:forFeature:` turn on `requestIdleCallback`, which WebKit has
-but keeps off.
+but keeps off. Outside WebKit, SkyLight's `CGSCopyManagedDisplaySpaces` and
+`CGSCopySpacesForWindows` tell which way you went to another desktop, for a
+video to fly into picture in picture from that side.
 
 What it can't do: passkeys. WebKit gives them to a browser only with an
 entitlement Apple grants on request, tied to a paid Developer ID.

@@ -24,6 +24,8 @@ final class Tab: NSObject, Identifiable {
 
     private(set) var title = ""
     private(set) var url: URL?
+    /// When the page last went into or out of its own full screen (see PiP.follow).
+    @ObservationIgnored var fullscreenChanged = Date.distantPast
     /// The address BasicShell's page about a failed load stands in for.
     @ObservationIgnored private var errorShown: URL?
     private(set) var isLoading = false
@@ -153,6 +155,9 @@ final class Tab: NSObject, Identifiable {
                     if !self.isPrivate { Session.touch() }
                     Extensions.shared.changed(self, .URL)
                 }
+            },
+            web.observe(\.fullscreenState) { [weak self] _, _ in
+                MainActor.assumeIsolated { self?.fullscreenChanged = Date() }
             },
             web.observe(\.isLoading) { [weak self] web, _ in
                 MainActor.assumeIsolated {
