@@ -399,6 +399,13 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         new.load(url)
     }
 
+    /// A link opened in a private tab, beside the one it came from.
+    func openPrivately(_ url: URL) {
+        let new = Tab(privately: true, opening: url)
+        insert(new, after: shell.selected, select: true)
+        new.load(url)
+    }
+
     /// Opens a link from outside (another app, the Dock, the menu bar). The
     /// field a new window opens with goes: the link is what was wanted, and
     /// the field stayed over its page.

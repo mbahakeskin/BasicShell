@@ -53,7 +53,9 @@ start again after macOS ended its process, `_backgroundWebView`,
 `_webProcessIdentifier` and `_terminateServiceWorkers` let BasicShell end
 the broken processes and start it afresh; and `_features` with
 `_setEnabled:forFeature:` turn on `requestIdleCallback`, which WebKit has
-but keeps off. Outside WebKit, SkyLight's `CGSCopyManagedDisplaySpaces` and
+but keeps off; `_setDeveloperExtrasEnabled:` puts Inspect Element in a
+page's right-click menu, which `_webView:contextMenu:forElement:` lets
+BasicShell arrange. Outside WebKit, SkyLight's `CGSCopyManagedDisplaySpaces` and
 `CGSCopySpacesForWindows` tell which way you went to another desktop, for a
 video to fly into picture in picture from that side.
 

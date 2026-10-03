@@ -46,6 +46,13 @@ enum Web {
         // idle. Bitwarden's, which look over the page for fields whenever it
         // changes, among them.
         enable("RequestIdleCallbackEnabled", in: config.preferences)
+        // Inspect Element in a page's right-click menu (WebKit's private
+        // `_setDeveloperExtrasEnabled:`); nothing runs until it is chosen.
+        let extras = NSSelectorFromString("_setDeveloperExtrasEnabled:")
+        if config.preferences.responds(to: extras), let method = class_getMethodImplementation(WKPreferences.self, extras) {
+            typealias SetBool = @convention(c) (AnyObject, Selector, Bool) -> Void
+            unsafeBitCast(method, to: SetBool.self)(config.preferences, extras, true)
+        }
         return config
     }
 
