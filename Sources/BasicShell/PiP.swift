@@ -319,9 +319,13 @@ enum PiP {
     // MARK: -
 
     /// The video playing, else (when asked by hand) the largest one ready.
+    /// By itself, only one you can hear: a muted one playing is a page's
+    /// decoration (behind a sign-in form, a preview under the pointer),
+    /// pages being let to play only those on their own.
     private static let request = """
     const videos = [...document.querySelectorAll("video")].filter((v) => v.readyState > 0 && !v.disablePictureInPicture);
-    const playing = videos.find((v) => !v.paused && !v.ended);
+    const heard = (v) => !v.muted && v.volume > 0 && v.clientWidth * v.clientHeight >= 200 * 112;
+    const playing = videos.find((v) => !v.paused && !v.ended && (!byItself || heard(v)));
     const video = playing || (playingOnly ? null : videos.sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0]);
     if (!video) return "no video";
     if (document.pictureInPictureElement === video) return "already";
@@ -349,7 +353,7 @@ enum PiP {
         guard let web = tab.webView else { return }
         let key = ObjectIdentifier(tab)
         if byItself { automatic.insert(key) }
-        call(web, request, ["playingOnly": playingOnly, "slide": slide]) { result, error in
+        call(web, request, ["playingOnly": playingOnly, "byItself": byItself, "slide": slide]) { result, error in
             let answer = (result as? String) ?? error?.localizedDescription ?? "?"
             Debug.log("pip", "\(tab.name): \(byItself ? "by itself" : "asked"): \(answer)")
             if answer == "in" || answer == "already" { tab.inPictureInPicture = true }

@@ -124,6 +124,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         window.contentView = root
         root.onLayout = { [weak self] in self?.layout(animated: false) }
         root.onExit = { [weak self] in self?.pointerLeft() }
+        root.onMoveInBackground = { [weak self] point in self?.pointer(at: point) }
 
         page.wantsLayer = true
         page.layer?.masksToBounds = true
@@ -1276,6 +1277,10 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 final class RootView: NSView {
     var onLayout: (() -> Void)?
     var onExit: (() -> Void)?
+    /// The pointer moved while BasicShell isn't the app in front: the event
+    /// monitor hears only what comes to the active app, and the sidebar
+    /// waited for a click.
+    var onMoveInBackground: ((NSPoint) -> Void)?
 
     override func layout() {
         super.layout()
@@ -1285,7 +1290,13 @@ final class RootView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        guard !NSApp.isActive else { return }
+        onMoveInBackground?(convert(event.locationInWindow, from: nil))
     }
 
     override func mouseExited(with event: NSEvent) {
