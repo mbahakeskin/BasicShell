@@ -124,7 +124,6 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         window.contentView = root
         root.onLayout = { [weak self] in self?.layout(animated: false) }
         root.onExit = { [weak self] in self?.pointerLeft() }
-        root.onMoveInBackground = { [weak self] point in self?.pointer(at: point) }
 
         page.wantsLayer = true
         page.layer?.masksToBounds = true
@@ -268,13 +267,18 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     // MARK: - the pointer at the edges
 
     private func watchPointer() {
+        // Wherever a move goes, the pointer is looked for over this window
+        // (pointerMoved): to this window; to another of BasicShell's, a
+        // popover or one of WebKit's; or to another app, with BasicShell
+        // behind it or an invisible window of that app over this one. Heard
+        // only when it came to this window, the sidebar now and then waited
+        // for a click.
         let pointer = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged]) { [weak self] event in
-            MainActor.assumeIsolated {
-                if let self, event.window === self.window {
-                    self.pointer(at: self.root.convert(event.locationInWindow, from: nil))
-                }
-            }
+            MainActor.assumeIsolated { self?.pointerMoved() }
             return event
+        }
+        let elsewhere = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged]) { [weak self] _ in
+            MainActor.assumeIsolated { self?.pointerMoved() }
         }
         // Esc puts the address fields away: a text field hands Esc to
         // completion before SwiftUI's onExitCommand sees it. ⌃Tab walks the
@@ -306,7 +310,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             }
             return event
         }
-        monitors = [pointer, keys, clicks].compactMap { $0 }
+        monitors = [pointer, elsewhere, keys, clicks].compactMap { $0 }
         let centre = NotificationCenter.default
         let began = centre.addObserver(forName: NSMenu.didBeginTrackingNotification, object: NSApp.mainMenu, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.menuOpen = true }
@@ -334,6 +338,21 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             return true
         }
         return false
+    }
+
+    /// The pointer moved somewhere on the screen: if it is over this window,
+    /// and this is the frontmost of BasicShell's browser windows there, the
+    /// edges hear of it. Its own edges count as over it.
+    private func pointerMoved() {
+        guard let window, window.isVisible, !window.isMiniaturized, window.isOnActiveSpace else { return }
+        let location = NSEvent.mouseLocation
+        let over = { (frame: NSRect) in
+            location.x >= frame.minX && location.x <= frame.maxX && location.y >= frame.minY && location.y <= frame.maxY
+        }
+        guard over(window.frame),
+              NSApp.orderedWindows.first(where: { $0.windowController is BrowserWindow && $0.isVisible && over($0.frame) }) === window
+        else { return }
+        pointer(at: root.convert(window.convertPoint(fromScreen: location), from: nil))
     }
 
     private func pointer(at point: NSPoint) {
@@ -1277,10 +1296,6 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 final class RootView: NSView {
     var onLayout: (() -> Void)?
     var onExit: (() -> Void)?
-    /// The pointer moved while BasicShell isn't the app in front: the event
-    /// monitor hears only what comes to the active app, and the sidebar
-    /// waited for a click.
-    var onMoveInBackground: ((NSPoint) -> Void)?
 
     override func layout() {
         super.layout()
@@ -1290,13 +1305,7 @@ final class RootView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self))
-    }
-
-    override func mouseMoved(with event: NSEvent) {
-        super.mouseMoved(with: event)
-        guard !NSApp.isActive else { return }
-        onMoveInBackground?(convert(event.locationInWindow, from: nil))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
     override func mouseExited(with event: NSEvent) {
