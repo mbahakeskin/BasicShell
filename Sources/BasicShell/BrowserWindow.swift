@@ -551,6 +551,10 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     // MARK: - tabs
 
     func insert(_ tab: Tab, after opener: Tab?, select: Bool) {
+        insert(tab, after: opener, select: select, atTop: false)
+    }
+
+    func insert(_ tab: Tab, after opener: Tab?, select: Bool, atTop: Bool) {
         tab.host = self
         tab.opener = opener
         if let opener, let at = shell.tabs.firstIndex(of: opener) {
@@ -558,6 +562,9 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             var index = at + 1
             while index < shell.tabs.count, shell.tabs[index].opener === opener { index += 1 }
             shell.tabs.insert(tab, at: index)
+        } else if atTop {
+            // First of the tabs in the list; the pinned ones are tiles above it.
+            shell.tabs.insert(tab, at: shell.tabs.firstIndex { !$0.pinned } ?? shell.tabs.count)
         } else {
             shell.tabs.append(tab)
         }
@@ -790,8 +797,9 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     /// The field in the middle of the window, over the page. A tab is made
     /// only once something is typed and Return pressed.
-    func ask(_ ask: Ask) {
+    func ask(_ ask: Ask, atTop: Bool = false) {
         shell.asking = ask
+        newTabAtTop = atTop
         if omnibox == nil {
             let host = hosting(OmniboxView(shell: shell, window: self))
             host.frame = root.bounds
@@ -801,10 +809,15 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         window?.makeKeyAndOrderFront(nil)
     }
 
+    /// The tab being asked for goes above the others, not below them: asked
+    /// for with the sidebar's New Tab row at the top of the list.
+    private var newTabAtTop = false
+
     func dismissOmnibox() {
         omnibox?.removeFromSuperview()
         omnibox = nil
         shell.asking = nil
+        newTabAtTop = false
         if let web = shell.selected?.webView { window?.makeFirstResponder(web) }
     }
 
@@ -816,9 +829,10 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             return
         }
         let privately = if case .newTab(let p)? = shell.asking { p } else { false }
+        let atTop = newTabAtTop
         dismissOmnibox()
         let tab = Tab(privately: privately)
-        insert(tab, after: nil, select: true)
+        insert(tab, after: nil, select: true, atTop: atTop)
         tab.load(url)
     }
 

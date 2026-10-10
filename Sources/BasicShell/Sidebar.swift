@@ -38,10 +38,10 @@ struct SidebarView: View {
 
             List {
                 let others = shell.tabs.filter { !$0.pinned }
-                newTabRow
+                newTabRow(atTop: true)
                 ForEach(others) { row($0, in: others) }
                     .onMove { window.move(from: $0, to: $1, pinned: false) }
-                if !others.isEmpty { newTabRow }
+                if !others.isEmpty { newTabRow(atTop: false) }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -131,8 +131,8 @@ struct SidebarView: View {
     }
 
     /// A New Tab button shaped like a row, above the tabs and below them.
-    private var newTabRow: some View {
-        NewTabRow { window.ask(.newTab(privately: false)) }
+    private func newTabRow(atTop: Bool) -> some View {
+        NewTabRow { window.ask(.newTab(privately: false), atTop: atTop) }
             .listRowInsets(EdgeInsets(top: 1, leading: 0, bottom: 1, trailing: 0))
             .listRowSeparator(.hidden)
             .listRowBackground(Color.clear)

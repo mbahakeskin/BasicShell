@@ -18,7 +18,9 @@ the pages you open.
   for a moment, moving the top bar down below it, and the Dock as soon as
   the pointer reaches the bottom.
 - A new tab starts as a field over the current page; the tab exists only
-  once you enter an address or a search.
+  once you enter an address or a search. Asked for with the New Tab row
+  above the sidebar's tabs it goes first in the list, with the one below
+  them, last.
 - Private tabs sit beside ordinary ones. They share one cookie jar that is
   kept only in memory, never on disk, and goes when the app quits; they are
   never saved in the session.
