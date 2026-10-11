@@ -32,7 +32,7 @@ enum ClaudeTools {
 
     private static func tool(_ name: String, _ description: String, _ properties: [String: [String: Any]] = [:], required: [String] = [], reads: Bool = false) -> [String: Any] {
         var all = properties
-        if all["tab"] == nil, !["tabs", "open", "history", "bookmarks", "downloads"].contains(name) {
+        if all["tab"] == nil, !["tabs", "open", "batch", "history", "bookmarks", "downloads"].contains(name) {
             all["tab"] = ["type": "integer", "description": "The tab's number from `tabs`. Left out: the tab shown in the front window."]
         }
         return [
@@ -71,6 +71,8 @@ enum ClaudeTools {
         ], required: ["query"], reads: true),
         tool("screenshot", "A picture of the page as it is in the tab now. Positions given to click, hover and scroll are in its pixels.", [
             "ref": ["type": "integer", "description": "Only this thing, brought into view first."],
+            "region": ["type": "array", "items": ["type": "number"], "minItems": 4, "maxItems": 4,
+                       "description": "Only this part, enlarged to show its detail: [left, top, right, bottom] in the pixels of the last whole-view screenshot."],
         ], reads: true),
         tool("click", "Clicks something on the page: by its ref, or at a position in the last screenshot.", [
             "ref": ref, "x": x, "y": y,
@@ -79,6 +81,12 @@ enum ClaudeTools {
             "modifiers": ["type": "string", "description": "Keys held meanwhile: any of cmd, shift, alt, ctrl, joined with +."],
         ]),
         tool("hover", "Moves the pointer over something, for menus and hints that show then.", ["ref": ref, "x": x, "y": y]),
+        tool("drag", "Presses on one place, drags the pointer to another and lets go: sliders, sortable lists, canvases, maps, selecting text. Each end is a ref, or a position in the last screenshot. A page that drags with the browser's own drag and drop (a file or a link dragged between things) may not take it.", [
+            "ref": ref, "x": x, "y": y,
+            "to_ref": ["type": "integer", "description": "Where to let go: the number of something on the page."],
+            "to_x": x, "to_y": y,
+            "modifiers": ["type": "string", "description": "Keys held meanwhile: any of cmd, shift, alt, ctrl, joined with +."],
+        ]),
         tool("type", "Types text where the keyboard is in the page, or into `ref` (clicked first). Never into a password or card field.", [
             "text": ["type": "string", "description": "What to type."],
             "ref": ref,
@@ -86,6 +94,7 @@ enum ClaudeTools {
         ], required: ["text"]),
         tool("key", "Presses keys in the page, one after another.", [
             "keys": ["type": "string", "description": "Space-separated: Enter, Tab, Escape, Backspace, Delete, Space, ArrowUp/Down/Left/Right, Home, End, PageUp, PageDown, or a character; with modifiers as cmd+a, shift+Tab."],
+            "repeat": ["type": "integer", "description": "How many times to go through them, 1 unless said, 100 at most."],
         ], required: ["keys"]),
         tool("scroll", "Scrolls the page, or what is under a position, or brings a ref into view.", [
             "direction": ["type": "string", "enum": ["down", "up", "left", "right"], "description": "Which way. Down unless said."],
@@ -135,6 +144,19 @@ enum ClaudeTools {
         tool("record", "Records the tab as a GIF: start, do things, then stop, which saves it into the Downloads folder and says where.", [
             "action": ["type": "string", "enum": ["start", "stop"]],
         ], required: ["action"]),
+        tool("resize", "Changes how the tab's page is shown, for trying a layout: the window's size (the page's view is then that size), the light or dark look, the zoom, and a phone's or tablet's way of introducing itself to sites. The window is the person's: put it back with preset \"desktop\". WebKit has no touch emulation; a page that asks the browser what it is (its user agent) is told after a reload.", [
+            "width": ["type": "integer", "description": "The page view's width, in points."],
+            "height": ["type": "integer", "description": "The page view's height, in points."],
+            "preset": ["type": "string", "enum": ["mobile", "tablet", "desktop"], "description": "mobile (390×844, as an iPhone), tablet (820×1180, as an iPad), desktop (the window's own size back, and the browser's own user agent)."],
+            "color_scheme": ["type": "string", "enum": ["light", "dark", "system"], "description": "What the page is told about the person's light or dark setting."],
+            "zoom": ["type": "number", "description": "The page's zoom, 1 for actual size (0.3 to 3)."],
+        ]),
+        tool("batch", "Does several things in one go, one after another, stopping at the first that fails: `actions` is a list of {name, input}, each a tool of these and what it takes. Refs die when a page changes, so use it for steps whose refs or positions are already known. 20 at most.", [
+            "actions": ["type": "array", "items": ["type": "object", "properties": [
+                "name": ["type": "string", "description": "The tool's name."],
+                "input": ["type": "object", "description": "What that tool takes."],
+            ] as [String: Any], "required": ["name"]] as [String: Any]],
+        ], required: ["actions"]),
     ]
 
     // MARK: - running one
@@ -158,6 +180,7 @@ enum ClaudeTools {
             case "screenshot": return try await call.screenshot()
             case "click": return try await call.click()
             case "hover": return try await call.hover()
+            case "drag": return try await call.drag()
             case "type": return try await call.type()
             case "key": return try await call.key()
             case "scroll": return try await call.scroll()
@@ -173,6 +196,8 @@ enum ClaudeTools {
             case "downloads": return try await call.downloads()
             case "save_page": return try await call.savePage()
             case "record": return try await call.record()
+            case "resize": return try await call.resize()
+            case "batch": return await batch(arguments, for: client)
             default: return .failure("BasicShell has no tool called \(name).")
             }
         } catch let refusal as Refusal {
@@ -182,7 +207,33 @@ enum ClaudeTools {
         }
     }
 
+    // MARK: - several at once
+
+    private static func batch(_ arguments: [String: Any], for client: String) async -> Reply {
+        guard let actions = arguments["actions"] as? [[String: Any]], !actions.isEmpty else {
+            return .failure("`batch` wants `actions`: a list of {name, input}.")
+        }
+        guard actions.count <= 20 else { return .failure("`batch` takes 20 actions at most; this has \(actions.count).") }
+        var parts: [[String: Any]] = []
+        for (index, action) in actions.enumerated() {
+            guard let name = action["name"] as? String, name != "batch" else {
+                return Reply(parts: parts + [["type": "text", "text": "Action \(index + 1) has no tool name, or is a `batch`, which can't hold one."]], failed: true)
+            }
+            let reply = await run(name, action["input"] as? [String: Any] ?? [:], for: client)
+            parts.append(["type": "text", "text": "[\(index + 1)] \(name):"])
+            parts += reply.parts
+            if reply.failed {
+                parts.append(["type": "text", "text": "Stopped at action \(index + 1) of \(actions.count); the rest were not done."])
+                return Reply(parts: parts, failed: true)
+            }
+        }
+        return Reply(parts: parts)
+    }
+
     // MARK: - tabs by number
+
+    /// A window's frame from before `resize` changed it, to put back.
+    fileprivate static var windowed: [ObjectIdentifier: NSRect] = [:]
 
     private static var numbered: [Int: UUID] = [:]
     private static var lastNumber = 0
@@ -441,14 +492,25 @@ private struct Call {
             let zoom = web.pageZoom
             part = CGRect(x: x * zoom, y: y * zoom, width: w * zoom, height: h * zoom).insetBy(dx: -8, dy: -8).intersection(web.bounds)
         }
-        guard let picture = await ClaudePicture.take(of: web, part: part, widest: 1440) else {
+        var enlarge: CGFloat = 1
+        if part == nil, let region = arguments["region"] as? [Any] {
+            let box = region.compactMap { ($0 as? NSNumber)?.doubleValue ?? ($0 as? String).flatMap(Double.init) }
+            guard box.count == 4, box[2] > box[0], box[3] > box[1] else { throw Refusal(message: "`region` is [left, top, right, bottom], the right below and beyond the left.") }
+            let scale = tab.claudeScale
+            let area = CGRect(x: box[0] * scale, y: box[1] * scale, width: (box[2] - box[0]) * scale, height: (box[3] - box[1]) * scale).intersection(web.bounds)
+            guard area.width >= 1, area.height >= 1 else { throw Refusal(message: "That region is outside the page's view; take a screenshot and use its pixels.") }
+            part = area
+            // Enlarged, to the width of a whole-view picture at most.
+            enlarge = min(4, max(1, 1440 / area.width))
+        }
+        guard let picture = await ClaudePicture.take(of: web, part: part, widest: 1440, enlarge: enlarge) else {
             throw Refusal(message: "The page couldn't be pictured just now. Try again, or read it with `read_page`.")
         }
         if part == nil { tab.claudeScale = picture.scale }
         let size = "\(picture.width)×\(picture.height)"
         let note = part == nil
             ? "The view of \(tab.name), \(size). Positions for click, hover and scroll are in these pixels."
-            : "That part of the page, \(size). Positions for click are in the pixels of a screenshot of the whole view, not of this one."
+            : "That part of the page, \(size)\(enlarge > 1 ? ", enlarged" : ""). Positions for click are in the pixels of a screenshot of the whole view, not of this one."
         return Reply(parts: [
             ["type": "text", "text": note],
             ["type": "image", "data": picture.jpeg.base64EncodedString(), "mimeType": "image/jpeg"],
@@ -543,6 +605,22 @@ private struct Call {
         return .text("The pointer is over \(place.what).")
     }
 
+    func drag() async throws -> Reply {
+        let (tab, web) = try await page(.act)
+        let from = try await place(in: tab, web)
+        if from.file { throw Refusal(message: "That is a file field; give it files with `upload`.") }
+        // The place where it lets go, asked for the same way.
+        var end: [String: Any] = [:]
+        if let ref = integer("to_ref") { end["ref"] = ref }
+        if let x = number("to_x") { end["x"] = x }
+        if let y = number("to_y") { end["y"] = y }
+        let to = try await Call(arguments: end, client: client).place(in: tab, web)
+        guard hypot(to.point.x - from.point.x, to.point.y - from.point.y) >= 1 else { throw Refusal(message: "Both ends are the same place.") }
+        await ClaudeInput.drag(web, from: from.point, to: to.point, modifiers: modifiers(string("modifiers")))
+        ClaudeRecorder.note(tab)
+        return .text("Dragged from \(from.what) to \(to.what)." + (await after(tab, web)))
+    }
+
     func type() async throws -> Reply {
         let (tab, web) = try await page(.act)
         let text = string("text") ?? ""
@@ -573,14 +651,17 @@ private struct Call {
         let (tab, web) = try await page(.act)
         let keys = (string("keys") ?? "").split(separator: " ").map(String.init)
         guard !keys.isEmpty else { throw Refusal(message: "`key` wants keys to press.") }
-        for key in keys {
-            // A character typed is typing, and not into a secret field.
-            if key.count == 1 { _ = try await keyboard(in: tab, web) }
-            guard ClaudeInput.press(key, in: web) else { throw Refusal(message: "BasicShell doesn't know the key \(key).") }
-            try? await Task.sleep(for: .milliseconds(60))
+        let times = min(max(integer("repeat") ?? 1, 1), 100)
+        for _ in 0..<times {
+            for key in keys {
+                // A character typed is typing, and not into a secret field.
+                if key.count == 1 { _ = try await keyboard(in: tab, web) }
+                guard ClaudeInput.press(key, in: web) else { throw Refusal(message: "BasicShell doesn't know the key \(key).") }
+                try? await Task.sleep(for: .milliseconds(60))
+            }
         }
         ClaudeRecorder.note(tab)
-        return .text("Pressed \(keys.joined(separator: " "))." + (await after(tab, web)))
+        return .text("Pressed \(keys.joined(separator: " "))\(times > 1 ? " \(times) times" : "")." + (await after(tab, web)))
     }
 
     func scroll() async throws -> Reply {
@@ -690,6 +771,78 @@ private struct Call {
             try? await Task.sleep(for: .milliseconds(300))
         }
         return .text("\"\(text)\" hasn't appeared after \(seconds) seconds.")
+    }
+
+    func resize() async throws -> Reply {
+        let (tab, web) = try await page(.act)
+        guard let host = tab.host as? BrowserWindow, let window = host.window else { throw Refusal(message: "That tab is in no window.") }
+        var said: [String] = []
+        let wantsSize = integer("width") != nil || integer("height") != nil || ["mobile", "tablet", "desktop"].contains(string("preset") ?? "")
+        if wantsSize {
+            guard !window.styleMask.contains(.fullScreen) else { throw Refusal(message: "The window is full screen, which has a size of its own; the person leaves it first.") }
+            let key = ObjectIdentifier(window)
+            var size = CGSize(width: integer("width").map(Double.init) ?? Double(web.bounds.width), height: integer("height").map(Double.init) ?? Double(web.bounds.height))
+            switch string("preset") {
+            case "mobile": size = CGSize(width: 390, height: 844)
+            case "tablet": size = CGSize(width: 820, height: 1180)
+            case "desktop":
+                if let frame = ClaudeTools.windowed[key] {
+                    window.setFrame(frame, display: true, animate: false)
+                    ClaudeTools.windowed[key] = nil
+                    said.append("the window is back at its own size")
+                }
+                size = .zero
+            default: break
+            }
+            if size != .zero {
+                guard size.width >= 200, size.height >= 200, size.width <= 6000, size.height <= 6000 else { throw Refusal(message: "A page view between 200 and 6000 points each way.") }
+                if ClaudeTools.windowed[key] == nil { ClaudeTools.windowed[key] = window.frame }
+                // The window grows by what the view is short of.
+                var frame = window.frame
+                frame.size.width += size.width - web.bounds.width
+                frame.size.height += size.height - web.bounds.height
+                frame.origin.y -= frame.size.height - window.frame.size.height
+                if let area = (window.screen ?? NSScreen.main)?.visibleFrame {
+                    frame.size.width = min(frame.size.width, area.width)
+                    frame.size.height = min(frame.size.height, area.height)
+                    frame.origin.x = min(max(frame.origin.x, area.minX), area.maxX - frame.size.width)
+                    frame.origin.y = min(max(frame.origin.y, area.minY), area.maxY - frame.size.height)
+                }
+                window.setFrame(frame, display: true, animate: false)
+                try? await Task.sleep(for: .milliseconds(250))
+                said.append("the page view is \(Int(web.bounds.width))×\(Int(web.bounds.height)) points" + (Int(web.bounds.width) == Int(size.width) && Int(web.bounds.height) == Int(size.height) ? "" : " (the window or the screen wouldn't give more or less)"))
+            }
+        }
+        if let preset = string("preset") {
+            let agent: String? = switch preset {
+            case "mobile": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+            case "tablet": "Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
+            case "desktop": nil
+            default: throw Refusal(message: "`preset` is mobile, tablet or desktop.")
+            }
+            if web.customUserAgent != agent {
+                web.customUserAgent = agent
+                said.append(agent == nil ? "the browser's own user agent is back (sites are told after a reload)" : "it introduces itself as \(preset == "mobile" ? "an iPhone" : "an iPad") (sites are told after a reload)")
+            }
+        }
+        if let scheme = string("color_scheme") {
+            switch scheme {
+            case "light": web.appearance = NSAppearance(named: .aqua)
+            case "dark": web.appearance = NSAppearance(named: .darkAqua)
+            case "system": web.appearance = nil
+            default: throw Refusal(message: "`color_scheme` is light, dark or system.")
+            }
+            said.append("the page is told the setting is \(scheme)")
+        }
+        if let zoom = number("zoom") {
+            web.pageZoom = min(max(zoom, 0.3), 3)
+            said.append("zoom \(String(format: "%g", Double(web.pageZoom)))")
+        }
+        guard !said.isEmpty else { throw Refusal(message: "`resize` wants something to change: width and height, preset, color_scheme or zoom.") }
+        // The positions of the last screenshot no longer hold.
+        tab.claudeScale = 1
+        ClaudeRecorder.note(tab)
+        return .text("Done: \(said.joined(separator: "; ")). Take a new screenshot before using positions, and read the page again for refs.")
     }
 
     // MARK: the developer tools
@@ -820,13 +973,13 @@ enum ClaudePicture {
 
     /// The view, or a part of it, as a JPEG no wider than `widest`, a pixel
     /// for a point where it fits.
-    static func take(of web: WKWebView, part: CGRect?, widest: CGFloat, quality: Double = 0.72) async -> Taken? {
+    static func take(of web: WKWebView, part: CGRect?, widest: CGFloat, enlarge: CGFloat = 1, quality: Double = 0.72) async -> Taken? {
         let area = part ?? web.bounds
         guard area.width >= 1, area.height >= 1 else { return nil }
         let config = WKSnapshotConfiguration()
         config.afterScreenUpdates = true
         if let part { config.rect = part }
-        let width = min(area.width, widest)
+        let width = min(area.width * enlarge, widest)
         config.snapshotWidth = NSNumber(value: Double(width))
         let image: NSImage? = await withCheckedContinuation { continuation in
             var answered = false

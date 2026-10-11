@@ -45,6 +45,24 @@ enum ClaudeInput {
         }
     }
 
+    /// The left button pressed at one place, the pointer taken to another in
+    /// small steps, and let go there.
+    static func drag(_ web: WKWebView, from: CGPoint, to: CGPoint, modifiers: NSEvent.ModifierFlags) async {
+        move(web, to: from)
+        guard let down = mouse(.leftMouseDown, web, at: from, count: 1, modifiers: modifiers) else { return }
+        web.mouseDown(with: down)
+        try? await Task.sleep(for: .milliseconds(40))
+        let steps = max(8, min(40, Int(hypot(to.x - from.x, to.y - from.y) / 12)))
+        for step in 1...steps {
+            let t = CGFloat(step) / CGFloat(steps)
+            let point = CGPoint(x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t)
+            if let event = mouse(.leftMouseDragged, web, at: point, count: 1, modifiers: modifiers) { web.mouseDragged(with: event) }
+            try? await Task.sleep(for: .milliseconds(16))
+        }
+        try? await Task.sleep(for: .milliseconds(40))
+        if let up = mouse(.leftMouseUp, web, at: to, count: 1, modifiers: modifiers) { web.mouseUp(with: up) }
+    }
+
     /// Text into whatever has the keyboard in the page, as the input method
     /// would put it: for a field the page's own script couldn't reach
     /// (another site's frame).

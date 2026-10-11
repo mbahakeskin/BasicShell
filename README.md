@@ -143,6 +143,15 @@ The tools:
   page's alert, confirm or prompt, which Claude in Chrome can't get past), `wait`,
   `save_page` (PDF or web archive, into Downloads), `record` (a GIF of the
   tab).
+- `drag` (sliders, sortable lists, canvases, text selection: the same real
+  events; a page that uses the browser's own drag and drop may not take it),
+  `screenshot` with a `region` (enlarged, to read small print), `key` with a
+  `repeat`, and `batch` (several tools in one call, stopping at the first
+  that fails).
+- `resize`: the window's size (a phone's or a tablet's, or any), the light or
+  dark look the page is told of, the zoom, and a phone's way of introducing
+  itself to sites. It changes your window, and `desktop` puts it back; there
+  is no touch emulation in WebKit.
 - If you allow them: `history`, `bookmarks`, `downloads`; and the developer
   tools `console`, `network` and `evaluate`.
 
