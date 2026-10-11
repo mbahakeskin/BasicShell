@@ -82,7 +82,7 @@ final class Downloads: NSObject, WKDownloadDelegate {
     }
 
     /// "report.pdf", then "report 2.pdf", "report 3.pdf"…
-    private static func free(in folder: URL, named name: String) -> URL {
+    static func free(in folder: URL, named name: String) -> URL {
         let safe = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
         let base = (safe as NSString).deletingPathExtension
         let ext = (safe as NSString).pathExtension

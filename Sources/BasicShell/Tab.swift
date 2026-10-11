@@ -69,6 +69,31 @@ final class Tab: NSObject, Identifiable {
     /// When its web process last ended, for telling a crash loop apart.
     @ObservationIgnored private var crashes: [Date] = []
 
+    // What Claude's tools keep with a tab (see Claude.swift).
+    /// Its number, as Claude knows it.
+    @ObservationIgnored var claudeNumber: Int?
+    /// The web view's points to a pixel of the last picture Claude took.
+    @ObservationIgnored var claudeScale: CGFloat = 1
+    /// What the page logged and loaded, while the developer tools are on.
+    struct Logged {
+        let date: Date
+        let kind: String
+        let text: String
+    }
+    @ObservationIgnored var logged: [Logged] = []
+    /// A question from the page that is up now (alert, confirm, prompt).
+    struct Question {
+        let kind: String
+        let message: String
+        let alert: NSAlert
+        let field: NSTextField?
+    }
+    @ObservationIgnored var dialog: Question?
+    /// The frames from other sites in the page now (ClaudePage.frames).
+    @ObservationIgnored var frames: [WKFrameInfo] = []
+    /// Files the person let Claude give the next file chooser, and until when.
+    @ObservationIgnored var offered: (files: [URL], until: Date)?
+
     /// A new, empty tab. A private one shares the private tabs' cookie jar,
     /// which lives in memory and goes when the app quits (see Web.swift).
     /// Given the address it is about to open, its view is made for that
@@ -290,6 +315,11 @@ extension Tab: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
         Downloads.shared.adopt(download)
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        // Another page: the frames noted were the last one's.
+        frames = []
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

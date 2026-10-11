@@ -66,6 +66,9 @@ the pages you open.
 - Find in the page (`⌘F`): a small field at the page's top right, every
   match marked and counted, `⌘G` and `⇧⌘G` for the next and the one before.
 - `⇧⌘C` copies the address.
+- Claude can use it, when you turn that on (Settings › Claude): Claude Code
+  and the Claude app get tools for the tabs and the pages in them. See
+  [Claude](#claude).
 
 Private WebKit features are used, each only where WebKit has it:
 `_suspendPage:` freezes tabs off screen (Settings › Tabs turns it off);
@@ -74,7 +77,8 @@ extension's own storage, which would stop its background worker; and
 `_setAllowsPictureInPictureMediaPlayback:` with a script run as though
 clicked (`_callAsyncJavaScript:…withUserGesture:`) gives picture in picture,
 and `_setWindowOcclusionDetectionEnabled:` keeps a page whose video is in it
-awake on another desktop, for the captions to go on; and when an extension's background fails to
+awake on another desktop, for the captions to go on (and a page Claude works
+in, while it does); and when an extension's background fails to
 start again after macOS ended its process, `_backgroundWebView`,
 `_webProcessIdentifier` and `_terminateServiceWorkers` let BasicShell end
 the broken processes and start it afresh; and `_features` with
@@ -103,11 +107,65 @@ if the keychain has one (a self-signed certificate is enough), so macOS keeps
 the app's permissions (location, camera, microphone) from build to build;
 otherwise it signs ad hoc, and macOS asks again after each build.
 
+## Claude
+
+Anthropic's own extension, Claude in Chrome, drives pages through Chrome's
+debugger, which WebKit's extensions don't have. BasicShell offers the same
+things itself, as tools over the Model Context Protocol, with no key and no
+account of its own: whichever Claude you already use calls them.
+
+Turn it on in Settings › Claude, then connect from there: a button adds
+BasicShell to Claude Code (or copies the command, `claude mcp add --scope
+user basicshell -- …/BasicShell.app/Contents/MacOS/BasicShell --mcp`), another
+writes it into the Claude app's settings. Claude starts BasicShell's own
+program with `--mcp`; that speaks the protocol and passes each call to the
+running browser over a socket in its folder that only your user can open.
+
+The tools:
+
+- `tabs`, `open`, `close`, `select`, `navigate`: the tabs in every window,
+  asleep ones too (one is woken when Claude reads it).
+- `read_text`, `read_page`, `find`, `screenshot`: a page's text, what on it
+  can be clicked or filled (each with a number to refer to it by), and a
+  picture of it.
+- `click`, `hover`, `type`, `key`, `scroll`, `fill`: made as AppKit's own
+  events and handed to the page's view, so the page takes them for real
+  ones, the pointer stays where you have it, and it all works in a tab
+  behind the one you are looking at.
+- `upload` (you are asked each time, with the files named), `dialog` (a
+  page's alert, confirm or prompt, which Claude in Chrome can't get past), `wait`,
+  `save_page` (PDF or web archive, into Downloads), `record` (a GIF of the
+  tab).
+- If you allow them: `history`, `bookmarks`, `downloads`; and the developer
+  tools `console`, `network` and `evaluate`.
+
+What keeps it yours:
+
+- Off until you turn it on. A private tab is never listed, read or touched.
+- Each site is asked about, once to read it and once to click and type
+  there; an answer can be remembered, and Settings › Claude lists those.
+- What is in a password, card or one-time-code field is never given, and
+  nothing is typed into one, a card form in a frame from another site
+  included. Signing in and paying stay yours.
+- A tab Claude works in is marked in the sidebar and framed while it is the
+  one shown, with a Stop button: everything is let go, and nothing more is
+  done until you say so.
+
+A page can still try to talk Claude into things with text you don't see.
+Asking per site and the Stop button are there for that; Anthropic's own
+extension also checks each action with a classifier of theirs, which this
+does not have. Keep it to sites you trust.
+
+A frame from another site is reached by the picture and by position only:
+its text and fields aren't listed.
+
 ## Network traffic
 
 Besides the pages you open: nothing of BasicShell's own. uBlock Origin Lite's
 lists come with its app, which the App Store keeps up to date. An extension you
-add from the Chrome Web Store is fetched from Google, once.
+add from the Chrome Web Store is fetched from Google, once. What Claude reads
+of a page, when you let it, goes to Claude, which is to say Anthropic, like
+anything else you show it.
 
 The macOS 27 SDK turns SwiftUI's `@State` into a macro whose plugin ships only
 with Xcode, so views here store `State` by hand instead of using the attribute.

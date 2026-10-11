@@ -34,6 +34,7 @@ struct SettingsView: View {
             TabSettings().tabItem { Label("Tabs", systemImage: "square.on.square") }.tag("tabs")
             PrivacySettings().tabItem { Label("Privacy", systemImage: "hand.raised") }.tag("privacy")
             ExtensionSettings().tabItem { Label("Extensions", systemImage: "puzzlepiece.extension") }.tag("extensions")
+            ClaudeSettings().tabItem { Label("Claude", systemImage: "sparkle") }.tag("claude")
         }
         .padding(.top, 28)
         .frame(width: 580, height: 520)
