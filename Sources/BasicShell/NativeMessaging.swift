@@ -99,6 +99,7 @@ final class NativeConnection {
     private let process = Process()
     private let input = Pipe()
     private let output = Pipe()
+    private let errors = Pipe()
     var onMessage: ((Any) -> Void)?
     var onClose: (() -> Void)?
     private var closed = false
@@ -109,11 +110,29 @@ final class NativeConnection {
         process.arguments = [origin]
         process.standardInput = input
         process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
+        process.standardError = errors
         do { try process.run() } catch {
             throw NativeHosts.Refused.failed("\(name) didn't start: \(error.localizedDescription)")
         }
         Debug.log("native", "\(name): started")
+        // What the helper says of itself going wrong, kept for the log: one
+        // that can't reach its app (not running, say) says why here and ends.
+        let complaints = errors.fileHandleForReading
+        Thread.detachNewThread {
+            var tail = Data()
+            while true {
+                let more = complaints.availableData
+                if more.isEmpty { break }
+                tail.append(more)
+                if tail.count > 8192 { tail = tail.suffix(4096) }
+            }
+            let lines = String(decoding: tail, as: UTF8.self)
+                .replacingOccurrences(of: "\u{1B}\\[[0-9;]*m", with: "", options: .regularExpression)
+                .split(whereSeparator: \.isNewline)
+            guard let said = lines.last(where: { $0.range(of: "error", options: .caseInsensitive) != nil }) else { return }
+            let line = String(said.prefix(300))
+            DispatchQueue.main.async { MainActor.assumeIsolated { Debug.log("native", "\(name) said: \(line)") } }
+        }
         let reader = output.fileHandleForReading
         // Blocking reads, off the main thread: a length, then that much JSON.
         Thread.detachNewThread { [weak self] in
