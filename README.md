@@ -199,6 +199,51 @@ does not have. Keep it to sites you trust.
 A frame from another site is reached by the picture and by position only:
 its text and fields aren't listed.
 
+### Against Claude in Chrome
+
+Compared by the tools each has (Claude in Chrome's from its own list), this
+does more in these ways:
+
+- **The browser itself, not only the page.** `history`, `bookmarks` and
+  `downloads`; `clipboard`; `arrange` (pin, copy, sleep, move a tab, take it
+  to a window); `extensions` (list, reload); `save_page` (PDF or web
+  archive); a whole-page picture; the text you have selected. Claude in
+  Chrome has none of these, and reaches only the tabs in the group it opens.
+- **A page's own questions.** `dialog` answers an alert, confirm or prompt,
+  which stops a page until someone does; Claude in Chrome has no tool for
+  them and is advised to steer clear of pages that raise them.
+- **Tabs behind the one you look at, and asleep ones.** Clicks, keys and
+  typing are AppKit's own events, handed to the page's view: the page takes
+  them for real ones, your pointer and your window stay where they are, and
+  a frozen tab is woken when Claude reads it.
+- **More for developers**, behind their own switches: a request's headers and
+  bodies with secrets replaced, `storage` (cookies, local and session
+  storage, databases), `inspect` (an element's styles, box and HTML),
+  `performance` (load timings, paints, slowest requests), `block` (keep a
+  tab from loading requests that match) and a hard reload.
+- **Finer say over it.** A switch for each part, a setting per site (read,
+  read only, read and act, never; added before Claude asks), a list of what
+  Claude did, one Bypass switch for all of it, and a Stop button on the
+  page's frame.
+- **Nothing to install** in a browser, no account or key, no extension that
+  has to see every page: BasicShell's own program is the server, and the
+  plain build has none of it.
+
+Claude in Chrome is still ahead in these:
+
+- It works through Chrome's debugger, so it can emulate devices truly (touch,
+  throttled networks, screen metrics); WebKit has no such thing, and
+  `resize` changes the window's size, the look the page is told of, the zoom
+  and the user agent only.
+- Each of its actions is checked by a classifier of Anthropic's; this has
+  none.
+- It is Chrome: pages built and tested for Chrome, your Chrome profile and
+  its sign-ins, and Anthropic keeps it up to date. It has saved shortcuts and
+  workflows, and can drive several browsers. This is one person's small
+  browser.
+- Dragging that uses the browser's own drag and drop (a file or a link
+  dragged between things) works there and may not here.
+
 ## Network traffic
 
 Besides the pages you open: nothing of BasicShell's own. uBlock Origin Lite's
