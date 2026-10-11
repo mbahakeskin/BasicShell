@@ -1,3 +1,4 @@
+#if CLAUDE
 import AppKit
 import WebKit
 
@@ -111,3 +112,4 @@ enum ClaudeInput {
         return true
     }
 }
+#endif

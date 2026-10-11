@@ -1,4 +1,5 @@
 .build/
+.build-claude/
 build/
 .swiftpm/
 .DS_Store

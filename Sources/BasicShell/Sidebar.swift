@@ -208,14 +208,9 @@ struct PinnedTile: View {
                     Capsule().fill(Color.accentColor).frame(width: 14, height: 2).padding(.bottom, 4)
                 }
             }
-            .overlay(alignment: .topTrailing) {
-                if ClaudeAccess.shared.holds(tab) {
-                    Image(systemName: "sparkle")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(Color(nsColor: ClaudeAccess.color))
-                        .padding(4)
-                }
-            }
+            #if CLAUDE
+            .overlay(alignment: .topTrailing) { ClaudeMark(tab: tab, size: 8).padding(4) }
+            #endif
             .opacity(tab.isUnloaded ? 0.55 : 1)
             .contentShape(RoundedRectangle(cornerRadius: 10))
             .onTapGesture { window.select(tab) }
@@ -279,12 +274,9 @@ struct TabRow: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }
-            if ClaudeAccess.shared.holds(tab) {
-                Image(systemName: "sparkle")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Color(nsColor: ClaudeAccess.color))
-                    .help("Claude is using this tab")
-            }
+            #if CLAUDE
+            ClaudeMark(tab: tab, size: 10)
+            #endif
             if hovering {
                 Button { window.close(tab) } label: {
                     Image(systemName: "xmark")

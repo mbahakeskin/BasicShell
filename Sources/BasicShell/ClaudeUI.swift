@@ -1,8 +1,24 @@
+#if CLAUDE
 import AppKit
 import SwiftUI
 
 // What you see of Claude in BasicShell (see Claude.swift): the frame around
 // a page it works in, and its page in Settings.
+
+/// Beside a tab Claude works in, in the sidebar.
+struct ClaudeMark: View {
+    let tab: Tab
+    let size: CGFloat
+
+    var body: some View {
+        if ClaudeAccess.shared.holds(tab) {
+            Image(systemName: "sparkle")
+                .font(.system(size: size, weight: .semibold))
+                .foregroundStyle(Color(nsColor: ClaudeAccess.color))
+                .help("Claude is using this tab")
+        }
+    }
+}
 
 /// Around the page while the tab shown is one Claude works in: a line in
 /// Claude's colour, and at the bottom what is going on, with the button
@@ -21,7 +37,7 @@ struct ClaudeFrame: View {
                 Image(systemName: "sparkle")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(color)
-                Text("Claude is using this tab")
+                Text(ClaudeAccess.bypass ? "Claude is using this tab, unasked" : "Claude is using this tab")
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
                 Spacer(minLength: 0)
@@ -57,6 +73,7 @@ struct ClaudeSettings: View {
     @AppStorage(ClaudeAccess.enabledKey) private var enabled = false
     @AppStorage(ClaudeAccess.historyKey) private var history = false
     @AppStorage(ClaudeAccess.developerKey) private var developer = false
+    @AppStorage(ClaudeAccess.bypassKey) private var bypass = false
     // `@State` is a macro in the macOS 27 SDK whose plugin ships only with
     // Xcode, so the State it would expand to is stored by hand.
     private var _status = State(initialValue: "")
@@ -112,6 +129,15 @@ struct ClaudeSettings: View {
                         Text(ClaudeConnect.appIsHere ? "Written into the app's own settings; quit and reopen Claude after." : "Not found on this Mac.")
                     }
                     if !status.isEmpty { Text(status).font(.caption).foregroundStyle(.secondary) }
+                }
+                Section {
+                    Toggle(isOn: $bypass) {
+                        Text("Bypass permissions")
+                        Text("Nothing is asked: Claude reads, clicks and types on any site, and gives pages files from this Mac, without a question. The sites below marked not allowed stay closed, private tabs and password and card fields stay out of its reach, and Stop still stops it.")
+                    }
+                } footer: {
+                    Text("With this on, a page that talks Claude into something meets nothing in its way. For work you are watching.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 Section("It may also have") {
                     Toggle(isOn: $history) {
@@ -220,3 +246,4 @@ enum ClaudeConnect {
         return "Added to the Claude app. Quit and reopen Claude to finish."
     }
 }
+#endif

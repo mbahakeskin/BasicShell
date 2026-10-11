@@ -3,8 +3,10 @@ import AppKit
 @main
 enum Main {
     static func main() {
+        #if CLAUDE
         // Started by Claude, to talk to the browser that is running (ClaudeBridge).
         if CommandLine.arguments.contains("--mcp") { ClaudeBridge.run() }
+        #endif
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate
@@ -21,7 +23,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         Freeze.guardScripts()
         Sleep.start()
         DiskUse.start()
+        #if CLAUDE
         ClaudeAccess.shared.start()
+        #endif
         NSApp.mainMenu = Menus.build()
         // Pages open once the extensions are in (see Extensions.start).
         Extensions.shared.start { [weak self] in self?.extensionsLoaded() }

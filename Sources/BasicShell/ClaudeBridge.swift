@@ -1,3 +1,4 @@
+#if CLAUDE
 import Foundation
 
 // BasicShell started with `--mcp`: not the browser, but the program Claude
@@ -126,3 +127,4 @@ enum ClaudeBridge {
         return true
     }
 }
+#endif

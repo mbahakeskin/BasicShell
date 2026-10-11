@@ -40,7 +40,9 @@ enum Web {
         Geolocation.attach(to: config)
         WebNotifications.attach(to: config)
         Debug.attach(to: config)
+        #if CLAUDE
         ClaudePage.attach(to: config)
+        #endif
         // Extensions work in private tabs as well (see Extensions.opened).
         config.webExtensionController = Extensions.shared.controller
         // Off in WebKit unless turned on, and so off in Safari: scripts that
@@ -81,8 +83,7 @@ enum Web {
 
 /// WebKit does nothing with alert(), confirm(), prompt() or a file input
 /// unless somebody answers; each is the system's own sheet on the page's
-/// window. The one that is up is kept with its tab (`Tab.dialog`), so Claude,
-/// in a tab it works in, can see it and answer it too.
+/// window.
 enum Dialogs {
     static func alert(from frame: WKFrameInfo, saying message: String) -> NSAlert {
         let alert = NSAlert()
@@ -101,25 +102,33 @@ enum Dialogs {
 }
 
 extension Tab: WKUIDelegate {
+    /// A question from the page, shown. In a build with Claude's tools the
+    /// one that is up is kept with its tab meanwhile, so Claude, in a tab it
+    /// works in, can see it and answer it too.
+    private func ask(_ alert: NSAlert, _ kind: String, _ message: String, field: NSTextField? = nil, over webView: WKWebView,
+                     answered: @escaping (NSApplication.ModalResponse) -> Void) {
+        #if CLAUDE
+        dialog = Question(kind: kind, message: message, alert: alert, field: field)
+        Dialogs.show(alert, over: webView) { [weak self] answer in
+            self?.dialog = nil
+            answered(answer)
+        }
+        #else
+        Dialogs.show(alert, over: webView, answered: answered)
+        #endif
+    }
+
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor () -> Void) {
         let alert = Dialogs.alert(from: frame, saying: message)
         alert.addButton(withTitle: "OK")
-        dialog = Question(kind: "alert", message: message, alert: alert, field: nil)
-        Dialogs.show(alert, over: webView) { [weak self] _ in
-            self?.dialog = nil
-            completionHandler()
-        }
+        ask(alert, "alert", message, over: webView) { _ in completionHandler() }
     }
 
     func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor (Bool) -> Void) {
         let alert = Dialogs.alert(from: frame, saying: message)
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Cancel")
-        dialog = Question(kind: "confirm", message: message, alert: alert, field: nil)
-        Dialogs.show(alert, over: webView) { [weak self] answer in
-            self?.dialog = nil
-            completionHandler(answer == .alertFirstButtonReturn)
-        }
+        ask(alert, "confirm", message, over: webView) { completionHandler($0 == .alertFirstButtonReturn) }
     }
 
     func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor (String?) -> Void) {
@@ -130,19 +139,17 @@ extension Tab: WKUIDelegate {
         field.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
-        dialog = Question(kind: "prompt", message: prompt, alert: alert, field: field)
-        Dialogs.show(alert, over: webView) { [weak self] answer in
-            self?.dialog = nil
-            completionHandler(answer == .alertFirstButtonReturn ? field.stringValue : nil)
-        }
+        ask(alert, "prompt", prompt, field: field, over: webView) { completionHandler($0 == .alertFirstButtonReturn ? field.stringValue : nil) }
     }
 
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor ([URL]?) -> Void) {
+        #if CLAUDE
         // Files the person just let Claude give this page (its upload tool).
         if let offered, offered.until > Date() {
             self.offered = nil
             return completionHandler(parameters.allowsMultipleSelection ? offered.files : Array(offered.files.prefix(1)))
         }
+        #endif
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = parameters.allowsDirectories

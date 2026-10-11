@@ -69,6 +69,7 @@ final class Tab: NSObject, Identifiable {
     /// When its web process last ended, for telling a crash loop apart.
     @ObservationIgnored private var crashes: [Date] = []
 
+    #if CLAUDE
     // What Claude's tools keep with a tab (see Claude.swift).
     /// Its number, as Claude knows it.
     @ObservationIgnored var claudeNumber: Int?
@@ -93,6 +94,7 @@ final class Tab: NSObject, Identifiable {
     @ObservationIgnored var frames: [WKFrameInfo] = []
     /// Files the person let Claude give the next file chooser, and until when.
     @ObservationIgnored var offered: (files: [URL], until: Date)?
+    #endif
 
     /// A new, empty tab. A private one shares the private tabs' cookie jar,
     /// which lives in memory and goes when the app quits (see Web.swift).
@@ -317,10 +319,12 @@ extension Tab: WKNavigationDelegate {
         Downloads.shared.adopt(download)
     }
 
+    #if CLAUDE
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         // Another page: the frames noted were the last one's.
         frames = []
     }
+    #endif
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         // A frozen page still reports a load that finished as it froze; no

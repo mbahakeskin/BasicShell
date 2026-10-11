@@ -3,18 +3,33 @@
 #
 #   ./build.sh            release build into build/BasicShell.app
 #   ./build.sh debug      same, from a debug build
+#   ./build.sh claude     with Claude's tools (Sources/BasicShell/Claude.swift),
+#                         which are in the build only when asked for; goes
+#                         with debug too
 set -euo pipefail
 
 cd "$(dirname "$0")"
-CONFIG="${1:-release}"
+CONFIG="release"
+FLAGS=()
+SCRATCH=".build"
+WITH=""
+for arg in "$@"; do
+  case "$arg" in
+    debug|release) CONFIG="$arg" ;;
+    # Its own build folder, so going between the two doesn't build
+    # everything again.
+    claude) FLAGS=(-Xswiftc -DCLAUDE); SCRATCH=".build-claude"; WITH=" with Claude's tools" ;;
+    *) echo "usage: ./build.sh [debug] [claude]" >&2; exit 2 ;;
+  esac
+done
 NAME="BasicShell"
 APP="build/$NAME.app"
 ID="com.mbahakeskin.basicshell"
 VERSION="0.4.3"
 BUILD="$(date +%Y%m%d%H%M)"
 
-swift build -c "$CONFIG"
-BINARY=".build/$CONFIG/$NAME"
+swift build -c "$CONFIG" --scratch-path "$SCRATCH" ${FLAGS[@]+"${FLAGS[@]}"}
+BINARY="$SCRATCH/$CONFIG/$NAME"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -82,4 +97,4 @@ PLIST
 # as well but is a new app to macOS each time.
 IDENTITY="$( (security find-certificate -c "BasicShell Local Signing" -Z 2>/dev/null || true) | awk '/SHA-1/ {print $3}')"
 codesign --force --options runtime --entitlements "$NAME.entitlements" --sign "${IDENTITY:--}" "$APP"
-echo "Built $APP"
+echo "Built $APP$WITH"

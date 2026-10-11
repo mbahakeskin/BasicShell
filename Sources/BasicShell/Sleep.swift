@@ -66,7 +66,7 @@ enum Sleep {
         let now = Date()
         for window in Windows.all {
             for tab in window.shell.tabs where tab !== window.shell.selected && !tab.pinned && !tab.isPrivate
-                && !tab.hasTypedInput && !keepsAwake(tab.url) && !ClaudeAccess.shared.holds(tab) && now.timeIntervalSince(tab.lastSeen) > after {
+                && !tab.hasTypedInput && !keepsAwake(tab.url) && !tab.isWorkedIn && now.timeIntervalSince(tab.lastSeen) > after {
                 window.archive(tab)
             }
         }
@@ -85,7 +85,7 @@ enum Sleep {
 
     /// Unloads a tab unless it holds something that can't be brought back.
     static func unloadIfSafe(_ tab: Tab) {
-        guard let web = tab.webView, !tab.hasTypedInput, !keepsAwake(tab.url), !ClaudeAccess.shared.holds(tab) else { return }
+        guard let web = tab.webView, !tab.hasTypedInput, !keepsAwake(tab.url), !tab.isWorkedIn else { return }
         // A frozen page plays nothing and uses no camera (those are never
         // frozen), and asking it would throw.
         if tab.isFrozen { return tab.unload() }
@@ -111,7 +111,7 @@ enum Sleep {
     /// until the page was reloaded.
     static func freezeIfIdle(_ tab: Tab) {
         // Never mid-load: the page would still report its loads, frozen.
-        guard Freeze.enabled, let web = tab.webView, !tab.isFrozen, !tab.isOnScreen, !web.isLoading, !keepsAwake(tab.url), !PiP.holds(tab), !ClaudeAccess.shared.holds(tab),
+        guard Freeze.enabled, let web = tab.webView, !tab.isFrozen, !tab.isOnScreen, !web.isLoading, !keepsAwake(tab.url), !PiP.holds(tab), !tab.isWorkedIn,
               web.cameraCaptureState == .none, web.microphoneCaptureState == .none
         else { return }
         var answered = false
@@ -323,6 +323,17 @@ final class Awake {
 extension Tab {
     /// In its window and not hidden.
     var isOnScreen: Bool { webView?.window != nil && webView?.isHidden == false }
+
+    /// Claude works in it (in a build with Claude's tools, see Claude.swift):
+    /// its page stays in the window behind the one shown, and is neither
+    /// frozen, unloaded nor archived meanwhile.
+    var isWorkedIn: Bool {
+        #if CLAUDE
+        ClaudeAccess.shared.holds(self)
+        #else
+        false
+        #endif
+    }
 
     /// The tab is going off screen: note what it was holding, where it was
     /// scrolled to and what it looked like, while the page can still answer.

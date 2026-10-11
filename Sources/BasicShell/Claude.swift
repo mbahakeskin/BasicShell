@@ -1,3 +1,4 @@
+#if CLAUDE
 import AppKit
 import Observation
 import WebKit
@@ -17,6 +18,9 @@ import WebKit
 // BasicShell's folder to the running app (ClaudeListener, here), where it is
 // carried out (ClaudeTools).
 //
+// All of it is in the build only when that is asked for (`./build.sh
+// claude`, which defines CLAUDE): without it BasicShell has none of this.
+//
 // What keeps it yours (ClaudeAccess):
 // - Off unless turned on in Settings › Claude.
 // - A private tab is never listed, read or touched.
@@ -27,6 +31,10 @@ import WebKit
 // - A tab Claude works in is marked in the sidebar, and framed while it is
 //   the one shown, with a button that stops everything.
 // - The socket is the user's alone (its mode, and the caller's user id).
+//
+// Settings › Claude can turn the asking off ("Bypass permissions"), for work
+// you are watching: every site is then open to it and files go unasked,
+// except the sites you said no to; the rest above stays as it is.
 
 /// Who may, and what is going on.
 @Observable
@@ -36,12 +44,15 @@ final class ClaudeAccess {
     static let enabledKey = "claude.enabled"
     static let historyKey = "claude.history"
     static let developerKey = "claude.developer"
+    static let bypassKey = "claude.bypass"
 
     static var enabled: Bool { UserDefaults.standard.bool(forKey: enabledKey) }
     /// The history, the bookmarks and the downloads may be searched.
     static var history: Bool { UserDefaults.standard.bool(forKey: historyKey) }
     /// The console, the network and scripts of Claude's own in a page.
     static var developer: Bool { UserDefaults.standard.bool(forKey: developerKey) }
+    /// Nothing is asked: every site but those refused for good is open.
+    static var bypass: Bool { UserDefaults.standard.bool(forKey: bypassKey) }
 
     static let color = NSColor(srgbRed: 0.85, green: 0.47, blue: 0.34, alpha: 1)
 
@@ -196,7 +207,7 @@ final class ClaudeAccess {
         switch answer(kind, site) {
         case true?: return
         case false?: throw Refusal(message: denied(kind, site))
-        case nil: break
+        case nil: if ClaudeAccess.bypass { return }
         }
         let key = "\(kind.rawValue) \(site)"
         let task = asking[key] ?? Task { await self.ask(kind, site: site, for: client, over: window) }
@@ -412,3 +423,4 @@ nonisolated final class ClaudeListener: @unchecked Sendable {
         unlink(path)
     }
 }
+#endif

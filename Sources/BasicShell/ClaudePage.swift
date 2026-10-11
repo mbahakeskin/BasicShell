@@ -1,3 +1,4 @@
+#if CLAUDE
 import Foundation
 import WebKit
 
@@ -508,3 +509,4 @@ enum ClaudePage {
         config.userContentController.add(Log.shared, contentWorld: .page, name: logHandler)
     }
 }
+#endif

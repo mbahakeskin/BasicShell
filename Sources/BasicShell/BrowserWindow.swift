@@ -73,7 +73,9 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     private var panelHost: NSHostingView<PanelView>?
     private var toastView: ToastHost?
     private var findHost: NSHostingView<FindBarView>?
+    #if CLAUDE
     private var claudeFrame: ClaudeFrameHost?
+    #endif
     private lazy var finder = PageFinder(state: shell.find)
     /// A picture of an unloaded page, over it while it loads again.
     private var cover: NSImageView?
@@ -229,11 +231,15 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             self.sidebar.frame = sideFrame
             self.sidebar.alphaValue = self.shell.sidebarOut ? 1 : 0
             self.page.frame = pageFrame
+            #if CLAUDE
             self.claudeFrame?.frame = pageFrame
+            #endif
             self.findHost?.frame = findFrame
         }
         page.layer?.cornerRadius = framed ? 10 : 0
+        #if CLAUDE
         claudeFrame?.rootView = ClaudeFrame(radius: framed ? 10 : 0)
+        #endif
         if animated {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = Motion.reveal
@@ -632,10 +638,11 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     /// A tab not shown whose video came back from Picture in Picture: its
     /// page leaves the window as any other tab's does.
     func leftPictureInPicture(_ tab: Tab) {
-        guard tab !== shell.selected, let web = tab.webView, web.superview === page, !ClaudeAccess.shared.holds(tab) else { return }
+        guard tab !== shell.selected, let web = tab.webView, web.superview === page, !tab.isWorkedIn else { return }
         if Sleep.keepsAwake(tab.url) { web.isHidden = true } else { web.removeFromSuperview() }
     }
 
+    #if CLAUDE
     // MARK: - Claude (Claude.swift)
 
     /// A tab Claude works in while another is shown: its page woken, made if
@@ -684,6 +691,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             claudeFrame = nil
         }
     }
+    #endif
 
     func select(_ tab: Tab?) {
         guard let window else { return }
@@ -699,7 +707,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             let web = current.webView
             current.leavingScreen { [weak self, weak current] in
                 guard let self, let current, let web, current !== self.shell.selected, current.webView === web else { return }
-                if PiP.holds(current) || ClaudeAccess.shared.holds(current) {
+                if PiP.holds(current) || current.isWorkedIn {
                     // Its video is in Picture in Picture, or Claude works in
                     // it: behind the one shown, not hidden, so the page goes
                     // on (see PiP.keepAwake).
@@ -713,7 +721,9 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             }
         }
         shell.selected = tab
+        #if CLAUDE
         claudeChanged()
+        #endif
         cover?.removeFromSuperview()
         cover = nil
         guard let tab else {

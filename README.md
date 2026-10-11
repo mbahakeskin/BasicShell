@@ -66,9 +66,10 @@ the pages you open.
 - Find in the page (`⌘F`): a small field at the page's top right, every
   match marked and counted, `⌘G` and `⇧⌘G` for the next and the one before.
 - `⇧⌘C` copies the address.
-- Claude can use it, when you turn that on (Settings › Claude): Claude Code
+- In a build made with Claude's tools (the second download of a release, or
+  `./build.sh claude`), Claude can use it when you turn that on: Claude Code
   and the Claude app get tools for the tabs and the pages in them. See
-  [Claude](#claude).
+  [Claude](#claude). The plain build has none of it.
 
 Private WebKit features are used, each only where WebKit has it:
 `_suspendPage:` freezes tabs off screen (Settings › Tabs turns it off);
@@ -99,8 +100,10 @@ entitlement Apple grants on request, tied to a paid Developer ID.
 Needs macOS 27 and the Command Line Tools (Swift 6.4); Xcode is not required.
 
     ./build.sh          # build/BasicShell.app, ad-hoc signed
+    ./build.sh claude   # the same with Claude's tools (see Claude, below)
 
-`swift build` alone builds the executable.
+`swift build` alone builds the executable (`-Xswiftc -DCLAUDE` for the one
+with Claude's tools).
 
 `build.sh` signs with a code-signing identity named "BasicShell Local Signing"
 if the keychain has one (a self-signed certificate is enough), so macOS keeps
@@ -113,6 +116,10 @@ Anthropic's own extension, Claude in Chrome, drives pages through Chrome's
 debugger, which WebKit's extensions don't have. BasicShell offers the same
 things itself, as tools over the Model Context Protocol, with no key and no
 account of its own: whichever Claude you already use calls them.
+
+It is in the build only when asked for: `./build.sh claude`, or the download
+of a release named `…-claude.zip`. The plain build has no part of it, not
+the Settings page, not the code.
 
 Turn it on in Settings › Claude, then connect from there: a button adds
 BasicShell to Claude Code (or copies the command, `claude mcp add --scope
@@ -150,6 +157,11 @@ What keeps it yours:
 - A tab Claude works in is marked in the sidebar and framed while it is the
   one shown, with a Stop button: everything is let go, and nothing more is
   done until you say so.
+
+Settings › Claude has a switch, "Bypass permissions", that turns the asking
+off, for work you are watching: every site is then open to Claude and files
+go to pages unasked. The sites you said no to stay closed, private tabs and
+password and card fields stay out of its reach, and Stop still stops it.
 
 A page can still try to talk Claude into things with text you don't see.
 Asking per site and the Stop button are there for that; Anthropic's own
