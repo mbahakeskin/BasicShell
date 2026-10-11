@@ -36,6 +36,92 @@ import WebKit
 // you are watching: every site is then open to it and files go unasked,
 // except the sites you said no to; the rest above stays as it is.
 
+/// What Claude may do beyond reading and clicking on the sites it is let
+/// into: each its own switch in Settings › Claude, each off until turned on,
+/// and all of them on while "Bypass permissions" is.
+enum ClaudePower: String, CaseIterable, Identifiable {
+    case tabs, history, clipboard, extensions, developer, bodies, storage
+
+    var id: String { rawValue }
+
+    /// The UserDefaults key (the first two are older than this list).
+    var key: String {
+        switch self {
+        case .history: ClaudeAccess.historyKey
+        case .developer: ClaudeAccess.developerKey
+        default: "claude.\(rawValue)"
+        }
+    }
+
+    /// The power it is part of: it is on only while that one is.
+    var parent: ClaudePower? { self == .bodies || self == .storage ? .developer : nil }
+
+    var isOn: Bool { ClaudeAccess.bypass || (UserDefaults.standard.bool(forKey: key) && (parent?.isOn ?? true)) }
+
+    var title: String {
+        switch self {
+        case .tabs: "Arrange my tabs"
+        case .history: "History, bookmarks and downloads"
+        case .clipboard: "The clipboard"
+        case .extensions: "Extensions"
+        case .developer: "Developer tools"
+        case .bodies: "Request and response bodies"
+        case .storage: "Cookies and site storage"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .tabs: "Pin and unpin tabs, make a copy of one, put one to sleep, move one to another place or a new window. Nothing on a page is read for this."
+        case .history: "Search the pages you have visited and your bookmarks, and see what was downloaded this session. To find a page you were on, or a file you saved."
+        case .clipboard: "Read what you last copied, and put text on it. What you copied may be a password from a password manager, so it is off until you say."
+        case .extensions: "List the extensions installed in BasicShell and reload one that has got stuck. It can't add, remove or change them."
+        case .developer: "A page's console and network requests, scripts of Claude's own in a page, a look at an element's styles, load timings, and blocking some requests. A script reaches everything on the page, password fields too. Pages opened from now on are watched."
+        case .bodies: "With the network requests, what was sent and what came back, for the page's own fetch and XHR calls. Passwords, tokens, keys and cookies in them are replaced by [hidden]. Pages opened from now on."
+        case .storage: "List a site's cookies, local and session storage and databases, and clear them (you are asked first). A cookie's value is shown only when Claude asks for values, never an HttpOnly one's, and tokens and passwords stay hidden."
+        }
+    }
+
+    var tools: [String] {
+        switch self {
+        case .tabs: ["arrange"]
+        case .history: ["history", "bookmarks", "downloads"]
+        case .clipboard: ["clipboard"]
+        case .extensions: ["extensions"]
+        case .developer: ["console", "network", "evaluate", "inspect", "performance", "block"]
+        case .bodies: ["network"]
+        case .storage: ["storage"]
+        }
+    }
+}
+
+/// What the person may say about a site, as Settings shows it.
+enum ClaudeSitePolicy: String, CaseIterable, Identifiable {
+    case ask, readAsk, readOnly, readAct, never
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .ask: "Ask each time"
+        case .readAsk: "Read; ask before clicking"
+        case .readOnly: "Read only"
+        case .readAct: "Read, click and type"
+        case .never: "Never"
+        }
+    }
+}
+
+/// One thing Claude did, for the list in Settings.
+struct ClaudeActivity: Identifiable {
+    let id = UUID()
+    let date: Date
+    let client: String
+    let tool: String
+    let site: String?
+    let failed: Bool
+}
+
 /// Who may, and what is going on.
 @Observable
 final class ClaudeAccess {
@@ -48,9 +134,11 @@ final class ClaudeAccess {
 
     static var enabled: Bool { UserDefaults.standard.bool(forKey: enabledKey) }
     /// The history, the bookmarks and the downloads may be searched.
-    static var history: Bool { UserDefaults.standard.bool(forKey: historyKey) }
+    static var history: Bool { ClaudePower.history.isOn }
     /// The console, the network and scripts of Claude's own in a page.
-    static var developer: Bool { UserDefaults.standard.bool(forKey: developerKey) }
+    static var developer: Bool { ClaudePower.developer.isOn }
+    /// What the network log keeps of a request: bodies too.
+    static var bodies: Bool { ClaudePower.bodies.isOn }
     /// Nothing is asked: every site but those refused for good is open.
     static var bypass: Bool { UserDefaults.standard.bool(forKey: bypassKey) }
 
@@ -308,6 +396,51 @@ final class ClaudeAccess {
         sites[site] = nil
         once[site] = nil
         UserDefaults.standard.set(sites, forKey: "claude.sites")
+    }
+
+    func policy(for site: String) -> ClaudeSitePolicy {
+        let answers = sites[site] ?? [:]
+        if answers["read"] == false { return .never }
+        if answers["act"] == true { return .readAct }
+        if answers["act"] == false { return .readOnly }
+        return answers["read"] == true ? .readAsk : .ask
+    }
+
+    func setPolicy(_ policy: ClaudeSitePolicy, for site: String) {
+        once[site] = nil
+        switch policy {
+        case .ask: sites[site] = nil
+        case .readAsk: sites[site] = ["read": true]
+        case .readOnly: sites[site] = ["read": true, "act": false]
+        case .readAct: sites[site] = ["read": true, "act": true]
+        case .never: sites[site] = ["read": false]
+        }
+        UserDefaults.standard.set(sites, forKey: "claude.sites")
+    }
+
+    // MARK: - what it did
+
+    /// The last of what Claude did, newest first, for Settings. Kept in
+    /// memory only, and gone when BasicShell quits.
+    private(set) var activity: [ClaudeActivity] = []
+
+    func note(_ tool: String, site: String?, client: String, failed: Bool) {
+        activity.insert(ClaudeActivity(date: Date(), client: client, tool: tool, site: site, failed: failed), at: 0)
+        if activity.count > 100 { activity.removeLast(activity.count - 100) }
+    }
+
+    func clearActivity() { activity = [] }
+
+    // MARK: - the powers
+
+    /// Throws what to tell Claude when the person hasn't turned this on.
+    static func need(_ power: ClaudePower) throws {
+        if let parent = power.parent, !parent.isOn {
+            throw Refusal(message: "\(parent.title) are off: the person turns them on in BasicShell's Settings › Claude. Tell them; don't try another way.")
+        }
+        guard power.isOn else {
+            throw Refusal(message: "\(power.title) is kept from Claude: the person turns it on in BasicShell's Settings › Claude. Tell them; don't try another way.")
+        }
     }
 }
 

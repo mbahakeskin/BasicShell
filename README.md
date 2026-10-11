@@ -152,8 +152,20 @@ The tools:
   dark look the page is told of, the zoom, and a phone's way of introducing
   itself to sites. It changes your window, and `desktop` puts it back; there
   is no touch emulation in WebKit.
-- If you allow them: `history`, `bookmarks`, `downloads`; and the developer
-  tools `console`, `network` and `evaluate`.
+- More of the page: `selection` (what you have selected), `screenshot` of
+  the whole page (`full_page`), `wait` for text, a CSS selector, the address
+  or a quiet network, `download` (into Downloads, asked each time), and
+  `navigate` with `hard_reload`.
+- Each off until you turn it on in Settings › Claude: `arrange` (pin,
+  duplicate, sleep, move a tab, take it to a window), `clipboard`,
+  `extensions` (list, reload), `history`, `bookmarks`, `downloads`.
+- For developers, behind "Developer tools": `console`, `network`, `evaluate`,
+  `inspect` (an element's styles, box and HTML), `performance` (load timings,
+  paints, slowest requests) and `block` (keep a tab from loading requests
+  that match). Two more switches under it: request and response bodies in
+  `network` (passwords, tokens, keys and cookies replaced by `[hidden]`), and
+  `storage` (cookies, local and session storage, databases; a value only
+  when asked, never an HttpOnly cookie's; clearing is asked first).
 
 What keeps it yours:
 
@@ -167,9 +179,16 @@ What keeps it yours:
   one shown, with a Stop button: everything is let go, and nothing more is
   done until you say so.
 
-Settings › Claude has a switch, "Bypass permissions", that turns the asking
-off, for work you are watching: every site is then open to Claude and files
-go to pages unasked. The sites you said no to stay closed, private tabs and
+Settings › Claude says what each part allows, in words, and lets you set a
+site (read, read and ask before clicking, read only, read and act, or never),
+add one before Claude asks, and see what Claude has done since BasicShell
+opened.
+
+It has a switch, "Bypass permissions", that turns the asking off, for work
+you are watching: every site is then open to Claude, files go to pages, come
+down from them, and cookies are cleared, unasked, and every switch above
+(clipboard, tabs, extensions, history, developer tools, bodies, storage) is
+on while it is. The sites you said no to stay closed, private tabs and
 password and card fields stay out of its reach, and Stop still stops it.
 
 A page can still try to talk Claude into things with text you don't see.

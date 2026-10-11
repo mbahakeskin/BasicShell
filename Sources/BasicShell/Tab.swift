@@ -77,11 +77,15 @@ final class Tab: NSObject, Identifiable {
     @ObservationIgnored var claudeScale: CGFloat = 1
     /// What the page logged and loaded, while the developer tools are on.
     struct Logged {
+        let id: Int
         let date: Date
         let kind: String
         let text: String
+        /// For a network line, with the bodies turned on: the whole of it.
+        let detail: String
     }
     @ObservationIgnored var logged: [Logged] = []
+    @ObservationIgnored var logSerial = 0
     /// A question from the page that is up now (alert, confirm, prompt).
     struct Question {
         let kind: String

@@ -68,11 +68,56 @@ final class ClaudeFrameHost: NSHostingView<ClaudeFrame> {
     }
 }
 
+/// One of the switches for what Claude may do beyond pages: what it is in
+/// plain words, and the tools it turns on.
+private struct PowerToggle: View {
+    let power: ClaudePower
+    var indented = false
+    var enabled = true
+    @AppStorage private var on: Bool
+    @AppStorage(ClaudeAccess.bypassKey) private var bypass = false
+
+    init(_ power: ClaudePower, indented: Bool = false, enabled: Bool = true) {
+        self.power = power
+        self.indented = indented
+        self.enabled = enabled
+        _on = AppStorage(wrappedValue: false, power.key)
+    }
+
+    var body: some View {
+        // While bypass is on every switch is on, and can't be changed.
+        Toggle(isOn: Binding(get: { on || bypass }, set: { on = $0 })) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(power.title)
+                Text(power.detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text("Tools: " + power.tools.joined(separator: ", "))
+                    .font(.caption.monospaced()).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .disabled(!enabled || bypass)
+        .padding(.leading, indented ? 22 : 0)
+    }
+}
+
+/// What Claude can do on a page once the site allows it, said once, in words.
+private struct Ability: View {
+    let title: String
+    let detail: String
+    let tools: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+            Text(detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text("Tools: " + tools.joined(separator: ", "))
+                .font(.caption.monospaced()).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
 /// Settings › Claude.
 struct ClaudeSettings: View {
     @AppStorage(ClaudeAccess.enabledKey) private var enabled = false
-    @AppStorage(ClaudeAccess.historyKey) private var history = false
-    @AppStorage(ClaudeAccess.developerKey) private var developer = false
     @AppStorage(ClaudeAccess.bypassKey) private var bypass = false
     // `@State` is a macro in the macOS 27 SDK whose plugin ships only with
     // Xcode, so the State it would expand to is stored by hand.
@@ -81,14 +126,30 @@ struct ClaudeSettings: View {
         get { _status.wrappedValue }
         nonmutating set { _status.wrappedValue = newValue }
     }
+    private var _newSite = State(initialValue: "")
+    private var newSite: String {
+        get { _newSite.wrappedValue }
+        nonmutating set { _newSite.wrappedValue = newValue }
+    }
+    private var _newPolicy = State(initialValue: ClaudeSitePolicy.readOnly)
+    private var newPolicy: ClaudeSitePolicy {
+        get { _newPolicy.wrappedValue }
+        nonmutating set { _newPolicy.wrappedValue = newValue }
+    }
+    private var _siteProblem = State(initialValue: "")
+    private var siteProblem: String {
+        get { _siteProblem.wrappedValue }
+        nonmutating set { _siteProblem.wrappedValue = newValue }
+    }
 
     var body: some View {
         let access = ClaudeAccess.shared
+        let developer = ClaudePower.developer.isOn
         Form {
             Section {
                 Toggle(isOn: $enabled) {
                     Text("Let Claude use this browser")
-                    Text("Claude Code and the Claude app get tools for it: your tabs, reading a page, clicking and typing in it, as you and signed in as you. You are asked about each site first. Private tabs are kept from it, and so is what is in password and card fields.")
+                    Text("Claude Code and the Claude app get tools for BasicShell: they can see your tabs, read pages and act in them, as you and signed in as you. Nothing is on until you say so here, and what is allowed is chosen below.")
                 }
                 .onChange(of: enabled) { _, _ in access.start() }
                 if enabled {
@@ -106,7 +167,7 @@ struct ClaudeSettings: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             if enabled {
-                Section("Connect") {
+                Section {
                     LabeledContent {
                         HStack {
                             Button("Copy Command") {
@@ -129,52 +190,145 @@ struct ClaudeSettings: View {
                         Text(ClaudeConnect.appIsHere ? "Written into the app's own settings; quit and reopen Claude after." : "Not found on this Mac.")
                     }
                     if !status.isEmpty { Text(status).font(.caption).foregroundStyle(.secondary) }
+                } header: {
+                    Text("Connect")
+                } footer: {
+                    Text("Added once, it stays: a new chat has BasicShell's tools without adding it again. After BasicShell is updated, quit and reopen it, and start a new chat, to get new tools.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
+
+                Section("On a web page") {
+                    Ability(title: "Read it",
+                            detail: "A page's text, what is on it, a picture of it (the view, a part, or the whole page), what you have selected there, saving it as a PDF, recording it as a GIF, opening and closing tabs. Needs your \"read\" for the site.",
+                            tools: ["open", "close", "select", "navigate", "read_text", "read_page", "find", "screenshot", "selection", "wait", "save_page", "record"])
+                    Ability(title: "Click and type in it",
+                            detail: "Click, drag, type, press keys, scroll, fill in forms, answer the page's alerts, change the window's size and look to try a layout, download a file into Downloads (asked each time) or give the page a file from this Mac (asked each time). Needs your \"click and type\" for the site, which includes reading.",
+                            tools: ["click", "hover", "drag", "type", "key", "scroll", "fill", "dialog", "resize", "upload", "download", "batch"])
+                    Text("Never, whatever is set: private tabs, and what is in password, card and one-time-code fields. Claude can't see them or fill them; signing in and paying stay yours.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+
                 Section {
                     Toggle(isOn: $bypass) {
                         Text("Bypass permissions")
-                        Text("Nothing is asked: Claude reads, clicks and types on any site, and gives pages files from this Mac, without a question. The sites below marked not allowed stay closed, private tabs and password and card fields stay out of its reach, and Stop still stops it.")
+                        Text("Stop asking, and open everything. Claude may read, click and type on any site without a question, give pages files from this Mac, download files and clear cookies and storage, and every switch below is on: the clipboard, tabs, extensions, history, developer tools and storage. For work you are watching.")
                     }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Still in force with it on").font(.callout.weight(.medium))
+                        Text("Sites you set to Never. Private tabs, and password and card fields. The Stop button on the page's frame. Turn bypass off and the switches below are as you left them.")
+                            .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                } header: {
+                    Text("Asking")
                 } footer: {
-                    Text("With this on, a page that talks Claude into something meets nothing in its way. For work you are watching.")
+                    Text("Without it, BasicShell asks the first time Claude wants to read a site and again before it clicks or types there; \"Remember for this site\" keeps the answer (see Sites). With it on, a page that talks Claude into something meets nothing in its way.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Section("It may also have") {
-                    Toggle(isOn: $history) {
-                        Text("History, bookmarks and downloads")
-                        Text("To find a page you were on, or a file you downloaded.")
-                    }
-                    Toggle(isOn: $developer) {
-                        Text("Developer tools")
-                        Text("A page's console and network requests, and scripts of Claude's own in a page. A script reaches everything on the page, password fields too. Pages opened from now on are watched.")
-                    }
+
+                Section {
+                    PowerToggle(.tabs)
+                    PowerToggle(.history)
+                    PowerToggle(.clipboard)
+                    PowerToggle(.extensions)
+                } header: {
+                    Text("Beyond web pages")
+                } footer: {
+                    Text("Each is off until you turn it on, and all are on while Bypass permissions is.").font(.caption).foregroundStyle(.secondary)
                 }
-                Section("Sites") {
+
+                Section {
+                    PowerToggle(.developer)
+                    PowerToggle(.bodies, indented: true, enabled: developer)
+                    PowerToggle(.storage, indented: true, enabled: developer)
+                } header: {
+                    Text("For developers")
+                } footer: {
+                    Text("A page opened before you turn these on isn't watched: reload it. The last two work only while Developer tools are on (or bypass is).")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Set a site")
+                        Text(siteProblem.isEmpty ? "Decide for a site before Claude asks." : siteProblem)
+                            .font(.callout)
+                            .foregroundStyle(siteProblem.isEmpty ? Color.secondary : Color.red)
+                        HStack {
+                            TextField("example.com", text: Binding(get: { newSite }, set: { newSite = $0; siteProblem = "" }))
+                                .textFieldStyle(.roundedBorder)
+                                .onSubmit(addSite)
+                            Picker("", selection: Binding(get: { newPolicy }, set: { newPolicy = $0 })) {
+                                ForEach(ClaudeSitePolicy.allCases) { Text($0.title).tag($0) }
+                            }
+                            .labelsHidden()
+                            .fixedSize()
+                            Button("Add", action: addSite).disabled(newSite.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
+                    }
                     let sites = access.sites.sorted { $0.key < $1.key }
                     if sites.isEmpty {
-                        Text("No site has a remembered answer.").foregroundStyle(.secondary)
+                        Text("No site has an answer yet. Each is asked about when Claude first wants it.").foregroundStyle(.secondary)
                     }
-                    ForEach(sites, id: \.key) { site, answers in
+                    ForEach(sites, id: \.key) { site, _ in
                         HStack {
                             Text(site)
                             Spacer()
-                            Text(ClaudeSettings.describe(answers)).foregroundStyle(.secondary)
+                            Picker("", selection: Binding(get: { access.policy(for: site) }, set: { access.setPolicy($0, for: site) })) {
+                                ForEach(ClaudeSitePolicy.allCases) { Text($0.title).tag($0) }
+                            }
+                            .labelsHidden()
+                            .fixedSize()
                             Button { access.forget(site) } label: { Image(systemName: "xmark.circle.fill") }
                                 .buttonStyle(.borderless)
                                 .help("Forget, and ask again")
                         }
                     }
+                } header: {
+                    Text("Sites")
+                } footer: {
+                    Text("\"Never\" keeps Claude out of a site even with bypass on. \"Ask each time\" is the default and is not listed.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+
+                Section {
+                    if access.activity.isEmpty {
+                        Text("Nothing yet.").foregroundStyle(.secondary)
+                    }
+                    ForEach(access.activity.prefix(25)) { entry in
+                        HStack(spacing: 8) {
+                            Text(entry.date, format: .dateTime.hour().minute().second())
+                                .font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
+                            Text(entry.tool).font(.callout.monospaced())
+                            if let site = entry.site { Text(site).foregroundStyle(.secondary) }
+                            Spacer()
+                            if entry.failed { Text("refused or failed").font(.caption).foregroundStyle(.red) }
+                            Text(entry.client).font(.caption).foregroundStyle(.tertiary)
+                        }
+                    }
+                    if !access.activity.isEmpty {
+                        Button("Clear") { access.clearActivity() }
+                    }
+                } header: {
+                    Text("Recent activity")
+                } footer: {
+                    Text("What Claude has done since BasicShell opened, newest first. Kept in memory only.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
         .formStyle(.grouped)
     }
 
-    private static func describe(_ answers: [String: Bool]) -> String {
-        if answers["read"] == false { return "Not allowed" }
-        if answers["act"] == true { return "Read, click and type" }
-        if answers["act"] == false { return answers["read"] == true ? "Read only" : "No clicking or typing" }
-        return "Read"
+    private func addSite() {
+        let text = newSite.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return }
+        guard let site = ClaudeAccess.site(URL(string: text.contains("://") ? text : "https://" + text)) else {
+            siteProblem = "That isn't a site's name."
+            return
+        }
+        ClaudeAccess.shared.setPolicy(newPolicy, for: site)
+        newSite = ""
+        siteProblem = ""
     }
 }
 

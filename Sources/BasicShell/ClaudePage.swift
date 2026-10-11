@@ -397,7 +397,42 @@ enum ClaudePage {
         return { moved: target.scrollLeft !== before[0] || target.scrollTop !== before[1], page: target === (document.scrollingElement || document.documentElement) };
       };
 
-      return { tree, text, find, spot, fill, insert, scroll, header, byRef,
+      // What is selected: in a field, what is selected in it, unless the field is a secret one.
+      const selection = () => {
+        const e = focused();
+        if (e && secret(e)) return { secret: true };
+        if (e && "value" in e && typeof e.selectionStart === "number" && e.selectionEnd > e.selectionStart) {
+          return { text: String(e.value).slice(e.selectionStart, e.selectionEnd), where: describe(e) };
+        }
+        const s = document.getSelection();
+        return { text: s ? String(s) : "" };
+      };
+
+      // An element looked over: where it is, how it is styled, what it is made of.
+      const inspect = (r, props, wantHtml) => {
+        const e = byRef(r);
+        if (!e) return null;
+        const style = getComputedStyle(e), b = box(e);
+        const names = props && props.length ? props : ["display", "position", "width", "height", "margin", "padding", "border", "box-sizing", "overflow",
+          "z-index", "opacity", "visibility", "color", "background-color", "font-family", "font-size", "font-weight", "line-height", "flex", "grid-template-columns", "transform"];
+        const styles = {};
+        for (const n of names) styles[n] = style.getPropertyValue(n) || style[n] || "";
+        const attributes = {};
+        for (const a of e.attributes) attributes[a.name] = a.name === "value" && secret(e) ? "[hidden]" : clean(a.value, 200);
+        const out = { tag: e.tagName.toLowerCase(), what: describe(e), box: b, attributes, styles,
+          children: e.children.length, text: clean(e.textContent, 160) };
+        if (wantHtml) {
+          // A secret field's value is not in what is given.
+          const copy = e.cloneNode(true);
+          const original = [e, ...e.querySelectorAll("input")], cloned = [copy, ...copy.querySelectorAll("input")];
+          original.forEach((o, i) => { if (o.tagName === "INPUT" && secret(o) && cloned[i]) cloned[i].removeAttribute("value"); });
+          const html = copy.outerHTML;
+          out.html = html.length > 6000 ? html.slice(0, 6000) + "… cut at 6000 characters." : html;
+        }
+        return out;
+      };
+
+      return { tree, text, find, spot, fill, insert, scroll, header, byRef, selection, inspect,
         focus: () => { const e = focused(); return { typable: typable(e), secret: secret(e), frame: !!e && e.tagName === "IFRAME", what: e && e !== document.body ? describe(e) : "" }; },
         boxOf: (r) => { const e = byRef(r); return e ? box(e) : null; },
         show: (r) => { const e = byRef(r); if (!e) return false; e.scrollIntoView({ block: "center", inline: "center", behavior: "instant" }); return true; } };
@@ -432,12 +467,20 @@ enum ClaudePage {
 
     /// In every page while the developer tools are on: what goes to the
     /// console, errors nobody caught, and what is asked of the network,
-    /// told to BasicShell, which keeps the last of them for each tab.
-    static let watch = WKUserScript(source: #"""
+    /// told to BasicShell, which keeps the last of them for each tab. With
+    /// `bodies` the page's own fetch and XHR calls are told in full: headers
+    /// and bodies, with what looks like a secret replaced.
+    static func watch(bodies: Bool) -> WKUserScript {
+        WKUserScript(source: watchSource.replacingOccurrences(of: "__BODIES__", with: bodies ? "true" : "false"),
+                     injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page)
+    }
+
+    private static let watchSource = #"""
     (() => {
       const bridge = window.webkit && webkit.messageHandlers && webkit.messageHandlers.basicShellClaudeLog;
       if (!bridge) return;
-      const post = (kind, text) => { try { bridge.postMessage({ kind, text: String(text).slice(0, 2000), frame: window === top ? "" : location.host }); } catch (e) {} };
+      const bodies = __BODIES__;
+      const post = (kind, text, detail) => { try { bridge.postMessage({ kind, text: String(text).slice(0, 2000), detail: detail ? String(detail).slice(0, 14000) : "", frame: window === top ? "" : location.host }); } catch (e) {} };
       const show = (x) => {
         if (x instanceof Error) return (x.name || "Error") + ": " + x.message;
         if (typeof x === "object" && x !== null) { try { return JSON.stringify(x); } catch (e) { return String(x); } }
@@ -454,24 +497,96 @@ enum ClaudePage {
         post("error", (e.message || "error") + " @" + (e.filename || "") + ":" + e.lineno);
       }, true);
       addEventListener("unhandledrejection", (e) => post("error", "unhandled rejection: " + show(e.reason)));
-      const sent = (method, url, status, started) => post("network", method + " " + url + " → " + status + " (" + Math.round(performance.now() - started) + " ms)");
+
+      // What is in a body or a header that nobody but the person may have.
+      const sensitive = /pass(word|wd)?|pwd|secret|token|otp|cvv|cvc|card.?num|credential|authoriz|api.?key|session|jwt|ssn|private/i;
+      const scrub = (v, depth) => {
+        if (depth > 6) return "…";
+        if (Array.isArray(v)) return v.slice(0, 50).map((x) => scrub(x, depth + 1));
+        if (v && typeof v === "object") { const o = {}; for (const k of Object.keys(v).slice(0, 80)) o[k] = sensitive.test(k) ? "[hidden]" : scrub(v[k], depth + 1); return o; }
+        return v;
+      };
+      const textual = (type) => /(json|text|xml|javascript|html|x-www-form-urlencoded|graphql)/i.test(type || "");
+      const bodyText = (value, type) => {
+        let text = String(value);
+        try { if (/json/i.test(type || "") || /^\s*[\[{]/.test(text)) return JSON.stringify(scrub(JSON.parse(text), 0)).slice(0, 6000); } catch (e) {}
+        if (/x-www-form-urlencoded/i.test(type || "") || /^[\w.%+\-\[\]]+=/.test(text)) {
+          try { const p = new URLSearchParams(text); for (const k of [...p.keys()]) if (sensitive.test(k)) p.set(k, "[hidden]"); return p.toString().slice(0, 6000); } catch (e) {}
+        }
+        return sensitive.test(text) ? "[hidden: it may hold a secret]" : text.slice(0, 6000);
+      };
+      const headersOf = (h) => {
+        const o = {};
+        try { new Headers(h).forEach((v, k) => { o[k] = /^(authorization|cookie|set-cookie|proxy-authorization)$/i.test(k) || sensitive.test(k) ? "[hidden]" : String(v).slice(0, 300); }); } catch (e) {}
+        return o;
+      };
+      const sentBody = (body) => {
+        if (body == null) return "";
+        if (typeof body === "string" || body instanceof URLSearchParams) return String(body);
+        if (typeof FormData !== "undefined" && body instanceof FormData) return "[form data: " + [...body.keys()].map((k) => sensitive.test(k) ? "[hidden]" : k).join(", ") + "]";
+        if (body && body.size != null) return "[binary, " + body.size + " bytes]";
+        if (body && body.byteLength != null) return "[binary, " + body.byteLength + " bytes]";
+        return "[not captured]";
+      };
+      const detail = (method, url, status, ms, req, res) => {
+        const out = [method + " " + url + " → " + status + " (" + ms + " ms)"];
+        if (req.headers && Object.keys(req.headers).length) out.push("Request headers: " + JSON.stringify(req.headers));
+        if (req.body) out.push("Request body: " + bodyText(req.body, (req.headers && (req.headers["content-type"] || req.headers["Content-Type"])) || ""));
+        if (res && res.headers && Object.keys(res.headers).length) out.push("Response headers: " + JSON.stringify(res.headers));
+        if (res && res.body != null && res.body !== "") out.push("Response body: " + bodyText(res.body, res.headers && res.headers["content-type"]));
+        return out.join("\n");
+      };
+      const sent = (method, url, status, started, more) => {
+        const ms = Math.round(performance.now() - started);
+        const line = method + " " + url + " → " + status + " (" + ms + " ms)";
+        if (!bodies || !more) return post("network", line);
+        Promise.race([Promise.resolve(more), new Promise((r) => setTimeout(() => r(null), 3000))])
+          .then((m) => post("network", line, m ? detail(method, url, status, ms, m.req, m.res) : ""), () => post("network", line));
+      };
+
       const realFetch = window.fetch;
       if (realFetch) window.fetch = function (input, init) {
         const started = performance.now();
         const method = ((init && init.method) || (input && input.method) || "GET").toUpperCase();
         let url = ""; try { url = new URL(typeof input === "string" ? input : input.url, location.href).href; } catch (e) {}
+        let req = null;
+        if (bodies) { try { req = { headers: headersOf((init && init.headers) || (input && input.headers) || {}), body: init && init.body != null ? sentBody(init.body) : "" }; } catch (e) { req = { headers: {}, body: "" }; } }
         const result = realFetch.apply(this, arguments);
-        result.then((r) => sent(method, url, r.status, started), (e) => sent(method, url, "failed: " + (e && e.message), started));
+        result.then((r) => {
+          let more = null;
+          if (bodies) {
+            const type = r.headers.get("content-type") || "", size = Number(r.headers.get("content-length") || 0);
+            const res = { headers: headersOf(r.headers), body: "" };
+            more = textual(type) && size < 2e6 ? r.clone().text().then((t) => ({ req, res: { ...res, body: t } }), () => ({ req, res })) : { req, res };
+          }
+          sent(method, url, r.status, started, more);
+        }, (e) => sent(method, url, "failed: " + (e && e.message), started, null));
         return result;
       };
-      const open = XMLHttpRequest.prototype.open, send = XMLHttpRequest.prototype.send;
+      const open = XMLHttpRequest.prototype.open, send = XMLHttpRequest.prototype.send, setHeader = XMLHttpRequest.prototype.setRequestHeader;
       XMLHttpRequest.prototype.open = function (method, url) {
-        try { this.__claude = [String(method).toUpperCase(), new URL(url, location.href).href]; } catch (e) {}
+        try { this.__claude = [String(method).toUpperCase(), new URL(url, location.href).href]; this.__claudeHeaders = {}; } catch (e) {}
         return open.apply(this, arguments);
       };
-      XMLHttpRequest.prototype.send = function () {
+      XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
+        if (this.__claudeHeaders) this.__claudeHeaders[name] = value;
+        return setHeader.apply(this, arguments);
+      };
+      XMLHttpRequest.prototype.send = function (body) {
         const started = performance.now(), note = this.__claude;
-        if (note) this.addEventListener("loadend", () => sent(note[0], note[1], this.status || "failed", started));
+        if (note) this.addEventListener("loadend", () => {
+          let more = null;
+          if (bodies) {
+            try {
+              const raw = this.getAllResponseHeaders().trim().split(/\r?\n/).filter(Boolean).reduce((h, l) => { const i = l.indexOf(":"); if (i > 0) h[l.slice(0, i).trim()] = l.slice(i + 1).trim(); return h; }, {});
+              const type = this.getResponseHeader("content-type") || "";
+              let text = "";
+              if (textual(type)) text = this.responseType === "" || this.responseType === "text" ? this.responseText : this.responseType === "json" ? JSON.stringify(this.response) : "";
+              more = { req: { headers: headersOf(this.__claudeHeaders || {}), body: sentBody(body) }, res: { headers: headersOf(raw), body: text } };
+            } catch (e) { more = null; }
+          }
+          sent(note[0], note[1], this.status || "failed", started, more);
+        });
         return send.apply(this, arguments);
       };
       // Everything else the page loads (scripts, styles, images, frames).
@@ -484,7 +599,7 @@ enum ClaudePage {
         }).observe({ type: "resource", buffered: true });
       } catch (e) {}
     })();
-    """#, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page)
+    """#
 
     final class Log: NSObject, WKScriptMessageHandler {
         static let shared = Log()
@@ -493,7 +608,8 @@ enum ClaudePage {
             guard let tab = message.webView?.navigationDelegate as? Tab, let body = message.body as? [String: Any],
                   let kind = body["kind"] as? String, let text = body["text"] as? String else { return }
             let frame = body["frame"] as? String ?? ""
-            tab.logged.append(Tab.Logged(date: Date(), kind: kind, text: frame.isEmpty ? text : "[\(frame)] \(text)"))
+            tab.logSerial += 1
+            tab.logged.append(Tab.Logged(id: tab.logSerial, date: Date(), kind: kind, text: frame.isEmpty ? text : "[\(frame)] \(text)", detail: body["detail"] as? String ?? ""))
             if tab.logged.count > 600 { tab.logged.removeFirst(tab.logged.count - 600) }
         }
     }
@@ -505,7 +621,7 @@ enum ClaudePage {
         config.userContentController.addUserScript(frames)
         config.userContentController.add(Frames.shared, contentWorld: world, name: frameHandler)
         guard ClaudeAccess.developer else { return }
-        config.userContentController.addUserScript(watch)
+        config.userContentController.addUserScript(watch(bodies: ClaudeAccess.bodies))
         config.userContentController.add(Log.shared, contentWorld: .page, name: logHandler)
     }
 }
