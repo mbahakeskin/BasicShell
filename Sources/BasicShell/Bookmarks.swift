@@ -47,7 +47,7 @@ final class Bookmarks {
     }
 
     func search(_ query: String) -> [Mark] {
-        marks.filter { matches(query, title: $0.title, url: $0.url) }
+        Fuzzy.ranked(marks, query, title: \.title, url: \.url)
     }
 }
 
@@ -108,10 +108,7 @@ final class Archive {
     }
 
     func search(_ query: String) -> [Entry] {
-        entries.filter { entry in
-            guard let url = entry.tab.url else { return false }
-            return matches(query, title: entry.tab.title, url: url)
-        }
+        Fuzzy.ranked(entries, query, title: \.tab.title, url: \.tab.url)
     }
 
     func flush() { saver.flush() }

@@ -68,7 +68,7 @@ final class History {
     func search(_ query: String) -> [Visit] {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return Array(visits.prefix(500)) }
-        return Array(visits.lazy.filter { matches(trimmed, title: $0.title, url: $0.url) }.prefix(500))
+        return Fuzzy.ranked(visits, trimmed, limit: 500, title: \.title, url: \.url)
     }
 
     /// Places to offer under the new-tab field: each address once, ones whose
@@ -78,9 +78,16 @@ final class History {
         guard query.count >= 1 else { return [] }
         var counts: [URL: Int] = [:]
         var latest: [URL: Visit] = [:]
-        for visit in visits where matches(query, title: visit.title, url: visit.url) {
+        // Found letter by letter rather than whole (see Fuzzy): after the rest.
+        var loose: Set<URL> = []
+        let whole = Fuzzy.whole * query.split(separator: " ").count
+        for visit in visits {
+            guard let score = Fuzzy.score(query, title: visit.title, url: visit.url) else { continue }
             counts[visit.url, default: 0] += 1
-            if latest[visit.url] == nil { latest[visit.url] = visit }
+            if latest[visit.url] == nil {
+                latest[visit.url] = visit
+                if score < whole { loose.insert(visit.url) }
+            }
         }
         func starts(_ visit: Visit) -> Bool {
             let host = visit.url.host()?.lowercased() ?? ""
@@ -88,6 +95,7 @@ final class History {
         }
         return latest.values.sorted { a, b in
             if starts(a) != starts(b) { return starts(a) }
+            if loose.contains(a.url) != loose.contains(b.url) { return loose.contains(b.url) }
             return (counts[a.url] ?? 0, a.date) > (counts[b.url] ?? 0, b.date)
         }
         .prefix(limit)

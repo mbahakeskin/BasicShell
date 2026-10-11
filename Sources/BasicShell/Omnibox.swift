@@ -39,8 +39,9 @@ struct OmniboxView: View {
         var seen: Set<URL> = []
         // Not the tab whose own address this is.
         let editing = shell.asking == .address ? shell.selected : nil
-        for tab in Windows.all.flatMap({ $0.shell.tabs }) where tab !== editing {
-            guard let url = tab.url, tab.isPrivate == privately, matches(typed, title: tab.title, url: url), seen.insert(url).inserted else { continue }
+        let open = Windows.all.flatMap { $0.shell.tabs }.filter { $0 !== editing && $0.isPrivate == privately }
+        for tab in Fuzzy.ranked(open, typed, title: \.title, url: \.url) {
+            guard let url = tab.url, seen.insert(url).inserted else { continue }
             list.append(.tab(tab))
             if list.count >= 3 { break }
         }
