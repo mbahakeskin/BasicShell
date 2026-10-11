@@ -127,6 +127,14 @@ private struct TabSettings: View {
 
 private struct PrivacySettings: View {
     @AppStorage(Extensions.blockerWanted) private var blocker = false
+    @AppStorage(DiskUse.limitKey) private var cacheLimit = 250
+    // `@State` is a macro in the macOS 27 SDK whose plugin ships only with
+    // Xcode, so the State it would expand to is stored by hand.
+    private var _cacheSize = State<Int64?>(initialValue: nil)
+    private var cacheSize: Int64? {
+        get { _cacheSize.wrappedValue }
+        nonmutating set { _cacheSize.wrappedValue = newValue }
+    }
 
     var body: some View {
         Form {
@@ -181,6 +189,32 @@ private struct PrivacySettings: View {
                     }
                 }
             }
+            Section("Web cache") {
+                Picker(selection: $cacheLimit) {
+                    Text("100 MB").tag(100)
+                    Text("250 MB").tag(250)
+                    Text("500 MB").tag(500)
+                    Text("1 GB").tag(1024)
+                    Text("No limit").tag(0)
+                } label: {
+                    Text("Keep it under")
+                    Text("Pages' files, kept to load them faster next time. Over the limit all of it is deleted, and pages load from the network once.")
+                }
+                .onChange(of: cacheLimit) { _, _ in
+                    DiskUse.enforce()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { measureCache() }
+                }
+                LabeledContent("On disk now") {
+                    HStack(spacing: 12) {
+                        Text(cacheSize.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "…")
+                            .foregroundStyle(.secondary)
+                        Button("Empty Now") {
+                            DiskUse.clearCache { measureCache() }
+                        }
+                    }
+                }
+                .onAppear { measureCache() }
+            }
             Section("Browsing data") {
                 Button("Clear History…") { confirm("Clear all history?", "Every page in History is forgotten.") { History.shared.clear() } }
                 Button("Remove All Website Data…") {
@@ -192,6 +226,10 @@ private struct PrivacySettings: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func measureCache() {
+        DiskUse.cacheSize { cacheSize = $0 }
     }
 
     private func confirm(_ title: String, _ detail: String, then action: @escaping () -> Void) {

@@ -38,6 +38,11 @@ the pages you open.
   alone, and a site can be kept awake (the sun in the top bar).
 - History, bookmarks, downloads and archived tabs, each a searchable panel
   over the page; the new-tab field suggests open tabs, bookmarks and history.
+  A word needn't be typed whole: its letters in order ("gthub"), or the
+  initials of two words ("gh bs"), find it too, after what matches whole.
+- The web cache is kept under a limit (Settings › Privacy, 250 MB unless
+  changed) and emptied when it passes it; what an extension stored goes
+  when the extension is removed.
 - Tabs opened from a link sit under the tab they came from.
 - Picture in picture, the system's own: just the video, in a borderless
   window you can resize, the page staying where it is (`⇧⌘P`). A video

@@ -96,6 +96,7 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
             }
             once()
             await addBlocker(asking: true)
+            sweepStorage()
         }
     }
 
@@ -512,15 +513,21 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
         // Removed by hand, the ad blocker stays removed.
         if id == Extensions.blockerID { UserDefaults.standard.set(false, forKey: Extensions.blockerWanted) }
         unload(context)
-        controller.fetchDataRecord(ofTypes: WKWebExtensionController.allExtensionDataTypes, for: context) { [weak self] record in
-            guard let record else { return }
-            self?.controller.removeData(ofTypes: WKWebExtensionController.allExtensionDataTypes, from: [record]) {}
-        }
         try? FileManager.default.removeItem(at: Extensions.folder(for: id))
         installed.removeAll { $0.id == id }
         Store.write(installed, to: "extensions.json")
         UserDefaults.standard.removeObject(forKey: Extensions.grantedKey(id))
         keepData()
+        // What it stored goes too, once WebKit has let go of it. WebKit's
+        // own way of removing an extension's data wants the extension still
+        // loaded, and asked after unloading it removed nothing: AdGuard left
+        // 300 MB behind (measured).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.sweepStorage() }
+    }
+
+    /// What WebKit keeps for extensions no longer installed, deleted.
+    private func sweepStorage() {
+        DiskUse.sweepExtensions(keeping: Set(installed.map(\.id)))
     }
 
     private var restarted: [String: Date] = [:]

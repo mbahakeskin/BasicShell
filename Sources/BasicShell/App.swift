@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         WebNotifications.start()
         Freeze.guardScripts()
         Sleep.start()
+        DiskUse.start()
         NSApp.mainMenu = Menus.build()
         // Pages open once the extensions are in (see Extensions.start).
         Extensions.shared.start { [weak self] in self?.extensionsLoaded() }
