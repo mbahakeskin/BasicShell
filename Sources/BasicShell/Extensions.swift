@@ -527,7 +527,7 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
 
     /// What WebKit keeps for extensions no longer installed, deleted.
     private func sweepStorage() {
-        DiskUse.sweepExtensions(keeping: Set(installed.map(\.id)))
+        DiskUse.sweepExtensions(keeping: Set(installed.map(\.id)), scheme: Extensions.scheme)
     }
 
     private var restarted: [String: Date] = [:]
