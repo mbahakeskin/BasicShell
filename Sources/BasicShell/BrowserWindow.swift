@@ -32,6 +32,9 @@ final class Shell {
     var downloadsOpen = false
     /// Where each extension's button is in the top bar, for its popup.
     var extensionButtons: [String: CGRect] = [:]
+    /// The field for finding in the page is out (Find.swift).
+    var finding = false
+    @ObservationIgnored let find = FindState()
     /// In BasicShell's own full screen on a screen with a notch, the room on
     /// either side of it, where the top bar goes.
     var notch: Notch?
@@ -69,6 +72,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     private var omnibox: NSHostingView<OmniboxView>?
     private var panelHost: NSHostingView<PanelView>?
     private var toastView: ToastHost?
+    private var findHost: NSHostingView<FindBarView>?
+    private lazy var finder = PageFinder(state: shell.find)
     /// A picture of an unloaded page, over it while it loads again.
     private var cover: NSImageView?
     private var popupWatch: (any NSObjectProtocol)?
@@ -208,6 +213,12 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         root.effectiveAppearance.performAsCurrentDrawingAppearance {
             self.page.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         }
+        // The field for finding, at the page's top right: under the top bar
+        // while that is out, under the strip beside the notch in full screen.
+        let findSize = NSSize(width: min(380, pageFrame.width - 24), height: 40)
+        let findCeiling = min(pageFrame.maxY, shell.topBarOut ? barY : bounds.maxY - top)
+        let findFrame = NSRect(x: pageFrame.maxX - findSize.width - 12, y: findCeiling - findSize.height - 12,
+                               width: findSize.width, height: findSize.height)
         let clockWidth: CGFloat = 64
         clock.frame = NSRect(x: bounds.maxX - clockWidth - 10, y: bounds.maxY - strip, width: clockWidth, height: strip)
         let change = {
@@ -217,6 +228,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             self.sidebar.frame = sideFrame
             self.sidebar.alphaValue = self.shell.sidebarOut ? 1 : 0
             self.page.frame = pageFrame
+            self.findHost?.frame = findFrame
         }
         page.layer?.cornerRadius = framed ? 10 : 0
         if animated {
@@ -329,6 +341,11 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         }
         if omnibox != nil {
             dismissOmnibox()
+            return true
+        }
+        // Only from its own field: on the page Esc is the page's.
+        if let findHost, let responder = window?.firstResponder as? NSView, responder.isDescendant(of: findHost) {
+            closeFind()
             return true
         }
         if shell.editingAddress {
@@ -681,6 +698,11 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         Session.touch()
         window.title = tab.name
         if omnibox == nil { window.makeFirstResponder(web) }
+        // What is being looked for is looked for in the page now shown.
+        if shell.finding, previous !== tab {
+            finder.clear(previous?.webView)
+            finder.search(shell.find.text, in: web)
+        }
     }
 
     /// The page under the picture has drawn itself.
@@ -963,6 +985,59 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         Debug.log("extension", "popup on screen under the Extensions menu: \(popover.isShown)")
     }
 
+    // MARK: - finding in the page (Find.swift)
+
+    @objc func findInPage(_ sender: Any?) {
+        guard let web = shell.selected?.webView else { return }
+        shell.finding = true
+        if findHost == nil {
+            let host = hosting(FindBarView(state: shell.find, window: self))
+            root.addSubview(host, positioned: .above, relativeTo: page)
+            findHost = host
+            layout(animated: false)
+        }
+        window?.makeKeyAndOrderFront(nil)
+        shell.find.focus += 1
+        // What was looked for last is there to type over, its matches marked again.
+        if !shell.find.text.isEmpty { finder.search(shell.find.text, in: web) }
+        DispatchQueue.main.async { NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil) }
+    }
+
+    @objc func findNext(_ sender: Any?) { findAgain(backwards: false) }
+    @objc func findPrevious(_ sender: Any?) { findAgain(backwards: true) }
+
+    private func findAgain(backwards: Bool) {
+        guard let web = shell.selected?.webView else { return }
+        guard shell.finding, !shell.find.text.isEmpty else { return findInPage(nil) }
+        finder.search(shell.find.text, in: web, backwards: backwards)
+    }
+
+    /// The field's text changed.
+    func findChanged() {
+        guard shell.finding, let web = shell.selected?.webView else { return }
+        finder.searchAsTyped(shell.find.text, in: web)
+    }
+
+    /// ⌘E: what is chosen on the page is what to look for.
+    @objc func useSelectionForFind(_ sender: Any?) {
+        shell.selected?.webView?.evaluateJavaScript("String(getSelection())") { [weak self] result, _ in
+            MainActor.assumeIsolated {
+                guard let self, let text = (result as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return }
+                self.shell.find.text = String(text.prefix(200))
+                self.findInPage(nil)
+            }
+        }
+    }
+
+    func closeFind() {
+        guard shell.finding else { return }
+        shell.finding = false
+        findHost?.removeFromSuperview()
+        findHost = nil
+        finder.clear(shell.selected?.webView)
+        if let web = shell.selected?.webView { window?.makeFirstResponder(web) }
+    }
+
     // MARK: - menu actions
 
     @objc func newTab(_ sender: Any?) { ask(.newTab(privately: false)) }
@@ -1097,6 +1172,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         switch item.action {
         case #selector(goBack(_:)): return tab?.canGoBack ?? false
         case #selector(goForward(_:)): return tab?.canGoForward ?? false
+        case #selector(findInPage(_:)), #selector(findNext(_:)), #selector(findPrevious(_:)), #selector(useSelectionForFind(_:)):
+            return tab?.webView != nil
         case #selector(copyAddress(_:)), #selector(reload(_:)),
              #selector(actualSize(_:)), #selector(zoomIn(_:)), #selector(zoomOut(_:)),
              #selector(duplicateTab(_:)), #selector(printPage(_:)):

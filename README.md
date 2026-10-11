@@ -58,6 +58,8 @@ the pages you open.
   and is remembered (never for a private tab); Settings › Privacy takes it
   back. Only while the site is open in a tab: there is no push to a closed
   one.
+- Find in the page (`⌘F`): a small field at the page's top right, every
+  match marked and counted, `⌘G` and `⇧⌘G` for the next and the one before.
 - `⇧⌘C` copies the address.
 
 Private WebKit features are used, each only where WebKit has it:
@@ -74,7 +76,9 @@ the broken processes and start it afresh; and `_features` with
 `_setEnabled:forFeature:` turn on `requestIdleCallback`, HTTPS first and
 the removal of tracking parameters, which WebKit has but keeps off; `_setDeveloperExtrasEnabled:` puts Inspect Element in a
 page's right-click menu, which `_webView:contextMenu:forElement:` lets
-BasicShell arrange. Outside WebKit, SkyLight's `CGSCopyManagedDisplaySpaces` and
+BasicShell arrange; `_findString:options:maxCount:` with a `_findDelegate`
+marks and counts what is looked for in a page (`_hideFindUI` takes the marks
+away). Outside WebKit, SkyLight's `CGSCopyManagedDisplaySpaces` and
 `CGSCopySpacesForWindows` tell which way you went to another desktop, for a
 video to fly into picture in picture from that side.
 

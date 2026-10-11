@@ -70,17 +70,12 @@ enum Menus {
         menu.addItem(.separator())
         let find = item("Find", nil)
         let sub = NSMenu(title: "Find")
-        let entries: [(String, String, NSEvent.ModifierFlags, NSTextFinder.Action)] = [
-            ("Find…", "f", .command, .showFindInterface),
-            ("Find Next", "g", .command, .nextMatch),
-            ("Find Previous", "g", [.command, .shift], .previousMatch),
-            ("Use Selection for Find", "e", .command, .setSearchString),
-        ]
-        for (title, key, mods, action) in entries {
-            let entry = item(title, #selector(NSResponder.performTextFinderAction(_:)), key, mods)
-            entry.tag = action.rawValue
-            sub.addItem(entry)
-        }
+        // The window's own (Find.swift): the system's text finder, which
+        // these used to ask, does nothing in a web page.
+        sub.addItem(item("Find…", #selector(BrowserWindow.findInPage(_:)), "f"))
+        sub.addItem(item("Find Next", #selector(BrowserWindow.findNext(_:)), "g"))
+        sub.addItem(item("Find Previous", #selector(BrowserWindow.findPrevious(_:)), "g", [.command, .shift]))
+        sub.addItem(item("Use Selection for Find", #selector(BrowserWindow.useSelectionForFind(_:)), "e"))
         find.submenu = sub
         menu.addItem(find)
         menu.addItem(.separator())
