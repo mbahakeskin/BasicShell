@@ -5,15 +5,22 @@ import AppKit
 enum Menus {
     static func build() -> NSMenu {
         let main = NSMenu()
-        for menu in [app(), file(), edit(), view(), history(), bookmarks(), tab(), ExtensionsMenu.build(), window()] {
+        for menu in [app(), file(), edit(), view(), history(), bookmarks(), tab(), ExtensionsMenu.build(), develop(), debug(), window()] {
             let item = NSMenuItem(title: menu.title, action: nil, keyEquivalent: "")
             item.submenu = menu
             main.addItem(item)
+            // Develop and Debug are out of sight until Settings turns them on.
+            if menu.title == "Develop" { developItem = item }
+            if menu.title == "Debug" { debugItem = item }
         }
+        showDeveloperMenus()
         return main
     }
 
-    fileprivate static func item(_ title: String, _ action: Selector?, _ key: String = "", _ mods: NSEvent.ModifierFlags = .command) -> NSMenuItem {
+    static var developItem: NSMenuItem?
+    static var debugItem: NSMenuItem?
+
+    static func item(_ title: String, _ action: Selector?, _ key: String = "", _ mods: NSEvent.ModifierFlags = .command) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.keyEquivalentModifierMask = key.isEmpty ? [] : mods
         return item
@@ -102,7 +109,6 @@ enum Menus {
         menu.addItem(.separator())
         menu.addItem(item("Picture in Picture", #selector(BrowserWindow.pictureInPicture(_:)), "p", [.command, .shift]))
         menu.addItem(item("Downloads", #selector(BrowserWindow.showDownloads(_:)), "l", [.command, .option]))
-        menu.addItem(item("Debug Log", #selector(AppDelegate.showDebugLog(_:)), "d", [.command, .option]))
         menu.addItem(.separator())
         menu.addItem(item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]))
         return menu

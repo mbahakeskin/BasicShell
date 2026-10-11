@@ -104,13 +104,10 @@ struct TopBarView: View {
             // Reload at the right end, inside; as much room at the left, so
             // the address stays in the middle.
             HStack(spacing: 0) {
-                Color.clear.frame(width: 28, height: 1)
+                SiteInfoButton(shell: shell, window: window)
                 Button { shell.editingAddress = true } label: {
                     HStack(spacing: 6) {
                         if let url = tab?.url {
-                            if url.scheme == "https" {
-                                Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(.secondary)
-                            }
                             Text(Address.pretty(url)).lineLimit(1).truncationMode(.middle)
                         } else {
                             Text("Search or enter address").foregroundStyle(.secondary)
@@ -176,13 +173,10 @@ struct SiteField: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Color.clear.frame(width: 28, height: 1)
+            SiteInfoButton(shell: shell, window: window, edge: .trailing)
             Button { window.openLocation(nil) } label: {
                 HStack(spacing: 6) {
                     if let url = tab?.url {
-                        if url.scheme == "https" {
-                            Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(.secondary)
-                        }
                         Text(Address.site(url)).lineLimit(1).truncationMode(.middle)
                     } else {
                         Text("Search or enter address").foregroundStyle(.secondary)

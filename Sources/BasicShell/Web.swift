@@ -57,12 +57,19 @@ enum Web {
         enable("HTTPSByDefaultEnabled", in: config.preferences)
         // Inspect Element in a page's right-click menu (WebKit's private
         // `_setDeveloperExtrasEnabled:`); nothing runs until it is chosen.
-        let extras = NSSelectorFromString("_setDeveloperExtrasEnabled:")
-        if config.preferences.responds(to: extras), let method = class_getMethodImplementation(WKPreferences.self, extras) {
-            typealias SetBool = @convention(c) (AnyObject, Selector, Bool) -> Void
-            unsafeBitCast(method, to: SetBool.self)(config.preferences, extras, true)
-        }
+        enableDeveloperExtras(in: config.preferences)
+        // What was chosen in the Develop and Debug menus.
+        Features.applySaved(to: config.preferences)
         return config
+    }
+
+    /// WebKit's private `_setDeveloperExtrasEnabled:`: without it a page's
+    /// inspector doesn't open.
+    static func enableDeveloperExtras(in preferences: WKPreferences) {
+        let extras = NSSelectorFromString("_setDeveloperExtrasEnabled:")
+        guard preferences.responds(to: extras), let method = class_getMethodImplementation(WKPreferences.self, extras) else { return }
+        typealias SetBool = @convention(c) (AnyObject, Selector, Bool) -> Void
+        unsafeBitCast(method, to: SetBool.self)(preferences, extras, true)
     }
 
     /// Turns on one of WebKit's features by its key, with WebKit's private

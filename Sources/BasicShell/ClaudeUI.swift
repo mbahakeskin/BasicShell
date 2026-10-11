@@ -199,10 +199,10 @@ struct ClaudeSettings: View {
 
                 Section("On a web page") {
                     Ability(title: "Read it",
-                            detail: "A page's text, what is on it, a picture of it (the view, a part, or the whole page), what you have selected there, saving it as a PDF, recording it as a GIF, opening and closing tabs. Needs your \"read\" for the site.",
-                            tools: ["open", "close", "select", "navigate", "read_text", "read_page", "find", "screenshot", "selection", "wait", "save_page", "record"])
+                            detail: "A page's text, what is on it, a picture of it (the view, a part, or the whole page), what you have selected there, how its connection and certificate stand and what you have allowed the site, saving it as a PDF, recording it as a GIF, opening and closing tabs. Needs your \"read\" for the site.",
+                            tools: ["open", "close", "select", "navigate", "read_text", "read_page", "find", "screenshot", "selection", "site_info", "wait", "save_page", "record"])
                     Ability(title: "Click and type in it",
-                            detail: "Click, drag, type, press keys, scroll, fill in forms, answer the page's alerts, change the window's size and look to try a layout, download a file into Downloads (asked each time) or give the page a file from this Mac (asked each time). Needs your \"click and type\" for the site, which includes reading.",
+                            detail: "Click, drag, type, press keys, scroll, fill in forms, answer the page's alerts, change the window's size, look and user agent to try a layout, download a file into Downloads (asked each time) or give the page a file from this Mac (asked each time). Needs your \"click and type\" for the site, which includes reading.",
                             tools: ["click", "hover", "drag", "type", "key", "scroll", "fill", "dialog", "resize", "upload", "download", "batch"])
                     Text("Never, whatever is set: private tabs, and what is in password, card and one-time-code fields. Claude can't see them or fill them; signing in and paying stay yours.")
                         .font(.caption).foregroundStyle(.secondary)
@@ -211,7 +211,7 @@ struct ClaudeSettings: View {
                 Section {
                     Toggle(isOn: $bypass) {
                         Text("Bypass permissions")
-                        Text("Stop asking, and open everything. Claude may read, click and type on any site without a question, give pages files from this Mac, download files and clear cookies and storage, and every switch below is on: the clipboard, tabs, extensions, history, developer tools and storage. For work you are watching.")
+                        Text("Stop asking, and open everything. Claude may read, click and type on any site without a question, give pages files from this Mac, download files and clear cookies and storage, and every switch below is on: the clipboard, tabs, extensions, history, developer tools, WebKit features and storage. For work you are watching.")
                     }
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Still in force with it on").font(.callout.weight(.medium))
@@ -240,10 +240,11 @@ struct ClaudeSettings: View {
                     PowerToggle(.developer)
                     PowerToggle(.bodies, indented: true, enabled: developer)
                     PowerToggle(.storage, indented: true, enabled: developer)
+                    PowerToggle(.features, indented: true, enabled: developer)
                 } header: {
                     Text("For developers")
                 } footer: {
-                    Text("A page opened before you turn these on isn't watched: reload it. The last two work only while Developer tools are on (or bypass is).")
+                    Text("A page opened before you turn these on isn't watched: reload it. The last three work only while Developer tools are on (or bypass is).")
                         .font(.caption).foregroundStyle(.secondary)
                 }
 

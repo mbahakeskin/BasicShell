@@ -49,6 +49,8 @@ private struct GeneralSettings: View {
     @AppStorage("debug.enabled") private var debug = false
     @AppStorage("fullscreen.notch") private var notch = true
     @AppStorage("layout.sidebarOnly") private var sidebarOnly = false
+    @AppStorage(Develop.developKey) private var develop = false
+    @AppStorage(Develop.debugKey) private var debugMenu = false
 
     var body: some View {
         Form {
@@ -70,6 +72,18 @@ private struct GeneralSettings: View {
                     Text("Full screen uses the space beside the notch")
                     Text("The page goes up to the top of the screen, with a clock beside the notch. Off, full screen gets a desktop of its own, as elsewhere in macOS, and the strip beside the notch stays black.")
                 }
+            }
+            Section {
+                Toggle(isOn: $develop) {
+                    Text("Show the Develop menu")
+                    Text("In the menu bar, as in Safari: the Web Inspector and its console, a page's source, the extensions' background pages, the way a tab introduces itself, its size and look, tabs without JavaScript, images or styles, and WebKit's experimental features.")
+                }
+                .onChange(of: develop) { _, _ in Menus.showDeveloperMenus() }
+                Toggle(isOn: $debugMenu) {
+                    Text("Show the Debug menu")
+                    Text("WebKit's internal debugging features (compositing borders, repaint counters, the resource usage overlay), and the web process: its number, and crashing it. What is switched there can break pages; the last item puts them all back.")
+                }
+                .onChange(of: debugMenu) { _, _ in Menus.showDeveloperMenus() }
             }
             Section {
                 Toggle(isOn: $debug) {
@@ -121,6 +135,13 @@ private struct TabSettings: View {
             Section("Sites kept awake") {
                 SiteList(sites: Awake.shared.sites.sorted(), empty: "None. The sun in the top bar keeps a site's tabs awake.") {
                     Awake.shared.remove(site: $0)
+                }
+            }
+            Section("Sites with their own zoom") {
+                SiteList(sites: SiteZoom.shared.levels.keys.sorted(), empty: "None. ⌘+ and ⌘− set a site's zoom, and so does the lock in its address.", detail: {
+                    SiteZoom.shared.level(for: $0).map { "\(Int(($0 * 100).rounded()))%" }
+                }) {
+                    SiteZoom.shared.set(nil, for: $0)
                 }
             }
         }
@@ -248,6 +269,7 @@ private struct PrivacySettings: View {
 private struct SiteList: View {
     let sites: [String]
     let empty: String
+    var detail: (String) -> String? = { _ in nil }
     let remove: (String) -> Void
 
     var body: some View {
@@ -258,6 +280,7 @@ private struct SiteList: View {
             HStack {
                 Text(site)
                 Spacer()
+                if let detail = detail(site) { Text(detail).foregroundStyle(.secondary) }
                 Button { remove(site) } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.borderless)
                     .help("Remove")

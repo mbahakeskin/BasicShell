@@ -30,6 +30,8 @@ final class Shell {
     var popupOpen = false
     /// The downloads under their button in the top bar are showing.
     var downloadsOpen = false
+    /// The site's information under the lock in the address is showing.
+    var siteInfoOpen = false
     /// Where each extension's button is in the top bar, for its popup.
     var extensionButtons: [String: CGRect] = [:]
     /// The field for finding in the page is out (Find.swift).
@@ -43,9 +45,9 @@ final class Shell {
     /// General).
     var sidebarOnly = UserDefaults.standard.bool(forKey: "layout.sidebarOnly")
 
-    var sidebarOut: Bool { sidebarPinned || sidebarShown || (sidebarOnly && (popupOpen || downloadsOpen)) }
+    var sidebarOut: Bool { sidebarPinned || sidebarShown || (sidebarOnly && (popupOpen || downloadsOpen || siteInfoOpen)) }
     var topBarKept: Bool { topBarPinned && !sidebarOnly }
-    var topBarOut: Bool { !sidebarOnly && (topBarPinned || topBarShown || editingAddress || popupOpen || downloadsOpen) }
+    var topBarOut: Bool { !sidebarOnly && (topBarPinned || topBarShown || editingAddress || popupOpen || downloadsOpen || siteInfoOpen) }
 }
 
 /// The top bar's two halves beside the notch: their widths, and their height
@@ -1147,9 +1149,9 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     @objc func goBack(_ sender: Any?) { shell.selected?.webView?.goBack() }
     @objc func goForward(_ sender: Any?) { shell.selected?.webView?.goForward() }
 
-    @objc func actualSize(_ sender: Any?) { shell.selected?.webView?.pageZoom = 1 }
-    @objc func zoomIn(_ sender: Any?) { shell.selected?.webView.map { $0.pageZoom = min(3, $0.pageZoom + 0.1) } }
-    @objc func zoomOut(_ sender: Any?) { shell.selected?.webView.map { $0.pageZoom = max(0.3, $0.pageZoom - 0.1) } }
+    @objc func actualSize(_ sender: Any?) { zoom(to: 1) }
+    @objc func zoomIn(_ sender: Any?) { zoom(by: 0.1) }
+    @objc func zoomOut(_ sender: Any?) { zoom(by: -0.1) }
 
     @objc func showHistory(_ sender: Any?) { showPanel(.history) }
     @objc func showBookmarks(_ sender: Any?) { showPanel(.bookmarks) }
@@ -1264,7 +1266,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         case #selector(toggleTopBarPinned(_:)):
             item.state = shell.topBarKept ? .on : .off
             return !shell.sidebarOnly
-        default: return true
+        default: return validateDevelop(item) ?? true
         }
     }
 

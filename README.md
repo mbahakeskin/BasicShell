@@ -66,6 +66,28 @@ the pages you open.
 - Find in the page (`⌘F`): a small field at the page's top right, every
   match marked and counted, `⌘G` and `⇧⌘G` for the next and the one before.
 - `⇧⌘C` copies the address.
+- The lock at the left of the address (an "i" where the page isn't secure)
+  brings up the site's information: how it was fetched and by whose
+  certificate (with the system's own viewer), what it was allowed (location,
+  notifications; each can be taken back), what it keeps on this Mac (its
+  cookies and stored data, which can be removed), and its zoom. Zoom is kept
+  by site: `⌘+`, `⌘−` and the panel's buttons set it, and it comes back
+  whenever a tab goes to the site (never remembered from a private tab).
+- Develop and Debug menus in the menu bar, as in Safari, out of sight until
+  Settings › General turns them on. Develop: the Web Inspector, its console,
+  a page's source and resources, picking an element on it, recording its
+  timeline; the inspector of an extension's background page; the user agent a
+  tab introduces itself with (an iPhone, an iPad, Chrome, Firefox, or one
+  typed in, which is remembered), a phone's, a tablet's or a typed-in size,
+  a light or dark look; a tab without JavaScript, images or styles, without
+  the same-origin policy, or without the limits on what a file may read; emptying the
+  caches; WebKit's experimental features. Debug: WebKit's internal debugging
+  features (compositing borders, repaint counters, the resource usage
+  overlay…), the web process's number and crashing it, the page as a web
+  archive. What is switched in them is kept and put on the pages opened
+  after; "Reset All WebKit Features to Defaults" takes it back. Safari's own
+  Debug menu has more (iCloud, CloudKit, AutoFill); that is Safari's, not
+  WebKit's.
 - In a build made with Claude's tools (the second download of a release, or
   `./build.sh claude`), Claude can use it when you turn that on: Claude Code
   and the Claude app get tools for the tabs and the pages in them. See
@@ -88,7 +110,13 @@ the removal of tracking parameters, which WebKit has but keeps off; `_setDevelop
 page's right-click menu, which `_webView:contextMenu:forElement:` lets
 BasicShell arrange; `_findString:options:maxCount:` with a `_findDelegate`
 marks and counts what is looked for in a page (`_hideFindUI` takes the marks
-away). Outside WebKit, SkyLight's `CGSCopyManagedDisplaySpaces` and
+away); the Develop and Debug menus: `_inspector` (`show`, `showConsole`,
+`toggleElementSelection`, `showMainResourceForFrame:` with `_mainFrame`) for
+a page's and an extension background's inspector, `_experimentalFeatures`,
+`_internalDebugFeatures` with `_isEnabledForFeature:` and
+`_setEnabled:forFeature:` for the features, `_setAuthorAndUserStylesEnabled:`
+for a tab without styles, `_killWebContentProcess` and
+`_webProcessIdentifier` for the web process. Outside WebKit, SkyLight's `CGSCopyManagedDisplaySpaces` and
 `CGSCopySpacesForWindows` tell which way you went to another desktop, for a
 video to fly into picture in picture from that side.
 
@@ -149,23 +177,34 @@ The tools:
   `repeat`, and `batch` (several tools in one call, stopping at the first
   that fails).
 - `resize`: the window's size (a phone's or a tablet's, or any), the light or
-  dark look the page is told of, the zoom, and a phone's way of introducing
-  itself to sites. It changes your window, and `desktop` puts it back; there
+  dark look the page is told of, the zoom, and the way the browser introduces
+  itself to sites (a phone's or a tablet's, or any user agent given). It changes your window, and `desktop` puts it back; there
   is no touch emulation in WebKit.
-- More of the page: `selection` (what you have selected), `screenshot` of
+- More of the page: `site_info` (whether the connection is secure, the
+  certificate's holder, issuer and expiry, what the person allowed the site,
+  its cookie count, the zoom, how the tab is set), `selection` (what you have selected), `screenshot` of
   the whole page (`full_page`), `wait` for text, a CSS selector, the address
   or a quiet network, `download` (into Downloads, asked each time), and
   `navigate` with `hard_reload`.
 - Each off until you turn it on in Settings › Claude: `arrange` (pin,
   duplicate, sleep, move a tab, take it to a window), `clipboard`,
-  `extensions` (list, reload), `history`, `bookmarks`, `downloads`.
+  `extensions` (list, reload, the problems WebKit reports for them, and with
+  the developer tools on, what a background page writes to the console),
+  `history`, `bookmarks`, `downloads`.
 - For developers, behind "Developer tools": `console`, `network`, `evaluate`,
   `inspect` (an element's styles, box and HTML), `performance` (load timings,
   paints, slowest requests) and `block` (keep a tab from loading requests
-  that match). Two more switches under it: request and response bodies in
+  that match), `render` (a tab without its JavaScript, images or styles,
+  put back when Claude lets the tab go) and `source` (a page as the site sent
+  it, before its scripts ran; password and card fields' values replaced by
+  `[hidden]`). Three more switches under it: request and response bodies in
   `network` (passwords, tokens, keys and cookies replaced by `[hidden]`), and
   `storage` (cookies, local and session storage, databases; a value only
-  when asked, never an HttpOnly cookie's; clearing is asked first).
+  when asked, never an HttpOnly cookie's; clearing is asked first), and
+  `features` (WebKit's experimental and debugging features, the same as the
+  Develop and Debug menus' ones; a change lasts while Claude is connected and
+  is taken back when it goes, and whatever touches privacy or security
+  stays the person's alone).
 
 What keeps it yours:
 
@@ -187,9 +226,11 @@ opened.
 It has a switch, "Bypass permissions", that turns the asking off, for work
 you are watching: every site is then open to Claude, files go to pages, come
 down from them, and cookies are cleared, unasked, and every switch above
-(clipboard, tabs, extensions, history, developer tools, bodies, storage) is
-on while it is. The sites you said no to stay closed, private tabs and
-password and card fields stay out of its reach, and Stop still stops it.
+(clipboard, tabs, extensions, history, developer tools, bodies, storage,
+WebKit features) is on while it is. The sites you said no to stay closed,
+private tabs and password and card fields stay out of its reach, what
+touches privacy or security among WebKit's features stays the person's, and
+Stop still stops it.
 
 A page can still try to talk Claude into things with text you don't see.
 Asking per site and the Stop button are there for that; Anthropic's own
@@ -220,7 +261,11 @@ does more in these ways:
   bodies with secrets replaced, `storage` (cookies, local and session
   storage, databases), `inspect` (an element's styles, box and HTML),
   `performance` (load timings, paints, slowest requests), `block` (keep a
-  tab from loading requests that match) and a hard reload.
+  tab from loading requests that match), `render` (a tab without its
+  JavaScript, images or styles), `source` (the page as the site sent it),
+  `site_info` (connection, certificate, what was allowed), WebKit's own
+  experimental and debugging `features`, an extension's problems and
+  background console, any user agent, and a hard reload.
 - **Finer say over it.** A switch for each part, a setting per site (read,
   read only, read and act, never; added before Claude asks), a list of what
   Claude did, one Bypass switch for all of it, and a Stop button on the

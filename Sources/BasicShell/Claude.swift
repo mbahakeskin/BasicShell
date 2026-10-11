@@ -40,7 +40,7 @@ import WebKit
 /// into: each its own switch in Settings › Claude, each off until turned on,
 /// and all of them on while "Bypass permissions" is.
 enum ClaudePower: String, CaseIterable, Identifiable {
-    case tabs, history, clipboard, extensions, developer, bodies, storage
+    case tabs, history, clipboard, extensions, developer, bodies, storage, features
 
     var id: String { rawValue }
 
@@ -54,7 +54,7 @@ enum ClaudePower: String, CaseIterable, Identifiable {
     }
 
     /// The power it is part of: it is on only while that one is.
-    var parent: ClaudePower? { self == .bodies || self == .storage ? .developer : nil }
+    var parent: ClaudePower? { self == .bodies || self == .storage || self == .features ? .developer : nil }
 
     var isOn: Bool { ClaudeAccess.bypass || (UserDefaults.standard.bool(forKey: key) && (parent?.isOn ?? true)) }
 
@@ -67,6 +67,7 @@ enum ClaudePower: String, CaseIterable, Identifiable {
         case .developer: "Developer tools"
         case .bodies: "Request and response bodies"
         case .storage: "Cookies and site storage"
+        case .features: "WebKit features"
         }
     }
 
@@ -75,10 +76,11 @@ enum ClaudePower: String, CaseIterable, Identifiable {
         case .tabs: "Pin and unpin tabs, make a copy of one, put one to sleep, move one to another place or a new window. Nothing on a page is read for this."
         case .history: "Search the pages you have visited and your bookmarks, and see what was downloaded this session. To find a page you were on, or a file you saved."
         case .clipboard: "Read what you last copied, and put text on it. What you copied may be a password from a password manager, so it is off until you say."
-        case .extensions: "List the extensions installed in BasicShell and reload one that has got stuck. It can't add, remove or change them."
-        case .developer: "A page's console and network requests, scripts of Claude's own in a page, a look at an element's styles, load timings, and blocking some requests. A script reaches everything on the page, password fields too. Pages opened from now on are watched."
+        case .extensions: "List the extensions installed in BasicShell, see the problems WebKit reports for them (and, with Developer tools on, what their background pages write to the console), and reload one that has got stuck. It can't add, remove or change them."
+        case .developer: "A page's console and network requests, scripts of Claude's own in a page, a look at an element's styles, load timings, blocking some requests, a tab with JavaScript, images or styles switched off, and a page's source as the site sent it. A script reaches everything on the page, password fields too. Pages opened from now on are watched."
         case .bodies: "With the network requests, what was sent and what came back, for the page's own fetch and XHR calls. Passwords, tokens, keys and cookies in them are replaced by [hidden]. Pages opened from now on."
         case .storage: "List a site's cookies, local and session storage and databases, and clear them (you are asked first). A cookie's value is shown only when Claude asks for values, never an HttpOnly one's, and tokens and passwords stay hidden."
+        case .features: "List WebKit's experimental and debugging features and switch them, to try a page with one on or off. A change lasts only while Claude is connected, and what touches privacy or security (tracking prevention, cookies, sandboxing, camera and microphone) stays yours, in the Develop and Debug menus."
         }
     }
 
@@ -88,9 +90,10 @@ enum ClaudePower: String, CaseIterable, Identifiable {
         case .history: ["history", "bookmarks", "downloads"]
         case .clipboard: ["clipboard"]
         case .extensions: ["extensions"]
-        case .developer: ["console", "network", "evaluate", "inspect", "performance", "block"]
+        case .developer: ["console", "network", "evaluate", "inspect", "performance", "block", "render", "source"]
         case .bodies: ["network"]
         case .storage: ["storage"]
+        case .features: ["features"]
         }
     }
 }
@@ -190,6 +193,8 @@ final class ClaudeAccess {
     }
 
     private func stop(listening: Bool) {
+        // WebKit's features Claude switched go back, whenever it is let go.
+        Features.clearTransient()
         if listening {
             listener?.close()
             listener = nil
@@ -265,6 +270,8 @@ final class ClaudeAccess {
         for window in Windows.all {
             if let tab = window.shell.tabs.first(where: { $0.id == id }) {
                 ClaudeRecorder.stop(tab)
+                // Whatever it switched off to look at the page is back on.
+                if tab.claudeRendered { tab.claudeRendered = false; Develop.restoreRendering(tab) }
                 window.letRest(tab)
             }
             window.claudeChanged()
@@ -440,6 +447,35 @@ final class ClaudeAccess {
         }
         guard power.isOn else {
             throw Refusal(message: "\(power.title) is kept from Claude: the person turns it on in BasicShell's Settings › Claude. Tell them; don't try another way.")
+        }
+    }
+}
+
+// MARK: - WebKit's features, as Claude switches them
+
+extension Features {
+    /// Switched for as long as Claude is let in; what each was before is
+    /// kept to put back.
+    private static var before: [String: Bool] = [:]
+
+    static func setTransient(_ on: Bool, _ feature: NSObject) {
+        let name = key(of: feature)
+        if before[name] == nil { before[name] = isOn(feature) }
+        transient[name] = on
+        forEachPage { write(on, feature, in: $0) }
+    }
+
+    /// Everything Claude switched, as it was.
+    static func clearTransient() {
+        guard !transient.isEmpty else { return }
+        let was = before
+        let kept = saved
+        transient = [:]
+        before = [:]
+        forEachPage { preferences in
+            for (name, value) in was {
+                if let feature = feature(name) { write(kept[name] ?? value, feature, in: preferences) }
+            }
         }
     }
 }

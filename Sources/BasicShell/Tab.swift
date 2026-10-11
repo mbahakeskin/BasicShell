@@ -69,6 +69,19 @@ final class Tab: NSObject, Identifiable {
     /// When its web process last ended, for telling a crash loop apart.
     @ObservationIgnored private var crashes: [Date] = []
 
+    // What the Develop menu set for this tab, kept across an unload (see
+    // Develop.swift and Viewport.swift).
+    @ObservationIgnored var userAgent: String?
+    @ObservationIgnored var look: NSAppearance.Name?
+    @ObservationIgnored var javaScriptOff = false
+    @ObservationIgnored var imagesOff = false
+    @ObservationIgnored var stylesOff = false
+    @ObservationIgnored var crossOriginOff = false
+    @ObservationIgnored var localFilesOff = false
+    /// The site whose saved zoom the page has, so that zoom is put on only
+    /// when the site changes (see Tab.applySiteZoom).
+    @ObservationIgnored var zoomedFor: String?
+
     #if CLAUDE
     // What Claude's tools keep with a tab (see Claude.swift).
     /// Its number, as Claude knows it.
@@ -94,6 +107,9 @@ final class Tab: NSObject, Identifiable {
         let field: NSTextField?
     }
     @ObservationIgnored var dialog: Question?
+    /// Claude switched JavaScript, images or styles off here (`render`): put
+    /// back when it lets the tab go.
+    @ObservationIgnored var claudeRendered = false
     /// The frames from other sites in the page now (ClaudePage.frames).
     @ObservationIgnored var frames: [WKFrameInfo] = []
     /// Files the person let Claude give the next file chooser, and until when.
@@ -142,6 +158,8 @@ final class Tab: NSObject, Identifiable {
         web.allowsMagnification = true
         web.isInspectable = true
         webView = web
+        Viewport.apply(to: self, web)
+        Develop.apply(to: self, web)
         // Clear until the page first draws something, over the window's own
         // gray: a new page was a white flash before.
         Tab.drawsBackground(web, false)
@@ -278,6 +296,8 @@ final class Tab: NSObject, Identifiable {
 
 extension Tab: WKNavigationDelegate {
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, preferences: WKWebpagePreferences, decisionHandler: @escaping @MainActor (WKNavigationActionPolicy, WKWebpagePreferences) -> Void) {
+        // Develop › Disable JavaScript: for every page this tab loads.
+        if javaScriptOff { preferences.allowsContentJavaScript = false }
         if action.shouldPerformDownload {
             decisionHandler(.download, preferences)
             return
@@ -323,12 +343,22 @@ extension Tab: WKNavigationDelegate {
         Downloads.shared.adopt(download)
     }
 
-    #if CLAUDE
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        #if CLAUDE
         // Another page: the frames noted were the last one's.
         frames = []
+        #endif
+        applySiteZoom(webView)
     }
-    #endif
+
+    /// A site has the zoom it was given (see SiteZoom): put on when the tab
+    /// goes to another site, not at every page of the same one.
+    private func applySiteZoom(_ web: WKWebView) {
+        let site = web.url?.host()
+        guard site != zoomedFor else { return }
+        zoomedFor = site
+        web.pageZoom = site.flatMap { SiteZoom.shared.level(for: $0) } ?? 1
+    }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         // A frozen page still reports a load that finished as it froze; no
