@@ -84,7 +84,6 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     private var popupWatch: (any NSObjectProtocol)?
     private var lights: Lights?
     private var monitors: [Any] = []
-    private var menuObservers: [NSObjectProtocol] = []
 
     private enum Edge { case side, top }
     private var revealing: [Edge: Timer] = [:]
@@ -190,8 +189,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             )
         }
         // In BasicShell's own full screen the strip beside the notch is free
-        // until the menu bar is asked for, so the sidebar alone goes up to
-        // the top; under the top bar when that is out.
+        // until the menu bar comes down, so the sidebar alone goes up to the
+        // top; under the top bar when that is out.
         let sideTop = shell.topBarOut ? barY - inset : bounds.maxY - (edgeToEdge ? (menuBarDown ? top : 0) : top) - inset
         let sideFrame = NSRect(
             x: shell.sidebarOut ? inset : -Metrics.sidebar - inset,
@@ -334,14 +333,6 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             return event
         }
         monitors = [pointer, elsewhere, keys, clicks].compactMap { $0 }
-        let centre = NotificationCenter.default
-        let began = centre.addObserver(forName: NSMenu.didBeginTrackingNotification, object: NSApp.mainMenu, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.menuOpen = true }
-        }
-        let ended = centre.addObserver(forName: NSMenu.didEndTrackingNotification, object: NSApp.mainMenu, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.menuOpen = false }
-        }
-        menuObservers = [began, ended]
     }
 
     /// Esc: the field over the page, else the address being edited.
@@ -400,67 +391,6 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         }
     }
 
-    /// The menu bar and the Dock within reach (see hiddenOptions).
-    private var reachable = false
-    private var reaching: Timer?
-    /// A menu of the menu bar is open: the menu bar stays for it.
-    private var menuOpen = false
-
-    /// In BasicShell's own full screen: the Dock as soon as the pointer
-    /// reaches the bottom edge, as before; the menu bar only once it has
-    /// rested against the top for a moment, the top bar having come out
-    /// first. Both go away again once the pointer is back on the page.
-    private func reach(_ point: NSPoint) {
-        guard edgeToEdge, NSApp.isActive else { return }
-        let bounds = root.bounds
-        if point.y <= 1 {
-            setReachable(true)
-        } else if bounds.maxY - point.y <= 1 {
-            guard !reachable, reaching == nil else { return }
-            reaching = Timer.scheduledTimer(withTimeInterval: Motion.menuBar, repeats: false) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    self.reaching = nil
-                    guard let screen = self.window?.screen, NSEvent.mouseLocation.y >= screen.frame.maxY - 2 else { return }
-                    self.setReachable(true)
-                }
-            }
-        } else {
-            reaching?.invalidate()
-            reaching = nil
-            let clear = bounds.maxY - point.y > menuBarAllowance + 40 && point.y > 160
-            if reachable, clear, !menuOpen { setReachable(false) }
-        }
-    }
-
-    private func setReachable(_ now: Bool) {
-        guard reachable != now, edgeToEdge else { return }
-        reachable = now
-        NSApp.presentationOptions = now ? BrowserWindow.reachOptions : BrowserWindow.hiddenOptions
-        menuBarWatch?.invalidate()
-        menuBarWatch = nil
-        if now {
-            menuBarWatch = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.menuBarMoved() }
-            }
-        } else if menuBarDown {
-            menuBarDown = false
-            layout(animated: true)
-        }
-    }
-
-    /// Hidden again, with nothing left watching: full screen begun, ended,
-    /// or the window back in front.
-    private func resetReach() {
-        reachable = false
-        reaching?.invalidate()
-        reaching = nil
-        menuBarWatch?.invalidate()
-        menuBarWatch = nil
-        menuBarDown = false
-        menuBarWasDown = false
-    }
-
     /// The menu bar is down over the strip beside the notch: the top bar
     /// makes way, below it.
     private var menuBarDown = false
@@ -470,11 +400,35 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     /// longer after the pointer leaves it, to be reached again.
     private var menuBarWasDown = false
 
-    /// Checked while the menu bar is within reach: macOS says nothing when
-    /// it comes down or goes up. `menuBarVisible()` turns false as soon as
-    /// the pointer leaves it, though it stays down a while longer (measured),
-    /// so its window is looked at instead: the Window Server's, at the main
-    /// menu's level, more than half of it on the screen.
+    /// In BasicShell's own full screen: once the pointer is against the top
+    /// edge, the menu bar is watched until it has gone again.
+    private func reach(_ point: NSPoint) {
+        guard edgeToEdge, NSApp.isActive, root.bounds.maxY - point.y <= 1 else { return }
+        watchMenuBar()
+    }
+
+    private func watchMenuBar() {
+        guard menuBarWatch == nil else { return }
+        menuBarWatch = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.menuBarMoved() }
+        }
+    }
+
+    /// Full screen begun, ended, or the window back in front: nothing is
+    /// down, nothing watched.
+    private func resetMenuBar() {
+        menuBarWatch?.invalidate()
+        menuBarWatch = nil
+        menuBarDown = false
+        menuBarWasDown = false
+    }
+
+    /// Checked while the pointer is at the top or the menu bar down: macOS
+    /// says nothing when it comes down or goes up. `menuBarVisible()` turns
+    /// false as soon as the pointer leaves it, though it stays down a while
+    /// longer (measured), so its window is looked at instead: the Window
+    /// Server's, at the main menu's level, more than half of it on the screen.
+    /// Once it is up and the pointer is well away, nothing is watched.
     private func menuBarMoved() {
         guard let screen = window?.screen else { return }
         let level = Int(CGWindowLevelForKey(.mainMenuWindow))
@@ -490,10 +444,15 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             else { return false }
             return y > screenTop - height / 2
         }
-        guard down != menuBarDown else { return }
-        menuBarDown = down
-        if down { menuBarWasDown = true }
-        layout(animated: true)
+        if down != menuBarDown {
+            menuBarDown = down
+            if down { menuBarWasDown = true }
+            layout(animated: true)
+        }
+        if !down, NSEvent.mouseLocation.y < screen.frame.maxY - menuBarAllowance - 40 {
+            menuBarWatch?.invalidate()
+            menuBarWatch = nil
+        }
     }
 
     private func pointerLeft() {
@@ -723,6 +682,11 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             }
         }
         shell.selected = tab
+        if let tab {
+            recent.removeAll { $0 == tab.id }
+            recent.append(tab.id)
+            if recent.count > 100 { recent.removeFirst(recent.count - 100) }
+        }
         #if AGENT
         agentChanged()
         #endif
@@ -804,6 +768,19 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         tab.unload()
     }
 
+    /// The tabs in the order they were last shown, the latest last.
+    private var recent: [UUID] = []
+
+    /// Where to go when the tab shown leaves: the one that was shown before
+    /// it, not the one beside it; the one beside it only if none was.
+    private func tabAfterLeaving(_ tab: Tab, at index: Int) -> Tab? {
+        recent.removeAll { $0 == tab.id }
+        for id in recent.reversed() {
+            if let back = shell.tabs.first(where: { $0.id == id }) { return back }
+        }
+        return shell.tabs.indices.contains(index) ? shell.tabs[index] : shell.tabs.last
+    }
+
     func close(_ tab: Tab) {
         guard let index = shell.tabs.firstIndex(of: tab) else { return }
         PiP.forget(tab)
@@ -811,8 +788,9 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         Closed.add(tab)
         shell.tabs.remove(at: index)
         if shell.selected === tab {
-            let next = shell.tabs.indices.contains(index) ? shell.tabs[index] : shell.tabs.last
-            select(next)
+            select(tabAfterLeaving(tab, at: index))
+        } else {
+            recent.removeAll { $0 == tab.id }
         }
         tab.discard()
         Session.touch()
@@ -824,7 +802,9 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         Archive.shared.add(tab)
         shell.tabs.remove(at: index)
         if shell.selected === tab {
-            select(shell.tabs.indices.contains(index) ? shell.tabs[index] : shell.tabs.last)
+            select(tabAfterLeaving(tab, at: index))
+        } else {
+            recent.removeAll { $0 == tab.id }
         }
         tab.discard()
         Session.touch()
@@ -843,7 +823,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         if shell.selected === tab {
             tab.webView?.removeFromSuperview()
             shell.selected = nil
-            select(shell.tabs.indices.contains(index) ? shell.tabs[index] : shell.tabs.last)
+            select(tabAfterLeaving(tab, at: index))
         }
         tab.webView?.removeFromSuperview()
         Session.touch()
@@ -1300,7 +1280,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         if window.edgeToEdge {
             window.edgeToEdge = false
             shell.fullScreen = false
-            resetReach()
+            resetMenuBar()
             NSApp.presentationOptions = []
             window.isMovable = true
             if let frame = windowedFrame { window.setFrame(frame, display: true, animate: true) }
@@ -1310,8 +1290,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             windowedFrame = window.frame
             window.edgeToEdge = true
             shell.fullScreen = true
-            resetReach()
-            NSApp.presentationOptions = BrowserWindow.hiddenOptions
+            resetMenuBar()
+            NSApp.presentationOptions = BrowserWindow.autoHideOptions
             window.isMovable = false
             window.setFrame(screen.frame, display: true, animate: true)
         }
@@ -1415,28 +1395,22 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         // screen sets these options itself, and clearing them there left the
         // menu bar a black strip with nothing in it (measured).
         if edgeToEdge {
-            resetReach()
-            NSApp.presentationOptions = BrowserWindow.hiddenOptions
-        } else if [BrowserWindow.hiddenOptions, BrowserWindow.reachOptions].contains(NSApp.presentationOptions) {
+            resetMenuBar()
+            NSApp.presentationOptions = BrowserWindow.autoHideOptions
+        } else if NSApp.presentationOptions == BrowserWindow.autoHideOptions {
             NSApp.presentationOptions = []
         }
     }
 
-    /// In BasicShell's own full screen the menu bar and the Dock are put
-    /// away outright, so the top bar has the strip beside the notch to
-    /// itself; pressed against their edge they come within reach, as macOS's
-    /// auto-hiding ones (see reach(_:)). macOS hides the menu bar only with
-    /// the Dock.
-    private static let hiddenOptions: NSApplication.PresentationOptions = [.hideMenuBar, .hideDock]
-    private static let reachOptions: NSApplication.PresentationOptions = [.autoHideMenuBar, .autoHideDock]
+    /// In BasicShell's own full screen the menu bar and the Dock are macOS's
+    /// auto-hiding ones, which come down when the pointer presses against
+    /// their edge. macOS hides the menu bar only with the Dock.
+    private static let autoHideOptions: NSApplication.PresentationOptions = [.autoHideMenuBar, .autoHideDock]
 
     func windowWillClose(_ notification: Notification) {
         if edgeToEdge { NSApp.presentationOptions = [] }
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
-        menuObservers.forEach(NotificationCenter.default.removeObserver)
-        menuObservers = []
-        reaching?.invalidate()
         menuBarWatch?.invalidate()
         for tab in shell.tabs {
             Extensions.shared.closed(tab, windowClosing: true)

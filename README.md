@@ -14,9 +14,9 @@ the pages you open.
 - Full screen uses every pixel: the same bars, the same edges. On a screen
   with a notch the top bar runs through the strip the menu bar would have,
   the notch in its middle, and the window's corners are the screen's own;
-  the menu bar comes down only once the pointer has rested against the top
-  for a moment, moving the top bar down below it, and the Dock as soon as
-  the pointer reaches the bottom.
+  the menu bar and the Dock are macOS's own auto-hiding ones, coming down
+  when the pointer presses against the top or the bottom; the menu bar moves
+  the top bar down below it while it is there.
 - A new tab starts as a field over the current page; the tab exists only
   once you enter an address or a search. Asked for with the New Tab row
   above the sidebar's tabs it goes first in the list, with the one below
@@ -43,7 +43,8 @@ the pages you open.
 - The web cache is kept under a limit (Settings › Privacy, 250 MB unless
   changed) and emptied when it passes it; what an extension stored goes
   when the extension is removed.
-- Tabs opened from a link sit under the tab they came from.
+- Tabs opened from a link sit under the tab they came from. Closing the tab
+  shown goes back to the one shown before it, not to its neighbour.
 - Picture in picture, the system's own: just the video, in a borderless
   window you can resize, the page staying where it is (`⇧⌘P`). A video
   playing goes into it by itself when you leave its tab or the window
@@ -161,6 +162,13 @@ starts BasicShell's own program with `--mcp`; that speaks the protocol and
 passes each call to the running browser over a socket in its folder that only
 your user can open.
 
+The agent is handed a short list: each tool's name, a line and its
+parameters (about 16,500 characters for 46 tools, where 29,000 were for 42).
+The whole description of any tool, what each parameter means and the limits,
+is one call away: `help` (with `tool`; without, the list). Settings › Agents ›
+Connect also writes a skill for Claude Code (`~/.claude/skills/basicshell`)
+on how to work in BasicShell without wasting turns.
+
 The tools:
 
 - `tabs`, `open`, `close`, `select`, `navigate`: the tabs in every window,
@@ -175,6 +183,20 @@ The tools:
   events and handed to the page's view, so the page takes them for real
   ones, the pointer stays where you have it, and it all works in a tab
   behind the one you are looking at.
+- Fewer round trips, so the agent waits less on its own thinking: what a
+  click, a key or a fill did comes back with it (what appeared, went or
+  changed among the things that can be clicked or filled, or, on a new
+  page, what is on it), `open` and `navigate` list what is on the page,
+  `fill_form` fills a whole form and `search` uses the site's search in one
+  call, and `read_pages` reads up to 25 addresses in one call, five at a time
+  in tabs of their own (without pictures, video or fonts), then closes them.
+  A page is waited for until it has come to rest (nothing changed for
+  150 ms, 500 at most) instead of for fixed times: a click is about
+  0.2 s, it was 0.7.
+- A picture is the agent's to size: `screenshot` takes `max_width`
+  and `quality`, `marks` (the refs drawn on what can be clicked, to answer
+  with a number), and `full_page` with `tile` (one view of a long page at a
+  time, 77 on a long article) or `overview` (all of it, small).
 - `upload` (you are asked each time, with the files named), `dialog` (a
   page's alert, confirm or prompt, which Claude in Chrome can't get past), `wait`,
   `save_page` (PDF or web archive, into Downloads), `record` (a GIF of the

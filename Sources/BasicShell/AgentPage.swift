@@ -432,7 +432,164 @@ enum AgentPage {
         return out;
       };
 
-      return { tree, text, find, spot, fill, insert, scroll, header, byRef, selection, inspect,
+      // Until nothing on the page has changed for `idle` milliseconds (or `cap`
+      // have gone): what a click set going has come to rest. Answers how long.
+      const quiet = (idle, cap) => new Promise((resolve) => {
+        const start = performance.now();
+        let last = start;
+        const watcher = new MutationObserver(() => { last = performance.now(); });
+        // Pictures loading late, animations and the like only touch a few
+        // attributes (src, style…): those say nothing of the page having changed.
+        watcher.observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true,
+          attributeFilter: ["class", "hidden", "open", "disabled", "value", "checked", "aria-expanded", "aria-hidden", "aria-selected", "aria-checked", "aria-pressed", "aria-busy"] });
+        const tick = () => {
+          const now = performance.now();
+          if (now - last >= idle || now - start >= cap) { watcher.disconnect(); resolve(Math.round(now - start)); return; }
+          setTimeout(tick, 10);
+        };
+        setTimeout(tick, Math.min(idle, 10));
+      });
+
+      // Everything on the page that can be clicked or filled, by ref: what it
+      // says, and whether it is in the view.
+      const inventory = () => {
+        const out = new Map();
+        const walk = (node) => {
+          for (const c of kids(node)) {
+            if (c.nodeType !== 1 || skipped.has(c.tagName) || c.getAttribute("aria-hidden") === "true") continue;
+            const file = c.tagName === "INPUT" && c.type === "file";
+            if (c.tagName === "INPUT" && c.type === "hidden") continue;
+            if (!file && !shown(c)) continue;
+            const r = role(c);
+            if (file || clickable(c, r, getComputedStyle(c))) {
+              const parts = line(c, r);
+              out.set(Number(parts[0].slice(1, -1)), { text: parts.slice(1).join(" "), on: file || onScreen(box(c)) });
+              if (leaf.has(r)) continue;
+            } else if (r === "dialog" || r === "alertdialog" || r === "alert") {
+              const n = clean(c.getAttribute("aria-label"), 60);
+              out.set(refOf(c), { text: r + (n ? " " + JSON.stringify(n) : ""), on: true });
+            }
+            walk(c);
+          }
+        };
+        walk(document.documentElement);
+        return out;
+      };
+
+      // What was there before an action, and what is there after: refs stay
+      // with their elements, so a change is the same ref saying something else.
+      let before = null;
+      const mark = () => { before = inventory(); return before.size; };
+      const diff = (limit) => {
+        const now = inventory(), old = before;
+        before = now;
+        const shownAs = (r, e) => "[" + r + "] " + e.text;
+        if (!old) {
+          const first = [...now].filter(([, e]) => e.on).slice(0, limit).map(([r, e]) => shownAs(r, e));
+          return { fresh: true, count: now.size, lines: first, header: header() };
+        }
+        const lines = [];
+        let added = 0, removed = 0, changed = 0;
+        for (const [r, e] of now) {
+          const was = old.get(r);
+          if (!was) { added++; if (lines.length < limit) lines.push("+ " + shownAs(r, e)); }
+          else if (was.text !== e.text) { changed++; if (lines.length < limit) lines.push("~ " + shownAs(r, e)); }
+        }
+        for (const [r, e] of old) if (!now.has(r)) { removed++; if (lines.length < limit) lines.push("- " + shownAs(r, e)); }
+        return { fresh: false, count: now.size, added, removed, changed, lines };
+      };
+
+      // The page's search field, or the icon that opens it.
+      const searchField = () => {
+        const hint = /search|ara(ma)?\b|find|query|buscar|recherche|suche|cerca|поиск|搜索|検索/i;
+        const found = [], buttons = [];
+        const walk = (node) => {
+          for (const c of kids(node)) {
+            if (c.nodeType !== 1 || skipped.has(c.tagName) || c.getAttribute("aria-hidden") === "true") continue;
+            if (c.tagName === "INPUT" && c.type === "hidden") continue;
+            if (!shown(c)) continue;
+            const r = role(c);
+            if (!secret(c) && c.tagName !== "SELECT" && !c.disabled && !c.readOnly && (r === "searchbox" || r === "textbox" || r === "combobox")) {
+              const texts = [c.type, c.name, c.id, c.getAttribute("aria-label"), c.placeholder, c.getAttribute("autocomplete")].join(" ");
+              let score = 0;
+              if (r === "searchbox" || c.type === "search") score += 6;
+              if (hint.test(texts)) score += 4;
+              if (c.closest && c.closest('[role="search"], form[action*="search"]')) score += 3;
+              if (onScreen(box(c))) score += 2;
+              if (c.closest && c.closest("header, [role=banner], nav")) score += 1;
+              if (score >= 4) found.push({ score, c });
+            } else if ((r === "button" || r === "link") && hint.test(name(c, r) + " " + (c.id || ""))) {
+              buttons.push(c);
+            }
+            if (!leaf.has(r)) walk(c);
+          }
+        };
+        walk(document.documentElement);
+        found.sort((a, b) => b.score - a.score);
+        if (found.length) return { ref: refOf(found[0].c), what: describe(found[0].c) };
+        if (buttons.length) return { button: refOf(buttons[0]), what: describe(buttons[0]) };
+        return null;
+      };
+
+      // The refs, drawn on the page where they are, for a picture to be taken.
+      const markDown = () => { const host = document.getElementById("__agent_marks"); if (host) host.remove(); };
+      const markUp = (limit) => {
+        markDown();
+        const boxes = [];
+        const walk = (node) => {
+          for (const c of kids(node)) {
+            if (boxes.length >= 500) return;
+            if (c.nodeType !== 1 || skipped.has(c.tagName) || c.getAttribute("aria-hidden") === "true") continue;
+            if (c.tagName === "INPUT" && c.type === "hidden") continue;
+            if (!shown(c)) continue;
+            const r = role(c);
+            if (clickable(c, r, getComputedStyle(c))) {
+              const b = box(c);
+              if (b.w >= 6 && b.h >= 6 && onScreen(b)) boxes.push({ ref: refOf(c), b });
+              if (leaf.has(r)) continue;
+            }
+            walk(c);
+          }
+        };
+        walk(document.documentElement);
+        boxes.sort((p, q) => p.b.y - q.b.y || p.b.x - q.b.x);
+        const colors = ["#e11d48", "#2563eb", "#16a34a", "#ea580c", "#9333ea", "#0d9488"];
+        const host = document.createElement("div");
+        host.id = "__agent_marks";
+        host.style.cssText = "position:fixed;left:0;top:0;width:0;height:0;z-index:2147483647;pointer-events:none;";
+        const used = boxes.slice(0, limit);
+        for (const { ref, b } of used) {
+          const color = colors[ref % colors.length];
+          const x = Math.max(0, b.x), y = Math.max(0, b.y);
+          const w = Math.min(b.w, innerWidth - x), h = Math.min(b.h, innerHeight - y);
+          const frame = document.createElement("div");
+          frame.style.cssText = "position:fixed;box-sizing:border-box;border:2px solid " + color + ";left:" + x + "px;top:" + y + "px;width:" + w + "px;height:" + h + "px;";
+          const tag = document.createElement("span");
+          tag.textContent = String(ref);
+          tag.style.cssText = "position:absolute;left:-2px;top:" + (y >= 15 ? "-15px" : "-2px") + ";background:" + color + ";color:#fff;font:bold 11px/13px -apple-system,sans-serif;padding:0 3px;border-radius:3px;";
+          frame.appendChild(tag);
+          host.appendChild(frame);
+        }
+        document.documentElement.appendChild(host);
+        return { drawn: used.length, more: boxes.length - used.length };
+      };
+
+      // The page's links, as they read and where they go.
+      const links = (limit) => {
+        const seen = new Set(), out = [];
+        for (const a of document.querySelectorAll("a[href]")) {
+          if (out.length >= limit) break;
+          const href = a.href;
+          if (!/^https?:/i.test(href) || seen.has(href) || !shown(a)) continue;
+          const t = clean(a.innerText || a.textContent || a.getAttribute("aria-label") || a.title, 80);
+          if (!t) continue;
+          seen.add(href);
+          out.push(t + " → " + href);
+        }
+        return out;
+      };
+
+      return { tree, text, find, spot, fill, insert, scroll, header, byRef, selection, inspect, quiet, mark, diff, searchField, markUp, markDown, links,
         focus: () => { const e = focused(); return { typable: typable(e), secret: secret(e), frame: !!e && e.tagName === "IFRAME", what: e && e !== document.body ? describe(e) : "" }; },
         boxOf: (r) => { const e = byRef(r); return e ? box(e) : null; },
         show: (r) => { const e = byRef(r); if (!e) return false; e.scrollIntoView({ block: "center", inline: "center", behavior: "instant" }); return true; } };

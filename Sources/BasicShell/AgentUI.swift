@@ -196,6 +196,12 @@ struct AgentSettings: View {
                         Text("The agy command line and the editor. Written into ~/.gemini/config/mcp_config.json; restart it after.")
                     }
                     LabeledContent {
+                        Button("Add") { status = AgentConnect.addSkill() }
+                    } label: {
+                        Text("Skill for Claude Code")
+                        Text("How to use these tools without wasting turns. Written into ~/.claude/skills/basicshell.")
+                    }
+                    LabeledContent {
                         Button("Copy Config") {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(AgentConnect.config, forType: .string)
@@ -215,11 +221,11 @@ struct AgentSettings: View {
 
                 Section("On a web page") {
                     Ability(title: "Read it",
-                            detail: "A page's text, what is on it, a picture of it (the view, a part, or the whole page), what you have selected there, how its connection and certificate stand and what you have allowed the site, saving it as a PDF, recording it as a GIF, opening and closing tabs, and opening files on this Mac (all of them are one site, \"files on this Mac\"). Needs your \"read\" for the site.",
-                            tools: ["open", "close", "select", "navigate", "read_text", "read_page", "find", "screenshot", "selection", "site_info", "wait", "save_page", "record"])
+                            detail: "A page's text, what is on it, a picture of it (the view, a part, or the whole page), what you have selected there, how its connection and certificate stand and what you have allowed the site, saving it as a PDF, recording it as a GIF, opening and closing tabs, reading many pages in one go, and opening files on this Mac (all of them are one site, \"files on this Mac\"). Needs your \"read\" for the site.",
+                            tools: ["open", "close", "select", "navigate", "read_text", "read_page", "find", "screenshot", "selection", "site_info", "wait", "save_page", "record", "read_pages"])
                     Ability(title: "Click and type in it",
-                            detail: "Click, drag, type, press keys, scroll, fill in forms, answer the page's alerts, change the window's size, look and user agent to try a layout, download a file into Downloads (asked each time) or give the page a file from this Mac (asked each time). Needs your \"click and type\" for the site, which includes reading.",
-                            tools: ["click", "hover", "drag", "type", "key", "scroll", "fill", "dialog", "resize", "upload", "download", "batch"])
+                            detail: "Click, drag, type, press keys, scroll, fill in forms (a whole form, or the site's search, in one call), answer the page's alerts, change the window's size, look and user agent to try a layout, download a file into Downloads (asked each time) or give the page a file from this Mac (asked each time). Needs your \"click and type\" for the site, which includes reading.",
+                            tools: ["click", "hover", "drag", "type", "key", "scroll", "fill", "fill_form", "search", "dialog", "resize", "upload", "download", "batch"])
                     Text("Never, whatever is set: private tabs, and what is in password, card and one-time-code fields. The agent can't see them or fill them; signing in and paying stay yours.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -318,6 +324,11 @@ struct AgentSettings: View {
                             Text(entry.tool).font(.callout.monospaced())
                             if let site = entry.site { Text(site).foregroundStyle(.secondary) }
                             Spacer()
+                            if entry.took > 0 {
+                                Text(entry.took >= 1000 ? String(format: "%.1f s", Double(entry.took) / 1000) : "\(entry.took) ms")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(entry.took >= 3000 ? Color.orange : Color.secondary)
+                            }
                             if entry.failed { Text("refused or failed").font(.caption).foregroundStyle(.red) }
                             Text(entry.client).font(.caption).foregroundStyle(.tertiary)
                         }
@@ -328,7 +339,7 @@ struct AgentSettings: View {
                 } header: {
                     Text("Recent activity")
                 } footer: {
-                    Text("What the agent has done since BasicShell opened, newest first. Kept in memory only.")
+                    Text("What the agent has done since BasicShell opened, newest first, and how long each call took (a slow one in orange). Kept in memory only.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }

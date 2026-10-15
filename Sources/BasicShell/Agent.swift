@@ -123,6 +123,8 @@ struct AgentActivity: Identifiable {
     let tool: String
     let site: String?
     let failed: Bool
+    /// How long the call took, in milliseconds.
+    var took = 0
 }
 
 /// Who may, and what is going on.
@@ -273,6 +275,12 @@ final class AgentAccess {
     // MARK: - the tabs it works in
 
     func holds(_ tab: Tab) -> Bool { held.contains(tab.id) }
+
+    /// A tab opened for one job and closed after it: no longer held.
+    func forget(_ tab: Tab) {
+        held.remove(tab.id)
+        lastUsed[tab.id] = nil
+    }
 
     /// The tab's page kept going, in its window, for the agent to work in.
     func hold(_ tab: Tab) {
@@ -460,8 +468,8 @@ final class AgentAccess {
     /// memory only, and gone when BasicShell quits.
     private(set) var activity: [AgentActivity] = []
 
-    func note(_ tool: String, site: String?, client: String, failed: Bool) {
-        activity.insert(AgentActivity(date: Date(), client: client, tool: tool, site: site, failed: failed), at: 0)
+    func note(_ tool: String, site: String?, client: String, failed: Bool, took: Int = 0) {
+        activity.insert(AgentActivity(date: Date(), client: client, tool: tool, site: site, failed: failed, took: took), at: 0)
         if activity.count > 100 { activity.removeLast(activity.count - 100) }
     }
 

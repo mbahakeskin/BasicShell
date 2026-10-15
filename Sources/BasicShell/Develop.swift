@@ -68,6 +68,17 @@ enum Develop {
     // MARK: - a tab without images or styles
 
     private static var imageRules: WKContentRuleList?
+    private static var leanRules: WKContentRuleList?
+
+    /// For pages read in the background (`read_pages`): their pictures, video
+    /// and fonts aren't loaded, which is most of what a page weighs.
+    static func lean() async -> WKContentRuleList? {
+        if leanRules == nil {
+            let rules = #"[{"trigger":{"url-filter":".*","resource-type":["image","media","font"]},"action":{"type":"block"}}]"#
+            leanRules = try? await WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "BasicShellLean", encodedContentRuleList: rules)
+        }
+        return leanRules
+    }
 
     /// Images are not loaded for the tab, or are again.
     static func setImages(_ on: Bool, _ web: WKWebView) {
