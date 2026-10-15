@@ -3,7 +3,7 @@
 #
 #   ./build.sh            release build into build/BasicShell.app
 #   ./build.sh debug      same, from a debug build
-#   ./build.sh claude     with Claude's tools (Sources/BasicShell/Claude.swift),
+#   ./build.sh agent      with the agent tools (Sources/BasicShell/Agent*.swift),
 #                         which are in the build only when asked for; goes
 #                         with debug too
 set -euo pipefail
@@ -18,8 +18,8 @@ for arg in "$@"; do
     debug|release) CONFIG="$arg" ;;
     # Its own build folder, so going between the two doesn't build
     # everything again.
-    claude) FLAGS=(-Xswiftc -DCLAUDE); SCRATCH=".build-claude"; WITH=" with Claude's tools" ;;
-    *) echo "usage: ./build.sh [debug] [claude]" >&2; exit 2 ;;
+    agent|claude) FLAGS=(-Xswiftc -DAGENT); SCRATCH=".build-agent"; WITH=" with the agent tools" ;;
+    *) echo "usage: ./build.sh [debug] [agent]" >&2; exit 2 ;;
   esac
 done
 NAME="BasicShell"

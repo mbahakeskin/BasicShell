@@ -1,56 +1,56 @@
-#if CLAUDE
+#if AGENT
 import AppKit
 import SwiftUI
 
-// What you see of Claude in BasicShell (see Claude.swift): the frame around
+// What you see of the agent in BasicShell (see Agent.swift): the frame around
 // a page it works in, and its page in Settings.
 
-/// Beside a tab Claude works in, in the sidebar.
-struct ClaudeMark: View {
+/// Beside a tab the agent works in, in the sidebar.
+struct AgentMark: View {
     let tab: Tab
     let size: CGFloat
 
     var body: some View {
-        if ClaudeAccess.shared.holds(tab) {
-            Image(systemName: "sparkle")
+        if AgentAccess.shared.holds(tab) {
+            Image(systemName: "cursorarrow.rays")
                 .font(.system(size: size, weight: .semibold))
-                .foregroundStyle(Color(nsColor: ClaudeAccess.color))
-                .help("Claude is using this tab")
+                .foregroundStyle(Color(nsColor: AgentAccess.color))
+                .help("The agent is using this tab")
         }
     }
 }
 
-/// Around the page while the tab shown is one Claude works in: a line in
-/// Claude's colour, and at the bottom what is going on, with the button
+/// Around the page while the tab shown is one the agent works in: a line in
+/// the agent's colour, and at the bottom what is going on, with the button
 /// that stops it.
-struct ClaudeFrame: View {
+struct AgentFrame: View {
     var radius: CGFloat = 0
     static let pill = CGSize(width: 270, height: 32)
     static let lift: CGFloat = 14
 
     var body: some View {
-        let color = Color(nsColor: ClaudeAccess.color)
+        let color = Color(nsColor: AgentAccess.color)
         ZStack(alignment: .bottom) {
             RoundedRectangle(cornerRadius: radius, style: .continuous)
                 .strokeBorder(color, lineWidth: 2)
             HStack(spacing: 8) {
-                Image(systemName: "sparkle")
+                Image(systemName: "cursorarrow.rays")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(color)
-                Text(ClaudeAccess.bypass ? "Claude is using this tab, unasked" : "Claude is using this tab")
+                Text(AgentAccess.bypass ? "The agent is using this tab, unasked" : "The agent is using this tab")
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
                 Spacer(minLength: 0)
-                Button("Stop") { ClaudeAccess.shared.stopNow() }
+                Button("Stop") { AgentAccess.shared.stopNow() }
                     .buttonStyle(.borderless)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(color)
-                    .help("Stops Claude here, and in every other tab, until you let it carry on")
+                    .help("Stops the agent here, and in every other tab, until you let it carry on")
             }
             .padding(.horizontal, 12)
-            .frame(width: ClaudeFrame.pill.width, height: ClaudeFrame.pill.height)
+            .frame(width: AgentFrame.pill.width, height: AgentFrame.pill.height)
             .glassEffect(.regular, in: .capsule)
-            .padding(.bottom, ClaudeFrame.lift)
+            .padding(.bottom, AgentFrame.lift)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -58,26 +58,26 @@ struct ClaudeFrame: View {
 
 /// Shows the frame but lets every click through to the page, except on the
 /// pill at the bottom.
-final class ClaudeFrameHost: NSHostingView<ClaudeFrame> {
+final class AgentFrameHost: NSHostingView<AgentFrame> {
     override func hitTest(_ point: NSPoint) -> NSView? {
         let here = convert(point, from: superview)
         let fromBottom = isFlipped ? bounds.maxY - here.y : here.y - bounds.minY
-        let pill = ClaudeFrame.pill
-        guard abs(here.x - bounds.midX) <= pill.width / 2, fromBottom >= ClaudeFrame.lift, fromBottom <= ClaudeFrame.lift + pill.height else { return nil }
+        let pill = AgentFrame.pill
+        guard abs(here.x - bounds.midX) <= pill.width / 2, fromBottom >= AgentFrame.lift, fromBottom <= AgentFrame.lift + pill.height else { return nil }
         return super.hitTest(point)
     }
 }
 
-/// One of the switches for what Claude may do beyond pages: what it is in
+/// One of the switches for what the agent may do beyond pages: what it is in
 /// plain words, and the tools it turns on.
 private struct PowerToggle: View {
-    let power: ClaudePower
+    let power: AgentPower
     var indented = false
     var enabled = true
     @AppStorage private var on: Bool
-    @AppStorage(ClaudeAccess.bypassKey) private var bypass = false
+    @AppStorage(AgentAccess.bypassKey) private var bypass = false
 
-    init(_ power: ClaudePower, indented: Bool = false, enabled: Bool = true) {
+    init(_ power: AgentPower, indented: Bool = false, enabled: Bool = true) {
         self.power = power
         self.indented = indented
         self.enabled = enabled
@@ -99,7 +99,7 @@ private struct PowerToggle: View {
     }
 }
 
-/// What Claude can do on a page once the site allows it, said once, in words.
+/// What the agent can do on a page once the site allows it, said once, in words.
 private struct Ability: View {
     let title: String
     let detail: String
@@ -115,10 +115,10 @@ private struct Ability: View {
     }
 }
 
-/// Settings › Claude.
-struct ClaudeSettings: View {
-    @AppStorage(ClaudeAccess.enabledKey) private var enabled = false
-    @AppStorage(ClaudeAccess.bypassKey) private var bypass = false
+/// Settings › Agents.
+struct AgentSettings: View {
+    @AppStorage(AgentAccess.enabledKey) private var enabled = false
+    @AppStorage(AgentAccess.bypassKey) private var bypass = false
     // `@State` is a macro in the macOS 27 SDK whose plugin ships only with
     // Xcode, so the State it would expand to is stored by hand.
     private var _status = State(initialValue: "")
@@ -131,8 +131,8 @@ struct ClaudeSettings: View {
         get { _newSite.wrappedValue }
         nonmutating set { _newSite.wrappedValue = newValue }
     }
-    private var _newPolicy = State(initialValue: ClaudeSitePolicy.readOnly)
-    private var newPolicy: ClaudeSitePolicy {
+    private var _newPolicy = State(initialValue: AgentSitePolicy.readOnly)
+    private var newPolicy: AgentSitePolicy {
         get { _newPolicy.wrappedValue }
         nonmutating set { _newPolicy.wrappedValue = newValue }
     }
@@ -143,13 +143,13 @@ struct ClaudeSettings: View {
     }
 
     var body: some View {
-        let access = ClaudeAccess.shared
-        let developer = ClaudePower.developer.isOn
+        let access = AgentAccess.shared
+        let developer = AgentPower.developer.isOn
         Form {
             Section {
                 Toggle(isOn: $enabled) {
-                    Text("Let Claude use this browser")
-                    Text("Claude Code and the Claude app get tools for BasicShell: they can see your tabs, read pages and act in them, as you and signed in as you. Nothing is on until you say so here, and what is allowed is chosen below.")
+                    Text("Let an agent use this browser")
+                    Text("AI agents (Claude Code, the Claude app, Antigravity, or any other that speaks the Model Context Protocol) get tools for BasicShell: they can see your tabs, read pages and act in them, as you and signed in as you. Nothing is on until you say so here, and what is allowed is chosen below.")
                 }
                 .onChange(of: enabled) { _, _ in access.start() }
                 if enabled {
@@ -163,7 +163,7 @@ struct ClaudeSettings: View {
                     }
                 }
             } footer: {
-                Text("A page can try to talk Claude into things with text you don't see. Asking per site, the frame around a tab it is using and its Stop button are there for that; keep it to sites you trust.")
+                Text("A page can try to talk the agent into things with text you don't see. Asking per site, the frame around a tab it is using and its Stop button are there for that; keep it to sites you trust.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             if enabled {
@@ -172,22 +172,38 @@ struct ClaudeSettings: View {
                         HStack {
                             Button("Copy Command") {
                                 NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(ClaudeConnect.command, forType: .string)
+                                NSPasteboard.general.setString(AgentConnect.command, forType: .string)
                                 status = "Copied. Paste it into a terminal."
                             }
-                            Button("Add") { status = "Adding…"; ClaudeConnect.addToCode { status = $0 } }
-                                .disabled(ClaudeConnect.code == nil)
+                            Button("Add") { status = "Adding…"; AgentConnect.addToCode { status = $0 } }
+                                .disabled(AgentConnect.code == nil)
                         }
                     } label: {
                         Text("Claude Code")
-                        Text(ClaudeConnect.code == nil ? "Not found on this Mac; the command adds it wherever it is." : "For every project. Sessions started after have it.")
+                        Text(AgentConnect.code == nil ? "Not found on this Mac; the command adds it wherever it is." : "For every project. Sessions started after have it.")
                     }
                     LabeledContent {
-                        Button("Add") { status = ClaudeConnect.addToApp() }
-                            .disabled(!ClaudeConnect.appIsHere)
+                        Button("Add") { status = AgentConnect.addToApp() }
+                            .disabled(!AgentConnect.appIsHere)
                     } label: {
                         Text("Claude app")
-                        Text(ClaudeConnect.appIsHere ? "Written into the app's own settings; quit and reopen Claude after." : "Not found on this Mac.")
+                        Text(AgentConnect.appIsHere ? "Written into the app's own settings; quit and reopen Claude after." : "Not found on this Mac.")
+                    }
+                    LabeledContent {
+                        Button("Add") { status = AgentConnect.addToAntigravity() }
+                    } label: {
+                        Text("Antigravity")
+                        Text("The agy command line and the editor. Written into ~/.gemini/config/mcp_config.json; restart it after.")
+                    }
+                    LabeledContent {
+                        Button("Copy Config") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(AgentConnect.config, forType: .string)
+                            status = "Copied. Put it in the agent's list of MCP servers."
+                        }
+                    } label: {
+                        Text("Any other agent")
+                        Text("A server for the Model Context Protocol, started by the agent with its program and `--mcp`.")
                     }
                     if !status.isEmpty { Text(status).font(.caption).foregroundStyle(.secondary) }
                 } header: {
@@ -199,19 +215,19 @@ struct ClaudeSettings: View {
 
                 Section("On a web page") {
                     Ability(title: "Read it",
-                            detail: "A page's text, what is on it, a picture of it (the view, a part, or the whole page), what you have selected there, how its connection and certificate stand and what you have allowed the site, saving it as a PDF, recording it as a GIF, opening and closing tabs. Needs your \"read\" for the site.",
+                            detail: "A page's text, what is on it, a picture of it (the view, a part, or the whole page), what you have selected there, how its connection and certificate stand and what you have allowed the site, saving it as a PDF, recording it as a GIF, opening and closing tabs, and opening files on this Mac (all of them are one site, \"files on this Mac\"). Needs your \"read\" for the site.",
                             tools: ["open", "close", "select", "navigate", "read_text", "read_page", "find", "screenshot", "selection", "site_info", "wait", "save_page", "record"])
                     Ability(title: "Click and type in it",
                             detail: "Click, drag, type, press keys, scroll, fill in forms, answer the page's alerts, change the window's size, look and user agent to try a layout, download a file into Downloads (asked each time) or give the page a file from this Mac (asked each time). Needs your \"click and type\" for the site, which includes reading.",
                             tools: ["click", "hover", "drag", "type", "key", "scroll", "fill", "dialog", "resize", "upload", "download", "batch"])
-                    Text("Never, whatever is set: private tabs, and what is in password, card and one-time-code fields. Claude can't see them or fill them; signing in and paying stay yours.")
+                    Text("Never, whatever is set: private tabs, and what is in password, card and one-time-code fields. The agent can't see them or fill them; signing in and paying stay yours.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
                 Section {
                     Toggle(isOn: $bypass) {
                         Text("Bypass permissions")
-                        Text("Stop asking, and open everything. Claude may read, click and type on any site without a question, give pages files from this Mac, download files and clear cookies and storage, and every switch below is on: the clipboard, tabs, extensions, history, developer tools, WebKit features and storage. For work you are watching.")
+                        Text("Stop asking, and open everything. The agent may read, click and type on any site and open any file on this Mac without a question, give pages files from this Mac, download files and clear cookies and storage; what a page it works in asks (your location, to show notifications, to open another app) is answered no, unasked; and every switch below is on: the clipboard, tabs, extensions, history, developer tools, WebKit features and storage. For work you are watching.")
                     }
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Still in force with it on").font(.callout.weight(.medium))
@@ -221,7 +237,7 @@ struct ClaudeSettings: View {
                 } header: {
                     Text("Asking")
                 } footer: {
-                    Text("Without it, BasicShell asks the first time Claude wants to read a site and again before it clicks or types there; \"Remember for this site\" keeps the answer (see Sites). With it on, a page that talks Claude into something meets nothing in its way.")
+                    Text("Without it, BasicShell asks the first time the agent wants to read a site and again before it clicks or types there; \"Remember for this site\" keeps the answer (see Sites). With it on, a page that talks the agent into something meets nothing in its way.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
@@ -251,7 +267,7 @@ struct ClaudeSettings: View {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Set a site")
-                        Text(siteProblem.isEmpty ? "Decide for a site before Claude asks." : siteProblem)
+                        Text(siteProblem.isEmpty ? "Decide for a site before the agent asks." : siteProblem)
                             .font(.callout)
                             .foregroundStyle(siteProblem.isEmpty ? Color.secondary : Color.red)
                         HStack {
@@ -259,7 +275,7 @@ struct ClaudeSettings: View {
                                 .textFieldStyle(.roundedBorder)
                                 .onSubmit(addSite)
                             Picker("", selection: Binding(get: { newPolicy }, set: { newPolicy = $0 })) {
-                                ForEach(ClaudeSitePolicy.allCases) { Text($0.title).tag($0) }
+                                ForEach(AgentSitePolicy.allCases) { Text($0.title).tag($0) }
                             }
                             .labelsHidden()
                             .fixedSize()
@@ -268,14 +284,14 @@ struct ClaudeSettings: View {
                     }
                     let sites = access.sites.sorted { $0.key < $1.key }
                     if sites.isEmpty {
-                        Text("No site has an answer yet. Each is asked about when Claude first wants it.").foregroundStyle(.secondary)
+                        Text("No site has an answer yet. Each is asked about when the agent first wants it.").foregroundStyle(.secondary)
                     }
                     ForEach(sites, id: \.key) { site, _ in
                         HStack {
                             Text(site)
                             Spacer()
                             Picker("", selection: Binding(get: { access.policy(for: site) }, set: { access.setPolicy($0, for: site) })) {
-                                ForEach(ClaudeSitePolicy.allCases) { Text($0.title).tag($0) }
+                                ForEach(AgentSitePolicy.allCases) { Text($0.title).tag($0) }
                             }
                             .labelsHidden()
                             .fixedSize()
@@ -287,7 +303,7 @@ struct ClaudeSettings: View {
                 } header: {
                     Text("Sites")
                 } footer: {
-                    Text("\"Never\" keeps Claude out of a site even with bypass on. \"Ask each time\" is the default and is not listed.")
+                    Text("\"Never\" keeps the agent out of a site even with bypass on. \"Ask each time\" is the default and is not listed.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
@@ -312,7 +328,7 @@ struct ClaudeSettings: View {
                 } header: {
                     Text("Recent activity")
                 } footer: {
-                    Text("What Claude has done since BasicShell opened, newest first. Kept in memory only.")
+                    Text("What the agent has done since BasicShell opened, newest first. Kept in memory only.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -323,18 +339,19 @@ struct ClaudeSettings: View {
     private func addSite() {
         let text = newSite.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
-        guard let site = ClaudeAccess.site(URL(string: text.contains("://") ? text : "https://" + text)) else {
+        let files = ["file", "files", "file://", "files on this mac"].contains(text.lowercased())
+        guard let site = files ? AgentAccess.filesSite : AgentAccess.site(URL(string: text.contains("://") ? text : "https://" + text)) else {
             siteProblem = "That isn't a site's name."
             return
         }
-        ClaudeAccess.shared.setPolicy(newPolicy, for: site)
+        AgentAccess.shared.setPolicy(newPolicy, for: site)
         newSite = ""
         siteProblem = ""
     }
 }
 
-/// Telling Claude where BasicShell is.
-enum ClaudeConnect {
+/// Telling the agent where BasicShell is.
+enum AgentConnect {
     private static var program: String { Bundle.main.executablePath ?? "" }
 
     static var command: String { "claude mcp add --scope user basicshell -- \"\(program)\" --mcp" }
@@ -380,6 +397,35 @@ enum ClaudeConnect {
     }
 
     static var appIsHere: Bool { FileManager.default.fileExists(atPath: appFolder.path) }
+
+    /// The entry any agent's list of MCP servers takes.
+    static var config: String {
+        let entry: [String: Any] = ["mcpServers": ["basicshell": ["command": program, "args": ["--mcp"]]]]
+        let data = (try? JSONSerialization.data(withJSONObject: entry, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])) ?? Data()
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// Written into Antigravity's list of MCP servers (the command line's
+    /// and the editor's share it), the rest of the file left as it is.
+    static func addToAntigravity() -> String {
+        let folder = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".gemini/config", isDirectory: true)
+        let file = folder.appendingPathComponent("mcp_config.json")
+        var settings: [String: Any] = [:]
+        if let data = try? Data(contentsOf: file) {
+            guard let read = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+                return "Antigravity's file couldn't be read, so it was left alone."
+            }
+            settings = read
+        }
+        var servers = settings["mcpServers"] as? [String: Any] ?? [:]
+        servers["basicshell"] = ["command": program, "args": ["--mcp"]]
+        settings["mcpServers"] = servers
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        guard let data = try? JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]),
+              (try? data.write(to: file, options: .atomic)) != nil
+        else { return "Antigravity's file couldn't be written." }
+        return "Added to Antigravity. Restart it (or run /mcp there) to finish."
+    }
 
     /// Written into the Claude app's list of local tools, the rest of its
     /// settings left as they are.

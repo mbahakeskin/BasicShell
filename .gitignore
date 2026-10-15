@@ -1,4 +1,5 @@
 .build/
+.build-agent/
 .build-claude/
 build/
 .swiftpm/
@@ -6,3 +7,5 @@ build/
 *.provisionprofile
 *.p12
 Lists/
+.build-dev*/
+.antigravitycli/

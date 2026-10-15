@@ -1,9 +1,9 @@
-#if CLAUDE
+#if AGENT
 import AppKit
 import Observation
 import WebKit
 
-// Claude, in this browser.
+// The agent, in this browser.
 //
 // Anthropic's own extension, Claude in Chrome, drives pages through Chrome's
 // debugger, which WebKit's extensions don't have. So BasicShell offers the
@@ -12,34 +12,34 @@ import WebKit
 // picture of it, clicks and typing, and a few things an extension can't
 // have, such as the history and a page's own dialogs.
 //
-// How it reaches the browser: Claude starts BasicShell's own program with
-// `--mcp` (ClaudeBridge), which speaks the protocol on its standard input
+// How it reaches the browser: the agent starts BasicShell's own program with
+// `--mcp` (AgentBridge), which speaks the protocol on its standard input
 // and output and passes each call, a line of JSON, over a socket in
-// BasicShell's folder to the running app (ClaudeListener, here), where it is
-// carried out (ClaudeTools).
+// BasicShell's folder to the running app (AgentListener, here), where it is
+// carried out (AgentTools).
 //
 // All of it is in the build only when that is asked for (`./build.sh
-// claude`, which defines CLAUDE): without it BasicShell has none of this.
+// agent`, which defines AGENT): without it BasicShell has none of this.
 //
-// What keeps it yours (ClaudeAccess):
-// - Off unless turned on in Settings › Claude.
+// What keeps it yours (AgentAccess):
+// - Off unless turned on in Settings › Agents.
 // - A private tab is never listed, read or touched.
 // - Each site is asked about, once to read it and once to click and type
 //   there; an answer can be kept, and is then in Settings.
 // - What is in a password or card field is never given, and nothing is
 //   typed into one.
-// - A tab Claude works in is marked in the sidebar, and framed while it is
+// - A tab the agent works in is marked in the sidebar, and framed while it is
 //   the one shown, with a button that stops everything.
 // - The socket is the user's alone (its mode, and the caller's user id).
 //
-// Settings › Claude can turn the asking off ("Bypass permissions"), for work
+// Settings › Agents can turn the asking off ("Bypass permissions"), for work
 // you are watching: every site is then open to it and files go unasked,
 // except the sites you said no to; the rest above stays as it is.
 
-/// What Claude may do beyond reading and clicking on the sites it is let
-/// into: each its own switch in Settings › Claude, each off until turned on,
+/// What the agent may do beyond reading and clicking on the sites it is let
+/// into: each its own switch in Settings › Agents, each off until turned on,
 /// and all of them on while "Bypass permissions" is.
-enum ClaudePower: String, CaseIterable, Identifiable {
+enum AgentPower: String, CaseIterable, Identifiable {
     case tabs, history, clipboard, extensions, developer, bodies, storage, features
 
     var id: String { rawValue }
@@ -47,16 +47,16 @@ enum ClaudePower: String, CaseIterable, Identifiable {
     /// The UserDefaults key (the first two are older than this list).
     var key: String {
         switch self {
-        case .history: ClaudeAccess.historyKey
-        case .developer: ClaudeAccess.developerKey
-        default: "claude.\(rawValue)"
+        case .history: AgentAccess.historyKey
+        case .developer: AgentAccess.developerKey
+        default: "agent.\(rawValue)"
         }
     }
 
     /// The power it is part of: it is on only while that one is.
-    var parent: ClaudePower? { self == .bodies || self == .storage || self == .features ? .developer : nil }
+    var parent: AgentPower? { self == .bodies || self == .storage || self == .features ? .developer : nil }
 
-    var isOn: Bool { ClaudeAccess.bypass || (UserDefaults.standard.bool(forKey: key) && (parent?.isOn ?? true)) }
+    var isOn: Bool { AgentAccess.bypass || (UserDefaults.standard.bool(forKey: key) && (parent?.isOn ?? true)) }
 
     var title: String {
         switch self {
@@ -77,10 +77,10 @@ enum ClaudePower: String, CaseIterable, Identifiable {
         case .history: "Search the pages you have visited and your bookmarks, and see what was downloaded this session. To find a page you were on, or a file you saved."
         case .clipboard: "Read what you last copied, and put text on it. What you copied may be a password from a password manager, so it is off until you say."
         case .extensions: "List the extensions installed in BasicShell, see the problems WebKit reports for them (and, with Developer tools on, what their background pages write to the console), and reload one that has got stuck. It can't add, remove or change them."
-        case .developer: "A page's console and network requests, scripts of Claude's own in a page, a look at an element's styles, load timings, blocking some requests, a tab with JavaScript, images or styles switched off, and a page's source as the site sent it. A script reaches everything on the page, password fields too. Pages opened from now on are watched."
+        case .developer: "A page's console and network requests, scripts of the agent's own in a page, a look at an element's styles, load timings, blocking some requests, a tab with JavaScript, images or styles switched off, and a page's source as the site sent it. A script reaches everything on the page, password fields too. Pages opened from now on are watched."
         case .bodies: "With the network requests, what was sent and what came back, for the page's own fetch and XHR calls. Passwords, tokens, keys and cookies in them are replaced by [hidden]. Pages opened from now on."
-        case .storage: "List a site's cookies, local and session storage and databases, and clear them (you are asked first). A cookie's value is shown only when Claude asks for values, never an HttpOnly one's, and tokens and passwords stay hidden."
-        case .features: "List WebKit's experimental and debugging features and switch them, to try a page with one on or off. A change lasts only while Claude is connected, and what touches privacy or security (tracking prevention, cookies, sandboxing, camera and microphone) stays yours, in the Develop and Debug menus."
+        case .storage: "List a site's cookies, local and session storage and databases, and clear them (you are asked first). A cookie's value is shown only when the agent asks for values, never an HttpOnly one's, and tokens and passwords stay hidden."
+        case .features: "List WebKit's experimental and debugging features and switch them, to try a page with one on or off. A change lasts only while the agent is connected, and what touches privacy or security (tracking prevention, cookies, sandboxing, camera and microphone) stays yours, in the Develop and Debug menus."
         }
     }
 
@@ -99,7 +99,7 @@ enum ClaudePower: String, CaseIterable, Identifiable {
 }
 
 /// What the person may say about a site, as Settings shows it.
-enum ClaudeSitePolicy: String, CaseIterable, Identifiable {
+enum AgentSitePolicy: String, CaseIterable, Identifiable {
     case ask, readAsk, readOnly, readAct, never
 
     var id: String { rawValue }
@@ -115,8 +115,8 @@ enum ClaudeSitePolicy: String, CaseIterable, Identifiable {
     }
 }
 
-/// One thing Claude did, for the list in Settings.
-struct ClaudeActivity: Identifiable {
+/// One thing the agent did, for the list in Settings.
+struct AgentActivity: Identifiable {
     let id = UUID()
     let date: Date
     let client: String
@@ -127,36 +127,51 @@ struct ClaudeActivity: Identifiable {
 
 /// Who may, and what is going on.
 @Observable
-final class ClaudeAccess {
-    static let shared = ClaudeAccess()
+final class AgentAccess {
+    static let shared = AgentAccess()
 
-    static let enabledKey = "claude.enabled"
-    static let historyKey = "claude.history"
-    static let developerKey = "claude.developer"
-    static let bypassKey = "claude.bypass"
+    static let enabledKey = "agent.enabled"
+    static let historyKey = "agent.history"
+    static let developerKey = "agent.developer"
+    static let bypassKey = "agent.bypass"
 
     static var enabled: Bool { UserDefaults.standard.bool(forKey: enabledKey) }
     /// The history, the bookmarks and the downloads may be searched.
-    static var history: Bool { ClaudePower.history.isOn }
-    /// The console, the network and scripts of Claude's own in a page.
-    static var developer: Bool { ClaudePower.developer.isOn }
+    static var history: Bool { AgentPower.history.isOn }
+    /// The console, the network and scripts of the agent's own in a page.
+    static var developer: Bool { AgentPower.developer.isOn }
     /// What the network log keeps of a request: bodies too.
-    static var bodies: Bool { ClaudePower.bodies.isOn }
+    static var bodies: Bool { AgentPower.bodies.isOn }
     /// Nothing is asked: every site but those refused for good is open.
     static var bypass: Bool { UserDefaults.standard.bool(forKey: bypassKey) }
 
-    static let color = NSColor(srgbRed: 0.85, green: 0.47, blue: 0.34, alpha: 1)
+    /// The line around a tab an agent works in: the system's own accent, so
+    /// it looks like the Mac, not like any agent.
+    static var color: NSColor { .controlAccentColor }
+
+    /// What an earlier version kept under "claude." is kept under "agent.":
+    /// copied once, the old left where it is.
+    static func migrateSettings() {
+        let defaults = UserDefaults.standard
+        for (key, value) in defaults.dictionaryRepresentation() where key.hasPrefix("claude.") {
+            let renamed = "agent." + key.dropFirst("claude.".count)
+            if defaults.object(forKey: renamed) == nil { defaults.set(value, forKey: renamed) }
+        }
+        if defaults.string(forKey: "settings.tab") == "claude" { defaults.set("agent", forKey: "settings.tab") }
+        // The socket an earlier version listened on.
+        unlink(Store.folder.appendingPathComponent("claude.sock").path)
+    }
 
     /// The socket, in BasicShell's own folder, so a test copy has its own.
-    static var socket: String { Store.folder.appendingPathComponent("claude.sock").path }
+    static var socket: String { Store.folder.appendingPathComponent("agent.sock").path }
 
     enum Kind: String { case read, act }
 
     /// Site to what was answered for good: "read" and "act", each allowed or not.
-    private(set) var sites: [String: [String: Bool]] = UserDefaults.standard.dictionary(forKey: "claude.sites") as? [String: [String: Bool]] ?? [:]
-    /// Answers given without "Remember", until Claude goes or is stopped.
+    private(set) var sites: [String: [String: Bool]] = UserDefaults.standard.dictionary(forKey: "agent.sites") as? [String: [String: Bool]] ?? [:]
+    /// Answers given without "Remember", until the agent goes or is stopped.
     @ObservationIgnored private var once: [String: [String: Bool]] = [:]
-    /// The tabs Claude works in.
+    /// The tabs the agent works in.
     private(set) var held: Set<UUID> = []
     @ObservationIgnored private var lastUsed: [UUID: Date] = [:]
     /// Who is connected, by the name each gave.
@@ -165,10 +180,15 @@ final class ClaudeAccess {
     private(set) var stopped = false
     @ObservationIgnored private var askedToResume = Date.distantPast
     @ObservationIgnored private var asking: [String: Task<Bool, Never>] = [:]
-    @ObservationIgnored private var listener: ClaudeListener?
+    @ObservationIgnored private var listener: AgentListener?
     @ObservationIgnored private var timer: Timer?
 
+    /// What every `file:` address is, to the asking: one site, so that the
+    /// person says once whether the agent may open files on this Mac.
+    static let filesSite = "files on this Mac"
+
     static func site(_ url: URL?) -> String? {
+        if let url, url.isFileURL { return filesSite }
         guard let url, ["http", "https"].contains(url.scheme?.lowercased() ?? ""), let host = url.host()?.lowercased(), !host.isEmpty else { return nil }
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
@@ -177,23 +197,23 @@ final class ClaudeAccess {
 
     /// At launch, and when the switch in Settings changes.
     func start() {
-        guard ClaudeAccess.enabled else { return stop(listening: true) }
+        guard AgentAccess.enabled else { return stop(listening: true) }
         guard listener == nil else { return }
         try? FileManager.default.createDirectory(at: Store.folder, withIntermediateDirectories: true)
-        listener = ClaudeListener(path: ClaudeAccess.socket) { data, connection in
-            DispatchQueue.main.async { MainActor.assumeIsolated { ClaudeAccess.shared.received(data, from: connection) } }
+        listener = AgentListener(path: AgentAccess.socket) { data, connection in
+            DispatchQueue.main.async { MainActor.assumeIsolated { AgentAccess.shared.received(data, from: connection) } }
         } closed: { connection in
-            DispatchQueue.main.async { MainActor.assumeIsolated { ClaudeAccess.shared.gone(connection) } }
+            DispatchQueue.main.async { MainActor.assumeIsolated { AgentAccess.shared.gone(connection) } }
         }
-        if listener == nil { Debug.log("claude", "couldn't listen at \(ClaudeAccess.socket)") }
-        // A tab Claude hasn't touched for ten minutes is let go.
+        if listener == nil { Debug.log("agent", "couldn't listen at \(AgentAccess.socket)") }
+        // A tab the agent hasn't touched for ten minutes is let go.
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
-            MainActor.assumeIsolated { ClaudeAccess.shared.releaseIdle() }
+            MainActor.assumeIsolated { AgentAccess.shared.releaseIdle() }
         }
     }
 
     private func stop(listening: Bool) {
-        // WebKit's features Claude switched go back, whenever it is let go.
+        // WebKit's features the agent switched go back, whenever it is let go.
         Features.clearTransient()
         if listening {
             listener?.close()
@@ -213,8 +233,8 @@ final class ClaudeAccess {
         stopped = true
         askedToResume = Date()
         stop(listening: false)
-        Windows.front?.say("Claude stopped")
-        Debug.log("claude", "stopped by the person")
+        Windows.front?.say("Agent stopped")
+        Debug.log("agent", "stopped by the person")
     }
 
     func resume() { stopped = false }
@@ -223,30 +243,30 @@ final class ClaudeAccess {
 
     @ObservationIgnored private var connections: [ObjectIdentifier: String] = [:]
 
-    private func received(_ data: Data, from connection: ClaudeConnection) {
+    private func received(_ data: Data, from connection: AgentConnection) {
         guard let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
         let key = ObjectIdentifier(connection)
-        let client = message["client"] as? String ?? "Claude"
+        let client = message["client"] as? String ?? "An agent"
         if connections[key] != client {
             connections[key] = client
             clients = connections.values.sorted()
-            Debug.log("claude", "\(client) connected")
+            Debug.log("agent", "\(client) connected")
         }
         guard let id = message["id"], let tool = message["tool"] as? String else { return }
         let arguments = message["args"] as? [String: Any] ?? [:]
         Task {
             // Turned off while it was connected: nothing more.
-            let reply = ClaudeAccess.enabled ? await ClaudeTools.run(tool, arguments, for: client)
-                : .failure("Claude was turned off in BasicShell's Settings › Claude. Tell the person; don't try another way.")
+            let reply = AgentAccess.enabled ? await AgentTools.run(tool, arguments, for: client)
+                : .failure("The agent was turned off in BasicShell's Settings › Agents. Tell the person; don't try another way.")
             let answer: [String: Any] = ["id": id, "content": reply.parts, "error": reply.failed]
             if let data = try? JSONSerialization.data(withJSONObject: answer) { connection.send(data) }
         }
     }
 
-    private func gone(_ connection: ClaudeConnection) {
+    private func gone(_ connection: AgentConnection) {
         guard let client = connections.removeValue(forKey: ObjectIdentifier(connection)) else { return }
         clients = connections.values.sorted()
-        Debug.log("claude", "\(client) disconnected")
+        Debug.log("agent", "\(client) disconnected")
         if connections.isEmpty { stop(listening: false) }
     }
 
@@ -254,14 +274,14 @@ final class ClaudeAccess {
 
     func holds(_ tab: Tab) -> Bool { held.contains(tab.id) }
 
-    /// The tab's page kept going, in its window, for Claude to work in.
+    /// The tab's page kept going, in its window, for the agent to work in.
     func hold(_ tab: Tab) {
         lastUsed[tab.id] = Date()
         tab.lastSeen = Date()
         (tab.host as? BrowserWindow)?.keepRunning(tab)
         guard !held.contains(tab.id) else { return }
         held.insert(tab.id)
-        Windows.all.forEach { $0.claudeChanged() }
+        Windows.all.forEach { $0.agentChanged() }
     }
 
     private func release(_ id: UUID) {
@@ -269,12 +289,12 @@ final class ClaudeAccess {
         lastUsed[id] = nil
         for window in Windows.all {
             if let tab = window.shell.tabs.first(where: { $0.id == id }) {
-                ClaudeRecorder.stop(tab)
+                AgentRecorder.stop(tab)
                 // Whatever it switched off to look at the page is back on.
-                if tab.claudeRendered { tab.claudeRendered = false; Develop.restoreRendering(tab) }
+                if tab.agentRendered { tab.agentRendered = false; Develop.restoreRendering(tab) }
                 window.letRest(tab)
             }
-            window.claudeChanged()
+            window.agentChanged()
         }
     }
 
@@ -287,12 +307,12 @@ final class ClaudeAccess {
 
     struct Refusal: Error { let message: String }
 
-    /// Whether Claude may, in this tab as it is now: throws what to tell it
+    /// Whether the agent may, in this tab as it is now: throws what to tell it
     /// when it may not.
     func permit(_ kind: Kind, in tab: Tab, for client: String) async throws {
-        guard !tab.isPrivate else { throw Refusal(message: "That is a private tab, which BasicShell keeps from Claude.") }
-        guard let site = ClaudeAccess.site(tab.url) else {
-            throw Refusal(message: "BasicShell lets Claude into web pages (http and https) only; this tab shows \(tab.url?.scheme ?? "nothing").")
+        guard !tab.isPrivate else { throw Refusal(message: "That is a private tab, which BasicShell keeps from the agent.") }
+        guard let site = AgentAccess.site(tab.url) else {
+            throw Refusal(message: "BasicShell lets the agent into web pages (http and https) and files on this Mac (file) only; this tab shows \(tab.url?.scheme ?? "nothing").")
         }
         try await permit(kind, site: site, for: client, over: (tab.host as? BrowserWindow)?.window)
     }
@@ -302,7 +322,7 @@ final class ClaudeAccess {
         switch answer(kind, site) {
         case true?: return
         case false?: throw Refusal(message: denied(kind, site))
-        case nil: if ClaudeAccess.bypass { return }
+        case nil: if AgentAccess.bypass { return }
         }
         let key = "\(kind.rawValue) \(site)"
         let task = asking[key] ?? Task { await self.ask(kind, site: site, for: client, over: window) }
@@ -313,7 +333,7 @@ final class ClaudeAccess {
     }
 
     private func denied(_ kind: Kind, _ site: String) -> String {
-        "The person hasn't allowed Claude to \(kind == .read ? "read" : "click and type on") \(site) in BasicShell. Don't try another way in; tell them, and carry on only if they change it (Settings › Claude)."
+        "The person hasn't allowed the agent to \(kind == .read ? "read" : "click and type on") \(site) in BasicShell. Don't try another way in; tell them, and carry on only if they change it (Settings › Agents)."
     }
 
     /// What is already known: allowed to act is allowed to read, and not
@@ -329,23 +349,32 @@ final class ClaudeAccess {
     private func ask(_ kind: Kind, site: String, for client: String, over window: NSWindow?) async -> Bool {
         let alert = NSAlert()
         switch kind {
+        case .read where site == AgentAccess.filesSite:
+            alert.messageText = "Let an agent open files on this Mac?"
+            alert.informativeText = "\(client) is asking. It would open any file on this Mac that it names (a page, a text file, a PDF, a picture) in a tab and see it as you do. Whatever it opens is shown to the agent."
+        case .act where site == AgentAccess.filesSite:
+            alert.messageText = "Let an agent click and type in files on this Mac?"
+            alert.informativeText = "\(client) is asking. It would click, type and fill in forms in pages that are files on this Mac, and read them."
         case .read:
-            alert.messageText = "Let Claude read \(site)?"
+            alert.messageText = "Let an agent read \(site)?"
             alert.informativeText = "\(client) is asking. It would see this site's pages as you do, signed in as you: their text, what is on them and how they look."
         case .act:
-            alert.messageText = "Let Claude click and type on \(site)?"
+            alert.messageText = "Let an agent click and type on \(site)?"
             alert.informativeText = "\(client) is asking. It would click, type, scroll and fill in forms there as you, and read the pages. It can't see or fill password and card fields."
         }
         alert.addButton(withTitle: "Allow")
         alert.addButton(withTitle: "Don't Allow")
         alert.showsSuppressionButton = true
         alert.suppressionButton?.title = "Remember for this site"
-        Debug.log("claude", "\(site): asking you whether \(client) may \(kind.rawValue)")
-        let response = await ClaudeAccess.show(alert, over: window)
+        // Ticked unless you untick it: an answer not kept was asked again
+        // at every new chat.
+        alert.suppressionButton?.state = .on
+        Debug.log("agent", "\(site): asking you whether \(client) may \(kind.rawValue)")
+        let response = await AgentAccess.show(alert, over: window)
         // Not answered in time: not allowed now, asked again next time.
         guard let response else { return false }
         let allowed = response == .alertFirstButtonReturn
-        Debug.log("claude", "\(site): you said \(allowed ? "allow" : "don't allow") (\(kind.rawValue))")
+        Debug.log("agent", "\(site): you said \(allowed ? "allow" : "don't allow") (\(kind.rawValue))")
         if alert.suppressionButton?.state == .on {
             set(site, kind, allowed)
         } else {
@@ -357,15 +386,15 @@ final class ClaudeAccess {
     /// Stopped: asked once whether it may carry on, then not again for a minute.
     func carryOn(over window: NSWindow?) async throws {
         guard stopped else { return }
-        let refusal = Refusal(message: "The person stopped Claude in BasicShell. Don't retry; tell them, and wait until they ask you to go on.")
+        let refusal = Refusal(message: "The person stopped the agent in BasicShell. Don't retry; tell them, and wait until they ask you to go on.")
         guard Date().timeIntervalSince(askedToResume) > 5 else { throw refusal }
         askedToResume = Date().addingTimeInterval(55)
         let alert = NSAlert()
-        alert.messageText = "Let Claude carry on?"
+        alert.messageText = "Let an agent carry on?"
         alert.informativeText = "You stopped it; it is asking to use this browser again."
         alert.addButton(withTitle: "Carry On")
         alert.addButton(withTitle: "Keep It Stopped")
-        guard await ClaudeAccess.show(alert, over: window) == .alertFirstButtonReturn else { throw refusal }
+        guard await AgentAccess.show(alert, over: window) == .alertFirstButtonReturn else { throw refusal }
         stopped = false
     }
 
@@ -389,23 +418,23 @@ final class ClaudeAccess {
         }
     }
 
-    // MARK: - what was answered for good (Settings › Claude)
+    // MARK: - what was answered for good (Settings › Agents)
 
     func set(_ site: String, _ kind: Kind, _ allowed: Bool?) {
         var answers = sites[site] ?? [:]
         answers[kind.rawValue] = allowed
         sites[site] = answers.isEmpty ? nil : answers
         once[site]?[kind.rawValue] = nil
-        UserDefaults.standard.set(sites, forKey: "claude.sites")
+        UserDefaults.standard.set(sites, forKey: "agent.sites")
     }
 
     func forget(_ site: String) {
         sites[site] = nil
         once[site] = nil
-        UserDefaults.standard.set(sites, forKey: "claude.sites")
+        UserDefaults.standard.set(sites, forKey: "agent.sites")
     }
 
-    func policy(for site: String) -> ClaudeSitePolicy {
+    func policy(for site: String) -> AgentSitePolicy {
         let answers = sites[site] ?? [:]
         if answers["read"] == false { return .never }
         if answers["act"] == true { return .readAct }
@@ -413,7 +442,7 @@ final class ClaudeAccess {
         return answers["read"] == true ? .readAsk : .ask
     }
 
-    func setPolicy(_ policy: ClaudeSitePolicy, for site: String) {
+    func setPolicy(_ policy: AgentSitePolicy, for site: String) {
         once[site] = nil
         switch policy {
         case .ask: sites[site] = nil
@@ -422,17 +451,17 @@ final class ClaudeAccess {
         case .readAct: sites[site] = ["read": true, "act": true]
         case .never: sites[site] = ["read": false]
         }
-        UserDefaults.standard.set(sites, forKey: "claude.sites")
+        UserDefaults.standard.set(sites, forKey: "agent.sites")
     }
 
     // MARK: - what it did
 
-    /// The last of what Claude did, newest first, for Settings. Kept in
+    /// The last of what the agent did, newest first, for Settings. Kept in
     /// memory only, and gone when BasicShell quits.
-    private(set) var activity: [ClaudeActivity] = []
+    private(set) var activity: [AgentActivity] = []
 
     func note(_ tool: String, site: String?, client: String, failed: Bool) {
-        activity.insert(ClaudeActivity(date: Date(), client: client, tool: tool, site: site, failed: failed), at: 0)
+        activity.insert(AgentActivity(date: Date(), client: client, tool: tool, site: site, failed: failed), at: 0)
         if activity.count > 100 { activity.removeLast(activity.count - 100) }
     }
 
@@ -440,21 +469,21 @@ final class ClaudeAccess {
 
     // MARK: - the powers
 
-    /// Throws what to tell Claude when the person hasn't turned this on.
-    static func need(_ power: ClaudePower) throws {
+    /// Throws what to tell the agent when the person hasn't turned this on.
+    static func need(_ power: AgentPower) throws {
         if let parent = power.parent, !parent.isOn {
-            throw Refusal(message: "\(parent.title) are off: the person turns them on in BasicShell's Settings › Claude. Tell them; don't try another way.")
+            throw Refusal(message: "\(parent.title) are off: the person turns them on in BasicShell's Settings › Agents. Tell them; don't try another way.")
         }
         guard power.isOn else {
-            throw Refusal(message: "\(power.title) is kept from Claude: the person turns it on in BasicShell's Settings › Claude. Tell them; don't try another way.")
+            throw Refusal(message: "\(power.title) is kept from the agent: the person turns it on in BasicShell's Settings › Agents. Tell them; don't try another way.")
         }
     }
 }
 
-// MARK: - WebKit's features, as Claude switches them
+// MARK: - WebKit's features, as the agent switches them
 
 extension Features {
-    /// Switched for as long as Claude is let in; what each was before is
+    /// Switched for as long as the agent is let in; what each was before is
     /// kept to put back.
     private static var before: [String: Bool] = [:]
 
@@ -465,7 +494,7 @@ extension Features {
         forEachPage { write(on, feature, in: $0) }
     }
 
-    /// Everything Claude switched, as it was.
+    /// Everything the agent switched, as it was.
     static func clearTransient() {
         guard !transient.isEmpty else { return }
         let was = before
@@ -482,8 +511,8 @@ extension Features {
 
 // MARK: - the socket
 
-/// Lines of JSON between the program Claude starts and the running app.
-nonisolated enum ClaudeWire {
+/// Lines of JSON between the program the agent starts and the running app.
+nonisolated enum AgentWire {
     static func address(_ path: String) -> sockaddr_un? {
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
@@ -534,7 +563,7 @@ nonisolated enum ClaudeWire {
     }
 }
 
-nonisolated final class ClaudeConnection: @unchecked Sendable {
+nonisolated final class AgentConnection: @unchecked Sendable {
     fileprivate let fd: Int32
     private let lock = NSLock()
 
@@ -542,19 +571,19 @@ nonisolated final class ClaudeConnection: @unchecked Sendable {
 
     func send(_ data: Data) {
         lock.lock()
-        _ = ClaudeWire.write(data, to: fd)
+        _ = AgentWire.write(data, to: fd)
         lock.unlock()
     }
 }
 
-nonisolated final class ClaudeListener: @unchecked Sendable {
+nonisolated final class AgentListener: @unchecked Sendable {
     private let fd: Int32
     private let path: String
 
-    init?(path: String, received: @escaping @Sendable (Data, ClaudeConnection) -> Void, closed: @escaping @Sendable (ClaudeConnection) -> Void) {
-        guard var address = ClaudeWire.address(path) else { return nil }
+    init?(path: String, received: @escaping @Sendable (Data, AgentConnection) -> Void, closed: @escaping @Sendable (AgentConnection) -> Void) {
+        guard var address = AgentWire.address(path) else { return nil }
         unlink(path)
-        let fd = ClaudeWire.socket()
+        let fd = AgentWire.socket()
         let bound = withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }
@@ -576,10 +605,10 @@ nonisolated final class ClaudeListener: @unchecked Sendable {
                 }
                 var on: Int32 = 1
                 setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
-                let connection = ClaudeConnection(fd: client)
+                let connection = AgentConnection(fd: client)
                 Thread.detachNewThread {
                     var pending = Data()
-                    while let line = ClaudeWire.line(from: client, pending: &pending) { received(line, connection) }
+                    while let line = AgentWire.line(from: client, pending: &pending) { received(line, connection) }
                     closed(connection)
                     Darwin.close(client)
                 }

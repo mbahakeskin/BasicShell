@@ -1,15 +1,15 @@
-#if CLAUDE
+#if AGENT
 import AppKit
 import WebKit
 
-// Claude's clicks and keys (see Claude.swift).
+// The agent's clicks and keys (see Agent.swift).
 //
 // They are made as AppKit's own events and handed straight to the page's
 // view, as the window would hand it the person's: the page takes them for
 // real ones (`isTrusted`), where a click made by script is one a page can
 // tell and may ignore. Nothing goes through the screen: the pointer stays
 // where the person has it, and it works in a tab behind the one shown.
-enum ClaudeInput {
+enum AgentInput {
     private static var number = 0
 
     /// A point in the view's own points, from its top left, as one in its window.

@@ -1,15 +1,15 @@
-#if CLAUDE
+#if AGENT
 import Foundation
 
-// BasicShell started with `--mcp`: not the browser, but the program Claude
-// talks to (see Claude.swift). It speaks the Model Context Protocol on its
+// BasicShell started with `--mcp`: not the browser, but the program the agent
+// talks to (see Agent.swift). It speaks the Model Context Protocol on its
 // standard input and output, a line of JSON for each message, says which
 // tools there are, and passes each call to the running browser over its
 // socket, one at a time, waiting for the answer.
-enum ClaudeBridge {
+enum AgentBridge {
     private static var socket: Int32 = -1
     private static var pending = Data()
-    private static var client = "Claude"
+    private static var client = "An agent"
     private static var next = 1
 
     /// Never returns.
@@ -33,12 +33,12 @@ enum ClaudeBridge {
                     "capabilities": ["tools": [String: Any]()],
                     "serverInfo": ["name": "basicshell", "title": "BasicShell",
                                    "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"],
-                    "instructions": ClaudeTools.instructions,
+                    "instructions": AgentTools.instructions,
                 ])
             case "ping":
                 answer(id, [:])
             case "tools/list":
-                answer(id, ["tools": ClaudeTools.catalogue])
+                answer(id, ["tools": AgentTools.catalogue])
             case "tools/call":
                 let name = parameters["name"] as? String ?? ""
                 let reply = call(name, parameters["arguments"] as? [String: Any] ?? [:])
@@ -54,7 +54,11 @@ enum ClaudeBridge {
         switch name.lowercased() {
         case "claude-code": return "Claude Code"
         case "claude-ai", "claude-desktop", "claude": return "Claude"
-        default: return name
+        case "agy", "antigravity", "antigravity-cli": return "Antigravity"
+        case "gemini-cli": return "Gemini CLI"
+        default:
+            // The Claude app's agent mode names itself after the server.
+            return name.lowercased().hasPrefix("local-agent-mode") ? "Claude app" : name
         }
     }
 
@@ -70,9 +74,9 @@ enum ClaudeBridge {
 
     // MARK: - to the browser
 
-    private static func call(_ tool: String, _ arguments: [String: Any]) -> ClaudeTools.Reply {
-        guard ClaudeAccess.enabled else {
-            return .failure("Claude isn't let into BasicShell: the person turns that on in BasicShell's Settings › Claude. Tell them; don't try another way.")
+    private static func call(_ tool: String, _ arguments: [String: Any]) -> AgentTools.Reply {
+        guard AgentAccess.enabled else {
+            return .failure("The agent isn't let into BasicShell: the person turns that on in BasicShell's Settings › Agents. Tell them; don't try another way.")
         }
         let id = next
         next += 1
@@ -81,18 +85,18 @@ enum ClaudeBridge {
         // Once more if the browser went away in between (quit and reopened).
         for attempt in 0..<2 {
             guard connect(launching: attempt == 0) else { break }
-            if ClaudeWire.write(data, to: socket) {
-                while let line = ClaudeWire.line(from: socket, pending: &pending) {
+            if AgentWire.write(data, to: socket) {
+                while let line = AgentWire.line(from: socket, pending: &pending) {
                     guard let reply = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
                           (reply["id"] as? Int) == id else { continue }
-                    return ClaudeTools.Reply(parts: reply["content"] as? [[String: Any]] ?? [], failed: reply["error"] as? Bool ?? false)
+                    return AgentTools.Reply(parts: reply["content"] as? [[String: Any]] ?? [], failed: reply["error"] as? Bool ?? false)
                 }
             }
             Darwin.close(socket)
             socket = -1
             pending = Data()
         }
-        return .failure("BasicShell isn't answering. It may not be open, or Claude may have just been turned off in its Settings › Claude.")
+        return .failure("BasicShell isn't answering. It may not be open, or the agent may have just been turned off in its Settings › Agents.")
     }
 
     /// Connected to the running browser, opening it (behind everything)
@@ -113,8 +117,8 @@ enum ClaudeBridge {
     }
 
     private static func reach() -> Bool {
-        guard var address = ClaudeWire.address(ClaudeAccess.socket) else { return false }
-        let fd = ClaudeWire.socket()
+        guard var address = AgentWire.address(AgentAccess.socket) else { return false }
+        let fd = AgentWire.socket()
         let connected = withUnsafePointer(to: &address) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }

@@ -34,8 +34,8 @@ struct SettingsView: View {
             TabSettings().tabItem { Label("Tabs", systemImage: "square.on.square") }.tag("tabs")
             PrivacySettings().tabItem { Label("Privacy", systemImage: "hand.raised") }.tag("privacy")
             ExtensionSettings().tabItem { Label("Extensions", systemImage: "puzzlepiece.extension") }.tag("extensions")
-            #if CLAUDE
-            ClaudeSettings().tabItem { Label("Claude", systemImage: "sparkle") }.tag("claude")
+            #if AGENT
+            AgentSettings().tabItem { Label("Agents", systemImage: "cursorarrow.rays") }.tag("agent")
             #endif
         }
         .padding(.top, 28)

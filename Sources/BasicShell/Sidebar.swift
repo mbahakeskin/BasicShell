@@ -208,8 +208,8 @@ struct PinnedTile: View {
                     Capsule().fill(Color.accentColor).frame(width: 14, height: 2).padding(.bottom, 4)
                 }
             }
-            #if CLAUDE
-            .overlay(alignment: .topTrailing) { ClaudeMark(tab: tab, size: 8).padding(4) }
+            #if AGENT
+            .overlay(alignment: .topTrailing) { AgentMark(tab: tab, size: 8).padding(4) }
             #endif
             .opacity(tab.isUnloaded ? 0.55 : 1)
             .contentShape(RoundedRectangle(cornerRadius: 10))
@@ -274,8 +274,8 @@ struct TabRow: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }
-            #if CLAUDE
-            ClaudeMark(tab: tab, size: 10)
+            #if AGENT
+            AgentMark(tab: tab, size: 10)
             #endif
             if hovering {
                 Button { window.close(tab) } label: {

@@ -324,12 +324,12 @@ extension Tab {
     /// In its window and not hidden.
     var isOnScreen: Bool { webView?.window != nil && webView?.isHidden == false }
 
-    /// Claude works in it (in a build with Claude's tools, see Claude.swift):
+    /// The agent works in it (in a build with the agent tools, see Agent.swift):
     /// its page stays in the window behind the one shown, and is neither
     /// frozen, unloaded nor archived meanwhile.
     var isWorkedIn: Bool {
-        #if CLAUDE
-        ClaudeAccess.shared.holds(self)
+        #if AGENT
+        AgentAccess.shared.holds(self)
         #else
         false
         #endif

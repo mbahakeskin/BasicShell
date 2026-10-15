@@ -1,8 +1,8 @@
-#if CLAUDE
+#if AGENT
 import Foundation
 import WebKit
 
-// What Claude's tools run inside a page (see Claude.swift).
+// What the agent tools run inside a page (see Agent.swift).
 //
 // It all lives in a script world of BasicShell's own, which shares the
 // page's document but none of its script: the page can neither see it nor
@@ -11,12 +11,12 @@ import WebKit
 // Things on the page are handed out by number ("ref"): the number stays
 // with its element for as long as the document lives, so what `read_page`
 // listed can be clicked later by its number.
-enum ClaudePage {
-    static let world = WKContentWorld.world(name: "BasicShellClaude")
+enum AgentPage {
+    static let world = WKContentWorld.world(name: "BasicShellAgent")
 
-    /// Defines `__claude` once in a document.
+    /// Defines `__agent` once in a document.
     static let helper = #"""
-    if (!globalThis.__claude) globalThis.__claude = (() => {
+    if (!globalThis.__agent) globalThis.__agent = (() => {
       const refs = new Map(), ids = new WeakMap();
       let next = 1;
       const refOf = (e) => { let r = ids.get(e); if (!r) { r = next++; ids.set(e, r); refs.set(r, new WeakRef(e)); } return r; };
@@ -441,7 +441,7 @@ enum ClaudePage {
 
     // MARK: - frames from other sites
 
-    static let frameHandler = "basicShellClaudeFrame"
+    static let frameHandler = "basicShellAgentFrame"
 
     /// The page's own script can't look into a frame from another site, so
     /// each such frame says it is there, and BasicShell, which may run
@@ -463,7 +463,7 @@ enum ClaudePage {
 
     // MARK: - what a page logs and loads (the developer tools)
 
-    static let logHandler = "basicShellClaudeLog"
+    static let logHandler = "basicShellAgentLog"
 
     /// In every page while the developer tools are on: what goes to the
     /// console, errors nobody caught, and what is asked of the network,
@@ -477,7 +477,7 @@ enum ClaudePage {
 
     private static let watchSource = #"""
     (() => {
-      const bridge = window.webkit && webkit.messageHandlers && webkit.messageHandlers.basicShellClaudeLog;
+      const bridge = window.webkit && webkit.messageHandlers && webkit.messageHandlers.basicShellAgentLog;
       if (!bridge) return;
       const bodies = __BODIES__;
       const post = (kind, text, detail) => { try { bridge.postMessage({ kind, text: String(text).slice(0, 2000), detail: detail ? String(detail).slice(0, 14000) : "", frame: window === top ? "" : location.host }); } catch (e) {} };
@@ -565,15 +565,15 @@ enum ClaudePage {
       };
       const open = XMLHttpRequest.prototype.open, send = XMLHttpRequest.prototype.send, setHeader = XMLHttpRequest.prototype.setRequestHeader;
       XMLHttpRequest.prototype.open = function (method, url) {
-        try { this.__claude = [String(method).toUpperCase(), new URL(url, location.href).href]; this.__claudeHeaders = {}; } catch (e) {}
+        try { this.__agent = [String(method).toUpperCase(), new URL(url, location.href).href]; this.__agentHeaders = {}; } catch (e) {}
         return open.apply(this, arguments);
       };
       XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
-        if (this.__claudeHeaders) this.__claudeHeaders[name] = value;
+        if (this.__agentHeaders) this.__agentHeaders[name] = value;
         return setHeader.apply(this, arguments);
       };
       XMLHttpRequest.prototype.send = function (body) {
-        const started = performance.now(), note = this.__claude;
+        const started = performance.now(), note = this.__agent;
         if (note) this.addEventListener("loadend", () => {
           let more = null;
           if (bodies) {
@@ -582,7 +582,7 @@ enum ClaudePage {
               const type = this.getResponseHeader("content-type") || "";
               let text = "";
               if (textual(type)) text = this.responseType === "" || this.responseType === "text" ? this.responseText : this.responseType === "json" ? JSON.stringify(this.response) : "";
-              more = { req: { headers: headersOf(this.__claudeHeaders || {}), body: sentBody(body) }, res: { headers: headersOf(raw), body: text } };
+              more = { req: { headers: headersOf(this.__agentHeaders || {}), body: sentBody(body) }, res: { headers: headersOf(raw), body: text } };
             } catch (e) { more = null; }
           }
           sent(note[0], note[1], this.status || "failed", started, more);
@@ -614,14 +614,14 @@ enum ClaudePage {
         }
     }
 
-    /// What pages made from now on are given while Claude is let in: the
+    /// What pages made from now on are given while the agent is let in: the
     /// frames' script, and the watching one while the developer tools are on.
     static func attach(to config: WKWebViewConfiguration) {
-        guard ClaudeAccess.enabled else { return }
+        guard AgentAccess.enabled else { return }
         config.userContentController.addUserScript(frames)
         config.userContentController.add(Frames.shared, contentWorld: world, name: frameHandler)
-        guard ClaudeAccess.developer else { return }
-        config.userContentController.addUserScript(watch(bodies: ClaudeAccess.bodies))
+        guard AgentAccess.developer else { return }
+        config.userContentController.addUserScript(watch(bodies: AgentAccess.bodies))
         config.userContentController.add(Log.shared, contentWorld: .page, name: logHandler)
     }
 }

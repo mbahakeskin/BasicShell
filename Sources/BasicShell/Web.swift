@@ -40,8 +40,8 @@ enum Web {
         Geolocation.attach(to: config)
         WebNotifications.attach(to: config)
         Debug.attach(to: config)
-        #if CLAUDE
-        ClaudePage.attach(to: config)
+        #if AGENT
+        AgentPage.attach(to: config)
         #endif
         // Extensions work in private tabs as well (see Extensions.opened).
         config.webExtensionController = Extensions.shared.controller
@@ -109,12 +109,12 @@ enum Dialogs {
 }
 
 extension Tab: WKUIDelegate {
-    /// A question from the page, shown. In a build with Claude's tools the
-    /// one that is up is kept with its tab meanwhile, so Claude, in a tab it
+    /// A question from the page, shown. In a build with the agent tools the
+    /// one that is up is kept with its tab meanwhile, so the agent, in a tab it
     /// works in, can see it and answer it too.
     private func ask(_ alert: NSAlert, _ kind: String, _ message: String, field: NSTextField? = nil, over webView: WKWebView,
                      answered: @escaping (NSApplication.ModalResponse) -> Void) {
-        #if CLAUDE
+        #if AGENT
         dialog = Question(kind: kind, message: message, alert: alert, field: field)
         Dialogs.show(alert, over: webView) { [weak self] answer in
             self?.dialog = nil
@@ -150,8 +150,8 @@ extension Tab: WKUIDelegate {
     }
 
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor ([URL]?) -> Void) {
-        #if CLAUDE
-        // Files the person just let Claude give this page (its upload tool).
+        #if AGENT
+        // Files the person just let the agent give this page (its upload tool).
         if let offered, offered.until > Date() {
             self.offered = nil
             return completionHandler(parameters.allowsMultipleSelection ? offered.files : Array(offered.files.prefix(1)))

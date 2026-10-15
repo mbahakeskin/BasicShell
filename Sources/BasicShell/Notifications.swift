@@ -243,6 +243,7 @@ extension Tab {
         }
         if !isPrivate, let known = Permissions.shared.notifications[site] { return then(known) }
         if let answered = notificationAnswers[site] { return then(answered) }
+        if agentUnasked { return then(false) }
         let alert = NSAlert()
         alert.messageText = "Allow \(site) to show notifications?"
         alert.informativeText = "They appear in Notification Center. Settings › Privacy takes the answer back."

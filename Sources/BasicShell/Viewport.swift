@@ -3,7 +3,7 @@ import WebKit
 
 // How a page is shown, for trying a layout: the size of the window (the page's
 // view is then that size), the way the browser introduces itself to sites, and
-// the light or dark look the page is told of. The Develop menu and Claude's
+// the light or dark look the page is told of. The Develop menu and the agent's
 // `resize` both do it here.
 //
 // WebKit has no touch or screen emulation, so a phone is its width, its user

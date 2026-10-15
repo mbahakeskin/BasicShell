@@ -75,8 +75,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     private var panelHost: NSHostingView<PanelView>?
     private var toastView: ToastHost?
     private var findHost: NSHostingView<FindBarView>?
-    #if CLAUDE
-    private var claudeFrame: ClaudeFrameHost?
+    #if AGENT
+    private var agentFrame: AgentFrameHost?
     #endif
     private lazy var finder = PageFinder(state: shell.find)
     /// A picture of an unloaded page, over it while it loads again.
@@ -233,14 +233,14 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             self.sidebar.frame = sideFrame
             self.sidebar.alphaValue = self.shell.sidebarOut ? 1 : 0
             self.page.frame = pageFrame
-            #if CLAUDE
-            self.claudeFrame?.frame = pageFrame
+            #if AGENT
+            self.agentFrame?.frame = pageFrame
             #endif
             self.findHost?.frame = findFrame
         }
         page.layer?.cornerRadius = framed ? 10 : 0
-        #if CLAUDE
-        claudeFrame?.rootView = ClaudeFrame(radius: framed ? 10 : 0)
+        #if AGENT
+        agentFrame?.rootView = AgentFrame(radius: framed ? 10 : 0)
         #endif
         if animated {
             NSAnimationContext.runAnimationGroup { context in
@@ -644,10 +644,10 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         if Sleep.keepsAwake(tab.url) { web.isHidden = true } else { web.removeFromSuperview() }
     }
 
-    #if CLAUDE
-    // MARK: - Claude (Claude.swift)
+    #if AGENT
+    // MARK: - the agent (Agent.swift)
 
-    /// A tab Claude works in while another is shown: its page woken, made if
+    /// A tab the agent works in while another is shown: its page woken, made if
     /// it had been let go, and in the window behind the one shown, where it
     /// goes on running and can be pictured and clicked.
     func keepRunning(_ tab: Tab) {
@@ -664,7 +664,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         page.addSubview(web, positioned: .below, relativeTo: nil)
     }
 
-    /// Claude has let the tab go: its page leaves the window as any other's does.
+    /// The agent has let the tab go: its page leaves the window as any other's does.
     func letRest(_ tab: Tab) {
         guard let web = tab.webView else { return }
         if !PiP.holds(tab) { PiP.keepAwake(web, false) }
@@ -677,20 +677,20 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         }
     }
 
-    /// The frame around the page, there while the tab shown is one Claude
+    /// The frame around the page, there while the tab shown is one the agent
     /// works in.
-    func claudeChanged() {
-        let framed = shell.selected.map { ClaudeAccess.shared.holds($0) } ?? false
-        if framed, claudeFrame == nil {
-            let host = ClaudeFrameHost(rootView: ClaudeFrame())
+    func agentChanged() {
+        let framed = shell.selected.map { AgentAccess.shared.holds($0) } ?? false
+        if framed, agentFrame == nil {
+            let host = AgentFrameHost(rootView: AgentFrame())
             host.sizingOptions = []
             host.safeAreaRegions = []
             host.frame = page.frame
             root.addSubview(host, positioned: .above, relativeTo: page)
-            claudeFrame = host
-        } else if !framed, let host = claudeFrame {
+            agentFrame = host
+        } else if !framed, let host = agentFrame {
             host.removeFromSuperview()
-            claudeFrame = nil
+            agentFrame = nil
         }
     }
     #endif
@@ -710,7 +710,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             current.leavingScreen { [weak self, weak current] in
                 guard let self, let current, let web, current !== self.shell.selected, current.webView === web else { return }
                 if PiP.holds(current) || current.isWorkedIn {
-                    // Its video is in Picture in Picture, or Claude works in
+                    // Its video is in Picture in Picture, or the agent works in
                     // it: behind the one shown, not hidden, so the page goes
                     // on (see PiP.keepAwake).
                     self.page.addSubview(web, positioned: .below, relativeTo: nil)
@@ -723,8 +723,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             }
         }
         shell.selected = tab
-        #if CLAUDE
-        claudeChanged()
+        #if AGENT
+        agentChanged()
         #endif
         cover?.removeFromSuperview()
         cover = nil

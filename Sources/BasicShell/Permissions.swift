@@ -66,6 +66,10 @@ extension Tab {
             return then(known)
         }
         if let answered = locationAnswers[site] { return then(answered) }
+        if agentUnasked {
+            Debug.log("location", "\(site): no, unasked (the agent is working here with nothing asked)")
+            return then(false)
+        }
         let alert = NSAlert()
         alert.messageText = "Allow \(site) to use your location?"
         alert.informativeText = frame.isMainFrame ? "" : "A part of the page from \(site) is asking, inside \(webView.url?.host() ?? "this page")."
@@ -74,6 +78,8 @@ extension Tab {
         if !isPrivate {
             alert.showsSuppressionButton = true
             alert.suppressionButton?.title = "Remember for this site"
+            // Ticked unless you untick it: it was asked again at every visit.
+            alert.suppressionButton?.state = .on
         }
         Debug.log("location", "\(site): asking you")
         Dialogs.show(alert, over: webView) { [weak self] answer in

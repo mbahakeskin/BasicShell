@@ -157,9 +157,9 @@ enum Features {
 
     static let savedKey = "develop.features"
 
-    /// Feature key to what Claude switched it to: put on pages like what
-    /// was chosen, but never kept, and taken back when Claude goes (see
-    /// Claude.swift).
+    /// Feature key to what the agent switched it to: put on pages like what
+    /// was chosen, but never kept, and taken back when the agent goes (see
+    /// Agent.swift).
     static var transient: [String: Bool] = [:]
 
     /// Feature key to what the person chose.
@@ -212,7 +212,7 @@ enum Features {
 
     /// What the person chose, on a page's preferences.
     static func applySaved(to preferences: WKPreferences) {
-        for (key, on) in saved.merging(transient, uniquingKeysWith: { _, claude in claude }) {
+        for (key, on) in saved.merging(transient, uniquingKeysWith: { _, chosen in chosen }) {
             if let feature = byKey[key] { write(on, feature, in: preferences) }
         }
     }

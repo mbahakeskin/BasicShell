@@ -88,10 +88,11 @@ the pages you open.
   after; "Reset All WebKit Features to Defaults" takes it back. Safari's own
   Debug menu has more (iCloud, CloudKit, AutoFill); that is Safari's, not
   WebKit's.
-- In a build made with Claude's tools (the second download of a release, or
-  `./build.sh claude`), Claude can use it when you turn that on: Claude Code
-  and the Claude app get tools for the tabs and the pages in them. See
-  [Claude](#claude). The plain build has none of it.
+- In a build made with the agent tools (the second download of a release, or
+  `./build.sh agent`), AI agents can use it when you turn that on: Claude Code,
+  the Claude app, Antigravity or any other that speaks the Model Context
+  Protocol get tools for the tabs and the pages in them. See
+  [Agents](#agents). The plain build has none of it.
 
 Private WebKit features are used, each only where WebKit has it:
 `_suspendPage:` freezes tabs off screen (Settings › Tabs turns it off);
@@ -100,7 +101,7 @@ extension's own storage, which would stop its background worker; and
 `_setAllowsPictureInPictureMediaPlayback:` with a script run as though
 clicked (`_callAsyncJavaScript:…withUserGesture:`) gives picture in picture,
 and `_setWindowOcclusionDetectionEnabled:` keeps a page whose video is in it
-awake on another desktop, for the captions to go on (and a page Claude works
+awake on another desktop, for the captions to go on (and a page an agent works
 in, while it does); and when an extension's background fails to
 start again after macOS ended its process, `_backgroundWebView`,
 `_webProcessIdentifier` and `_terminateServiceWorkers` let BasicShell end
@@ -128,38 +129,45 @@ entitlement Apple grants on request, tied to a paid Developer ID.
 Needs macOS 27 and the Command Line Tools (Swift 6.4); Xcode is not required.
 
     ./build.sh          # build/BasicShell.app, ad-hoc signed
-    ./build.sh claude   # the same with Claude's tools (see Claude, below)
+    ./build.sh agent    # the same with the agent tools (see Agents, below)
 
-`swift build` alone builds the executable (`-Xswiftc -DCLAUDE` for the one
-with Claude's tools).
+`swift build` alone builds the executable (`-Xswiftc -DAGENT` for the one
+with the agent tools).
 
 `build.sh` signs with a code-signing identity named "BasicShell Local Signing"
 if the keychain has one (a self-signed certificate is enough), so macOS keeps
 the app's permissions (location, camera, microphone) from build to build;
 otherwise it signs ad hoc, and macOS asks again after each build.
 
-## Claude
+## Agents
 
 Anthropic's own extension, Claude in Chrome, drives pages through Chrome's
 debugger, which WebKit's extensions don't have. BasicShell offers the same
 things itself, as tools over the Model Context Protocol, with no key and no
-account of its own: whichever Claude you already use calls them.
+account of its own: whichever agent you already use calls them (Claude Code,
+the Claude app, Antigravity, or any other MCP client).
 
-It is in the build only when asked for: `./build.sh claude`, or the download
-of a release named `…-claude.zip`. The plain build has no part of it, not
+It is in the build only when asked for: `./build.sh agent`, or the download
+of a release named `…-agent.zip`. The plain build has no part of it, not
 the Settings page, not the code.
 
-Turn it on in Settings › Claude, then connect from there: a button adds
+Turn it on in Settings › Agents, then connect from there: a button adds
 BasicShell to Claude Code (or copies the command, `claude mcp add --scope
 user basicshell -- …/BasicShell.app/Contents/MacOS/BasicShell --mcp`), another
-writes it into the Claude app's settings. Claude starts BasicShell's own
-program with `--mcp`; that speaks the protocol and passes each call to the
-running browser over a socket in its folder that only your user can open.
+writes it into the Claude app's settings, another into Antigravity's
+(`~/.gemini/config/mcp_config.json`, which its command line, `agy`, and its
+editor share), and a last one copies the entry for any other agent. The agent
+starts BasicShell's own program with `--mcp`; that speaks the protocol and
+passes each call to the running browser over a socket in its folder that only
+your user can open.
 
 The tools:
 
 - `tabs`, `open`, `close`, `select`, `navigate`: the tabs in every window,
-  asleep ones too (one is woken when Claude reads it).
+  asleep ones too (one is woken when an agent reads it). An address is a web
+  page's or a file on this Mac's (`file://`, or a path). Every file counts as
+  one site, "files on this Mac", asked about once like any other and listed in
+  Settings with the sites; with bypass on, any file opens, unasked.
 - `read_text`, `read_page`, `find`, `screenshot`: a page's text, what on it
   can be clicked or filled (each with a number to refer to it by), and a
   picture of it.
@@ -186,7 +194,7 @@ The tools:
   the whole page (`full_page`), `wait` for text, a CSS selector, the address
   or a quiet network, `download` (into Downloads, asked each time), and
   `navigate` with `hard_reload`.
-- Each off until you turn it on in Settings › Claude: `arrange` (pin,
+- Each off until you turn it on in Settings › Agents: `arrange` (pin,
   duplicate, sleep, move a tab, take it to a window), `clipboard`,
   `extensions` (list, reload, the problems WebKit reports for them, and with
   the developer tools on, what a background page writes to the console),
@@ -195,14 +203,14 @@ The tools:
   `inspect` (an element's styles, box and HTML), `performance` (load timings,
   paints, slowest requests) and `block` (keep a tab from loading requests
   that match), `render` (a tab without its JavaScript, images or styles,
-  put back when Claude lets the tab go) and `source` (a page as the site sent
+  put back when the agent lets the tab go) and `source` (a page as the site sent
   it, before its scripts ran; password and card fields' values replaced by
   `[hidden]`). Three more switches under it: request and response bodies in
   `network` (passwords, tokens, keys and cookies replaced by `[hidden]`), and
   `storage` (cookies, local and session storage, databases; a value only
   when asked, never an HttpOnly cookie's; clearing is asked first), and
   `features` (WebKit's experimental and debugging features, the same as the
-  Develop and Debug menus' ones; a change lasts while Claude is connected and
+  Develop and Debug menus' ones; a change lasts while an agent is connected and
   is taken back when it goes, and whatever touches privacy or security
   stays the person's alone).
 
@@ -210,29 +218,31 @@ What keeps it yours:
 
 - Off until you turn it on. A private tab is never listed, read or touched.
 - Each site is asked about, once to read it and once to click and type
-  there; an answer can be remembered, and Settings › Claude lists those.
+  there; an answer can be remembered, and Settings › Agents lists those.
 - What is in a password, card or one-time-code field is never given, and
   nothing is typed into one, a card form in a frame from another site
   included. Signing in and paying stay yours.
-- A tab Claude works in is marked in the sidebar and framed while it is the
+- A tab an agent works in is marked in the sidebar and framed while it is the
   one shown, with a Stop button: everything is let go, and nothing more is
   done until you say so.
 
-Settings › Claude says what each part allows, in words, and lets you set a
+Settings › Agents says what each part allows, in words, and lets you set a
 site (read, read and ask before clicking, read only, read and act, or never),
-add one before Claude asks, and see what Claude has done since BasicShell
+add one before an agent asks, and see what agents have done since BasicShell
 opened.
 
 It has a switch, "Bypass permissions", that turns the asking off, for work
-you are watching: every site is then open to Claude, files go to pages, come
-down from them, and cookies are cleared, unasked, and every switch above
+you are watching: every site is then open to the agent, and so is any file on
+this Mac, files go to pages, come down from them, and cookies are cleared,
+unasked; what a page it works in asks (your location, to show notifications,
+to open another app) is answered no, unasked; and every switch above
 (clipboard, tabs, extensions, history, developer tools, bodies, storage,
 WebKit features) is on while it is. The sites you said no to stay closed,
 private tabs and password and card fields stay out of its reach, what
 touches privacy or security among WebKit's features stays the person's, and
 Stop still stops it.
 
-A page can still try to talk Claude into things with text you don't see.
+A page can still try to talk an agent into things with text you don't see.
 Asking per site and the Stop button are there for that; Anthropic's own
 extension also checks each action with a classifier of theirs, which this
 does not have. Keep it to sites you trust.
@@ -256,7 +266,7 @@ does more in these ways:
 - **Tabs behind the one you look at, and asleep ones.** Clicks, keys and
   typing are AppKit's own events, handed to the page's view: the page takes
   them for real ones, your pointer and your window stay where they are, and
-  a frozen tab is woken when Claude reads it.
+  a frozen tab is woken when an agent reads it.
 - **More for developers**, behind their own switches: a request's headers and
   bodies with secrets replaced, `storage` (cookies, local and session
   storage, databases), `inspect` (an element's styles, box and HTML),
@@ -267,8 +277,8 @@ does more in these ways:
   experimental and debugging `features`, an extension's problems and
   background console, any user agent, and a hard reload.
 - **Finer say over it.** A switch for each part, a setting per site (read,
-  read only, read and act, never; added before Claude asks), a list of what
-  Claude did, one Bypass switch for all of it, and a Stop button on the
+  read only, read and act, never; added before an agent asks), a list of what
+  agents did, one Bypass switch for all of it, and a Stop button on the
   page's frame.
 - **Nothing to install** in a browser, no account or key, no extension that
   has to see every page: BasicShell's own program is the server, and the
@@ -293,8 +303,9 @@ Claude in Chrome is still ahead in these:
 
 Besides the pages you open: nothing of BasicShell's own. uBlock Origin Lite's
 lists come with its app, which the App Store keeps up to date. An extension you
-add from the Chrome Web Store is fetched from Google, once. What Claude reads
-of a page, when you let it, goes to Claude, which is to say Anthropic, like
+add from the Chrome Web Store is fetched from Google, once. What an agent reads
+of a page, when you let it, goes to that agent, which is to say whoever runs it (Anthropic for
+Claude, Google for Antigravity), like
 anything else you show it.
 
 The macOS 27 SDK turns SwiftUI's `@State` into a macro whose plugin ships only

@@ -82,12 +82,12 @@ final class Tab: NSObject, Identifiable {
     /// when the site changes (see Tab.applySiteZoom).
     @ObservationIgnored var zoomedFor: String?
 
-    #if CLAUDE
-    // What Claude's tools keep with a tab (see Claude.swift).
-    /// Its number, as Claude knows it.
-    @ObservationIgnored var claudeNumber: Int?
-    /// The web view's points to a pixel of the last picture Claude took.
-    @ObservationIgnored var claudeScale: CGFloat = 1
+    #if AGENT
+    // What the agent tools keep with a tab (see Agent.swift).
+    /// Its number, as the agent knows it.
+    @ObservationIgnored var agentNumber: Int?
+    /// The web view's points to a pixel of the last picture the agent took.
+    @ObservationIgnored var agentScale: CGFloat = 1
     /// What the page logged and loaded, while the developer tools are on.
     struct Logged {
         let id: Int
@@ -107,12 +107,12 @@ final class Tab: NSObject, Identifiable {
         let field: NSTextField?
     }
     @ObservationIgnored var dialog: Question?
-    /// Claude switched JavaScript, images or styles off here (`render`): put
+    /// The agent switched JavaScript, images or styles off here (`render`): put
     /// back when it lets the tab go.
-    @ObservationIgnored var claudeRendered = false
-    /// The frames from other sites in the page now (ClaudePage.frames).
+    @ObservationIgnored var agentRendered = false
+    /// The frames from other sites in the page now (AgentPage.frames).
     @ObservationIgnored var frames: [WKFrameInfo] = []
-    /// Files the person let Claude give the next file chooser, and until when.
+    /// Files the person let the agent give the next file chooser, and until when.
     @ObservationIgnored var offered: (files: [URL], until: Date)?
     #endif
 
@@ -132,6 +132,17 @@ final class Tab: NSObject, Identifiable {
         self.configuration = configuration
         super.init()
         _ = makeWebView()
+    }
+
+    /// The agent is working in this tab and the person has turned the asking
+    /// off: what a page asks (location, notifications, opening another app)
+    /// is answered no, without a question.
+    var agentUnasked: Bool {
+        #if AGENT
+        AgentAccess.bypass && AgentAccess.shared.holds(self)
+        #else
+        false
+        #endif
     }
 
     /// What the sidebar and the top bar call it.
@@ -344,7 +355,7 @@ extension Tab: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        #if CLAUDE
+        #if AGENT
         // Another page: the frames noted were the last one's.
         frames = []
         #endif
@@ -468,6 +479,8 @@ extension Tab: WKNavigationDelegate {
     /// click, or the page itself, may ask, and the other app opens only once
     /// you say so, except a mail or phone link you just clicked.
     private func handOff(_ url: URL, action: WKNavigationAction) {
+        // In a tab the agent works in with nothing asked: not opened, not asked.
+        if agentUnasked { return Debug.log("tab", "\(name): not opening another app for \(url.scheme ?? "")") }
         let clicked = action.navigationType == .linkActivated
         guard clicked || action.targetFrame?.isMainFrame ?? true,
               let app = NSWorkspace.shared.urlForApplication(toOpen: url)
