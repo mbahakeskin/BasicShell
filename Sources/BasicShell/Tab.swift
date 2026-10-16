@@ -34,6 +34,12 @@ final class Tab: NSObject, Identifiable {
     private(set) var canGoForward = false
     var icon: NSImage?
     var pinned = false
+    /// Its page is making sound now (Mute.swift), and what the tab itself has said about its sound (nil: its site's say stands).
+    var isPlayingAudio = false
+    var muteSaid: Bool?
+    @ObservationIgnored var audioWatch: AudioWatch?
+    /// Whether its page has an article, and the reader over it (Reader.swift).
+    let readerState = ReaderState()
     /// Its page was let go to give the memory back (see Sleep.swift); it
     /// comes back where it was when the tab is next shown.
     private(set) var isUnloaded = false
@@ -205,6 +211,7 @@ final class Tab: NSObject, Identifiable {
             unsafeBitCast(method, to: SetEvents.self)(web, observe, Tab.firstVisuallyNonEmptyLayout)
         }
         watch(web)
+        watchAudio(web)
         if let savedState {
             web.interactionState = savedState
             self.savedState = nil
@@ -245,8 +252,13 @@ final class Tab: NSObject, Identifiable {
             web.observe(\.url) { [weak self] web, _ in
                 MainActor.assumeIsolated {
                     guard let self, let url = web.url else { return }
-                    if url.host() != self.url?.host() { self.icon = nil }
+                    let sameSite = url.host() == self.url?.host()
+                    if !sameSite { self.icon = nil }
                     self.url = url
+                    // The page went to another address (a script's, say) under a reader: it no longer shows this page.
+                    if let reading = self.readerState.view, !Reader.same(reading.article.url, url) { self.readerPageChanged() }
+                    // Another site may be a muted one, or no longer.
+                    if !sameSite { self.applyMute() }
                     if !self.isPrivate { Session.touch() }
                     Extensions.shared.changed(self, .URL)
                 }
@@ -313,6 +325,7 @@ final class Tab: NSObject, Identifiable {
         savedState = web.interactionState
         isFrozen = false
         watching = []
+        stopWatchingAudio()
         web.navigationDelegate = nil
         web.uiDelegate = nil
         web.removeFromSuperview()
@@ -324,6 +337,7 @@ final class Tab: NSObject, Identifiable {
     /// Lets the page go: its process ends.
     func discard() {
         watching = []
+        stopWatchingAudio()
         // A frozen view throws on stopLoading (see Freeze).
         Freeze.thaw(self)
         webView?.stopLoading()
@@ -392,6 +406,8 @@ extension Tab: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        applyMute()
+        readerPageChanged()
         #if AGENT
         // Another page: the frames noted were the last one's.
         frames = []
@@ -423,6 +439,7 @@ extension Tab: WKNavigationDelegate {
             }
         }
         host?.painted(self)
+        if (host as? BrowserWindow)?.shell.selected === self { probeReader() }
         // Not BasicShell's own page saying it couldn't be opened.
         if let shown = errorShown, webView.url == shown { errorShown = nil; return }
         if !isPrivate, let url = webView.url { History.shared.record(url, title: webView.title ?? "") }

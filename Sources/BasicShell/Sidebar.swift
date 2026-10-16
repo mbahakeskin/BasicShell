@@ -208,6 +208,9 @@ struct PinnedTile: View {
                     Capsule().fill(Color.accentColor).frame(width: 14, height: 2).padding(.bottom, 4)
                 }
             }
+            .overlay(alignment: .bottomTrailing) {
+                if tab.isPlayingAudio || tab.muteSaid == true { SpeakerButton(tab: tab, size: 10).padding(3) }
+            }
             #if AGENT
             .overlay(alignment: .topTrailing) { AgentMark(tab: tab, size: 8).padding(4) }
             #endif
@@ -217,6 +220,25 @@ struct PinnedTile: View {
             .onHover { hovering = $0 }
             .help(tab.name)
             .contextMenu { TabMenu(tab: tab, selected: selected, window: window) }
+    }
+}
+
+/// The speaker of a tab that is making sound or has been muted: a click mutes it or lets it sound again.
+struct SpeakerButton: View {
+    let tab: Tab
+    let size: CGFloat
+
+    var body: some View {
+        Button { tab.toggleMute() } label: {
+            Image(systemName: tab.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                .font(.system(size: size, weight: .semibold))
+                .foregroundStyle(tab.isMuted ? Color.secondary : Color.primary)
+                .frame(width: size + 7, height: size + 7)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .help(tab.isMuted ? "Unmute Tab" : "Mute Tab")
+        .accessibilityLabel(tab.isMuted ? "Unmute tab" : "Mute tab")
     }
 }
 
@@ -238,6 +260,14 @@ struct TabMenu: View {
             .disabled(tab.isPrivate || tab.url == nil)
         Button("Unload Tab") { window.unload(tab) }
             .disabled(selected || tab.webView == nil)
+        Divider()
+        Button(tab.isMuted ? "Unmute Tab" : "Mute Tab") { tab.toggleMute() }
+            .disabled(tab.url == nil)
+        Button(MutedSites.shared.contains(tab.url) ? "Unmute This Site" : "Mute This Site") {
+            MutedSites.shared.set(tab.url, !MutedSites.shared.contains(tab.url))
+            tab.setMuted(nil)
+        }
+        .disabled(tab.isPrivate || tab.url?.host() == nil)
         Divider()
         Button("Close Tab") { window.close(tab) }
     }
@@ -274,6 +304,7 @@ struct TabRow: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }
+            if tab.isPlayingAudio || tab.muteSaid == true { SpeakerButton(tab: tab, size: 11) }
             #if AGENT
             AgentMark(tab: tab, size: 10)
             #endif

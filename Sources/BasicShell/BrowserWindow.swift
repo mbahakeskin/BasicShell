@@ -24,7 +24,11 @@ final class Shell {
     var asking: Ask?
     var editingAddress = false
     var fullScreen = false
-    var toast: String?
+    var toast: Toast?
+    /// Which of the toast's buttons Tab brought the keyboard to.
+    var toastFocus: Int?
+    /// Where the toast's pill is in its host, flipped (ToastView).
+    @ObservationIgnored var toastPill: CGRect = .zero
     var panel: Panel?
     /// An extension's popup is open under its button in the top bar.
     var popupOpen = false
@@ -63,8 +67,10 @@ struct Notch: Equatable {
 final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValidation, TabHost {
     let shell = Shell()
 
-    private let root = RootView()
+    let root = RootView()
     private let page = NSView()
+    /// A full-page screenshot is being made (⇧⌘R): one at a time.
+    private var shooting = false
     private var empty: NSHostingView<EmptyPage>!
     private var loading: LoadingHost!
     private var sidebar: NSHostingView<SidebarView>!
@@ -78,7 +84,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     #if AGENT
     private var agentFrame: AgentFrameHost?
     #endif
-    private lazy var finder = PageFinder(state: shell.find)
+    lazy var finder = PageFinder(state: shell.find)
     /// A picture of an unloaded page, over it while it loads again.
     private var cover: NSImageView?
     private var popupWatch: (any NSObjectProtocol)?
@@ -307,13 +313,22 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         // tabs: the page would otherwise take it before the menu does.
         let keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let tab = event.keyCode == 48 && event.modifierFlags.contains(.control)
-            guard event.keyCode == 53 || tab else { return event }
+            let plainTab = event.keyCode == 48 && event.modifierFlags.isDisjoint(with: [.control, .command, .option])
+            guard event.keyCode == 53 || tab || plainTab else { return event }
             let back = event.modifierFlags.contains(.shift)
             let handled = MainActor.assumeIsolated { () -> Bool in
                 guard let self, event.window === self.window else { return false }
                 if tab {
                     self.step(back ? -1 : 1)
                     return true
+                }
+                // While a pill with buttons shows, Tab goes to it first; on
+                // the pill its own keys take over (ToastHost).
+                if plainTab {
+                    guard self.shell.toast?.actions.isEmpty == false, self.shell.toastFocus == nil,
+                          self.omnibox == nil, self.panelHost == nil, !self.shell.editingAddress, !self.typingInFind
+                    else { return false }
+                    return self.focusToast(back: back)
                 }
                 return self.escape()
             }
@@ -346,7 +361,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             return true
         }
         // Only from its own field: on the page Esc is the page's.
-        if let findHost, let responder = window?.firstResponder as? NSView, responder.isDescendant(of: findHost) {
+        if typingInFind {
             closeFind()
             return true
         }
@@ -356,7 +371,17 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             layout(animated: true)
             return true
         }
+        // The article is BasicShell's own page, so Esc is BasicShell's there.
+        if let tab = shell.selected, tab.isReading {
+            closeReader(of: tab)
+            return true
+        }
         return false
+    }
+
+    private var typingInFind: Bool {
+        guard let findHost, let responder = window?.firstResponder as? NSView else { return false }
+        return responder.isDescendant(of: findHost)
     }
 
     /// The pointer moved somewhere on the screen: if it is over this window,
@@ -661,6 +686,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         let previous = shell.selected
         defer { if previous !== tab { Extensions.shared.activated(tab, previous: previous) } }
         if let current = shell.selected, current !== tab {
+            // The page under a reader is hidden, for VoiceOver's sake too; it is shown for its picture to be taken.
+            if current.isReading { current.webView?.isHidden = false }
             // A video playing in it goes into Picture in Picture (PiP.swift).
             PiP.follow(current)
             // Out of the window, WebKit freezes the page (see Sleep.swift); a
@@ -694,6 +721,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         #endif
         cover?.removeFromSuperview()
         cover = nil
+        // A reader belongs to its tab's page: the one shown puts its own back below.
+        for view in page.subviews where view is ReaderView { view.removeFromSuperview() }
         guard let tab else {
             empty.isHidden = false
             window.title = "BasicShell"
@@ -729,11 +758,20 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         tab.lastSeen = Date()
         Session.touch()
         window.title = tab.name
-        if omnibox == nil { window.makeFirstResponder(web) }
+        let reading = tab.readerState.view
+        if let reading {
+            reading.frame = page.bounds
+            page.addSubview(reading, positioned: .above, relativeTo: nil)
+            reading.apply()
+            web.isHidden = true
+        } else {
+            tab.probeReader()
+        }
+        if omnibox == nil { window.makeFirstResponder(reading?.web ?? web) }
         // What is being looked for is looked for in the page now shown.
         if shell.finding, previous !== tab {
-            finder.clear(previous?.webView)
-            finder.search(shell.find.text, in: web)
+            finder.clear(previous?.readerState.view?.web ?? previous?.webView)
+            finder.search(shell.find.text, in: reading?.web ?? web)
         }
     }
 
@@ -1002,20 +1040,124 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         }
     }
 
-    func say(_ message: String) {
-        shell.toast = message
+    func say(_ message: String, actions: [Toast.Action] = []) {
+        if toastView?.window?.firstResponder === toastView { giveBackKeyboard() }
+        shell.toastFocus = nil
+        toastHovering = false
+        shell.toast = Toast(text: message, actions: actions)
         if toastView == nil {
-            let host = ToastHost(rootView: ToastView(shell: shell))
+            let host = ToastHost(rootView: ToastView(shell: shell, window: self))
             host.sizingOptions = []
             host.safeAreaRegions = []
             root.addSubview(host, positioned: .above, relativeTo: nil)
             toastView = host
             layout(animated: false)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak self] in
-            guard let self, self.shell.toast == message else { return }
-            self.shell.toast = nil
+        if actions.isEmpty {
+            toastTimer.fireDate = Date(timeIntervalSinceNow: 1.4)
+        } else {
+            // Room to reach for it; VoiceOver takes longer to get there.
+            toastTimer.fireDate = Date(timeIntervalSinceNow: NSWorkspace.shared.isVoiceOverEnabled ? 12 : 4)
+            let titles = actions.map(\.title).joined(separator: " and ")
+            NSAccessibility.post(element: window as Any, notification: .announcementRequested,
+                                 userInfo: [.announcement: "\(message). \(titles) at the top of the window.", .priority: NSAccessibilityPriorityLevel.medium.rawValue])
         }
+    }
+
+    /// The one timer that puts the toast away: each toast, and the pointer
+    /// or keyboard leaving a pill, moves it on; while either is on the pill
+    /// it waits. It is never left running with nothing to put away.
+    private lazy var toastTimer: Timer = {
+        // Putting the toast away sets it to the distant future again.
+        let timer = Timer(timeInterval: 1e9, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.dismissToast() }
+        }
+        timer.fireDate = .distantFuture
+        RunLoop.main.add(timer, forMode: .common)
+        return timer
+    }()
+    private var toastHovering = false
+
+    func dismissToast() {
+        if toastView?.window?.firstResponder === toastView { giveBackKeyboard() }
+        shell.toastFocus = nil
+        toastHovering = false
+        shell.toast = nil
+        toastTimer.fireDate = .distantFuture
+    }
+
+    /// The pointer came onto the pill or left it.
+    func toastHovered(_ over: Bool) {
+        guard shell.toast?.actions.isEmpty == false else { return }
+        toastHovering = over
+        holdToast()
+    }
+
+    /// Held while the pointer or the keyboard is on the pill, gone soon
+    /// after both have left it.
+    private func holdToast() {
+        toastTimer.fireDate = toastHovering || shell.toastFocus != nil ? .distantFuture : Date(timeIntervalSinceNow: 1.5)
+    }
+
+    func runToastAction(_ index: Int) {
+        guard let actions = shell.toast?.actions, actions.indices.contains(index) else { return }
+        dismissToast()
+        actions[index].run()
+    }
+
+    /// Tab from the page: to the pill's first button (Shift-Tab, its last).
+    private func focusToast(back: Bool) -> Bool {
+        guard let toastView, let count = shell.toast?.actions.count, count > 0,
+              window?.makeFirstResponder(toastView) == true else { return false }
+        shell.toastFocus = back ? count - 1 : 0
+        holdToast()
+        return true
+    }
+
+    /// Keys while the keyboard is on the pill (ToastHost): Tab and the arrows
+    /// walk its buttons, Tab past either end goes back to the page, Return or
+    /// Space presses one, Esc puts the pill away.
+    func toastKey(_ event: NSEvent) -> Bool {
+        guard let count = shell.toast?.actions.count, count > 0, let focus = shell.toastFocus else { return false }
+        let back = event.modifierFlags.contains(.shift)
+        switch event.keyCode {
+        case 48: // Tab
+            let next = focus + (back ? -1 : 1)
+            if next < 0 || next >= count {
+                giveBackKeyboard()
+                holdToast()
+            } else {
+                shell.toastFocus = next
+            }
+        case 123: shell.toastFocus = max(0, focus - 1)
+        case 124: shell.toastFocus = min(count - 1, focus + 1)
+        case 36, 76, 49: runToastAction(focus) // Return, Enter, Space
+        case 53: dismissToast()
+        default: return false
+        }
+        return true
+    }
+
+    /// The keyboard leaves the pill for the page.
+    private func giveBackKeyboard() {
+        shell.toastFocus = nil
+        window?.makeFirstResponder(shell.selected?.webView ?? root)
+    }
+
+    /// The keyboard left the pill some other way (a click elsewhere).
+    func toastLostKeyboard() {
+        guard shell.toastFocus != nil else { return }
+        shell.toastFocus = nil
+        holdToast()
+    }
+
+    /// Where the pill is, for what opens from it: the toast's host and the
+    /// pill's rect in it.
+    var toastAnchor: (view: NSView, rect: NSRect)? {
+        guard let toastView, !shell.toastPill.isEmpty else { return nil }
+        var rect = shell.toastPill
+        if !toastView.isFlipped { rect.origin.y = toastView.bounds.height - rect.maxY }
+        return (toastView, rect)
     }
 
     /// An extension's popup in the sidebar-only layout, chosen from the
@@ -1036,7 +1178,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     // MARK: - finding in the page (Find.swift)
 
     @objc func findInPage(_ sender: Any?) {
-        guard let web = shell.selected?.webView else { return }
+        guard let web = shownWeb else { return }
         shell.finding = true
         if findHost == nil {
             let host = hosting(FindBarView(state: shell.find, window: self))
@@ -1055,20 +1197,20 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     @objc func findPrevious(_ sender: Any?) { findAgain(backwards: true) }
 
     private func findAgain(backwards: Bool) {
-        guard let web = shell.selected?.webView else { return }
+        guard let web = shownWeb else { return }
         guard shell.finding, !shell.find.text.isEmpty else { return findInPage(nil) }
         finder.search(shell.find.text, in: web, backwards: backwards)
     }
 
     /// The field's text changed.
     func findChanged() {
-        guard shell.finding, let web = shell.selected?.webView else { return }
+        guard shell.finding, let web = shownWeb else { return }
         finder.searchAsTyped(shell.find.text, in: web)
     }
 
     /// ⌘E: what is chosen on the page is what to look for.
     @objc func useSelectionForFind(_ sender: Any?) {
-        shell.selected?.webView?.evaluateJavaScript("String(getSelection())") { [weak self] result, _ in
+        shownWeb?.evaluateJavaScript("String(getSelection())") { [weak self] result, _ in
             MainActor.assumeIsolated {
                 guard let self, let text = (result as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return }
                 self.shell.find.text = String(text.prefix(200))
@@ -1082,8 +1224,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         shell.finding = false
         findHost?.removeFromSuperview()
         findHost = nil
-        finder.clear(shell.selected?.webView)
-        if let web = shell.selected?.webView { window?.makeFirstResponder(web) }
+        finder.clear(shownWeb)
+        if let web = shownWeb { window?.makeFirstResponder(web) }
     }
 
     // MARK: - menu actions
@@ -1109,7 +1251,39 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         board.clearContents()
         board.writeObjects([url as NSURL])
         board.setString(url.absoluteString, forType: .string)
-        say("Link copied")
+        say("Link copied", actions: Share.actions(url, title: shell.selected?.title, in: self))
+    }
+
+    /// ⇧⌘R: the whole page, top to bottom, as a picture on the clipboard (PageShot.swift).
+    @objc func copyPageScreenshot(_ sender: Any?) {
+        guard !shooting, let web = shownWeb else { return }
+        shooting = true
+        say("Capturing page…")
+        Task {
+            let taken = await PageShot.take(of: web)
+            shooting = false
+            guard let taken else { return say("The page couldn't be captured") }
+            PageShot.copy(taken)
+            let size = "\(taken.width.formatted()) × \(taken.height.formatted())"
+            say(taken.reduced ? "Screenshot copied, at less than full size (\(size))" : "Screenshot copied (\(size))")
+        }
+    }
+
+    /// Mute Tab: this tab's sound off, or on again.
+    @objc func toggleMuteTab(_ sender: Any?) {
+        guard let tab = shell.selected else { return }
+        tab.toggleMute()
+        say(tab.isMuted ? "Tab muted" : "Tab sounds again")
+    }
+
+    /// Mute This Site: every tab of the site, and the site's tabs to come.
+    @objc func toggleMuteSite(_ sender: Any?) {
+        guard let tab = shell.selected, let host = tab.url?.host() else { return }
+        let on = !MutedSites.shared.contains(tab.url)
+        MutedSites.shared.set(tab.url, on)
+        // What the tab said for itself no longer stands against what the person has just said of its site.
+        for other in shell.tabs where other.url?.host() == host { other.setMuted(nil) }
+        say(on ? "\(host) muted" : "\(host) sounds again")
     }
 
     /// This site's tabs never sleep, or sleep again.
@@ -1238,6 +1412,16 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         case #selector(archiveTab(_:)): return tab?.url != nil && tab?.isPrivate == false
         case #selector(moveTabToNewWindow(_:)): return shell.tabs.count > 1
         case #selector(stopLoading(_:)): return tab?.isLoading == true
+        case #selector(toggleMuteTab(_:)):
+            item.title = tab?.isMuted == true ? "Unmute Tab" : "Mute Tab"
+            return tab?.url != nil
+        case #selector(toggleMuteSite(_:)):
+            item.title = MutedSites.shared.contains(tab?.url) ? "Unmute This Site" : "Mute This Site"
+            return tab?.isPrivate == false && tab?.url?.host() != nil
+        case #selector(toggleReader(_:)):
+            item.title = tab?.isReading == true ? "Hide Reader" : "Show Reader"
+            return tab?.isReading == true || tab?.hasArticle == true
+        case #selector(copyPageScreenshot(_:)): return tab?.webView != nil && tab?.url != nil && !shooting
         case #selector(toggleAwake(_:)):
             item.title = Awake.shared.contains(tab?.url) ? "Let This Site Sleep" : "Keep This Site Awake"
             return tab?.url?.host() != nil
@@ -1411,6 +1595,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     func windowWillClose(_ notification: Notification) {
         if edgeToEdge { NSApp.presentationOptions = [] }
+        toastTimer.invalidate()
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
         menuBarWatch?.invalidate()
@@ -1536,7 +1721,27 @@ final class ClockHost: NSHostingView<MenuBarClock> {
 /// the sidebar, the page (SwiftUI's allowsHitTesting doesn't stop the
 /// hosting view itself from taking them).
 final class ToastHost: NSHostingView<ToastView> {
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    /// Only a pill with buttons takes clicks, and only on itself.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let shell = rootView.shell
+        guard shell.toast?.actions.isEmpty == false else { return nil }
+        var here = convert(point, from: superview)
+        if !isFlipped { here.y = bounds.height - here.y }
+        guard shell.toastPill.contains(here) else { return nil }
+        return super.hitTest(point)
+    }
+
+    override var acceptsFirstResponder: Bool { rootView.shell.toast?.actions.isEmpty == false }
+
+    override func keyDown(with event: NSEvent) {
+        if !rootView.window.toastKey(event) { super.keyDown(with: event) }
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { rootView.window.toastLostKeyboard() }
+        return resigned
+    }
 }
 
 /// The loading line under the notch: seen, never in the way of a click.

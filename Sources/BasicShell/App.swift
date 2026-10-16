@@ -52,7 +52,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        Session.saveBeforeQuitting { NSApp.reply(toApplicationShouldTerminate: true) }
+        // What is downloading is paused first, so it can go on next time.
+        Downloads.shared.pauseForQuit {
+            Session.saveBeforeQuitting { NSApp.reply(toApplicationShouldTerminate: true) }
+        }
         return .terminateLater
     }
 

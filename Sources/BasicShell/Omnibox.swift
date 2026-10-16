@@ -157,23 +157,101 @@ struct EmptyPage: View {
     }
 }
 
-/// A word of confirmation near the top, gone after a moment.
+/// A word near the top of the window, and what can be done about it there
+/// while it shows (most have nothing).
+struct Toast: Equatable {
+    struct Action {
+        let title: String
+        let symbol: String
+        /// The tooltip, and what VoiceOver says the button does.
+        let help: String
+        let label: String
+        let run: () -> Void
+    }
+
+    /// Each word said is a new toast, even the same word again.
+    let id = UUID()
+    let text: String
+    var actions: [Action] = []
+
+    static func == (a: Toast, b: Toast) -> Bool { a.id == b.id }
+}
+
+/// A word of confirmation near the top, gone after a moment; with actions,
+/// a pill that stays while the pointer or the keyboard is on it.
 struct ToastView: View {
     let shell: Shell
+    let window: BrowserWindow
 
     var body: some View {
+        let still = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         ZStack {
             if let toast = shell.toast {
-                Text(toast)
-                    .font(.system(size: 13, weight: .medium))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .glassEffect(.regular, in: .capsule)
-                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                if toast.actions.isEmpty {
+                    Text(toast.text)
+                        .font(.system(size: 13, weight: .medium))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .glassEffect(.regular, in: .capsule)
+                        .allowsHitTesting(false)
+                        .transition(still ? .identity : .opacity.combined(with: .scale(scale: 0.95)))
+                } else {
+                    pill(toast)
+                        .transition(still ? .identity : .opacity.combined(with: .scale(scale: 0.95)))
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .allowsHitTesting(false)
-        .animation(.easeOut(duration: 0.18), value: shell.toast)
+        .animation(still ? nil : .easeOut(duration: 0.18), value: shell.toast)
+    }
+
+    private func pill(_ toast: Toast) -> some View {
+        GlassEffectContainer(spacing: 6) {
+            HStack(spacing: 6) {
+                Text(toast.text)
+                    .font(.system(size: 13, weight: .medium))
+                    .padding(.leading, 10)
+                    .padding(.trailing, 4)
+                    .accessibilityAddTraits(.isStaticText)
+                ForEach(toast.actions.indices, id: \.self) { index in
+                    ToastButton(action: toast.actions[index], focused: shell.toastFocus == index) {
+                        window.runToastAction(index)
+                    }
+                }
+            }
+            .padding(5)
+            .glassEffect(.regular, in: .capsule)
+        }
+        .fixedSize()
+        .onHover { window.toastHovered($0) }
+        // Where the pill is, so that only it takes clicks (ToastHost) and the
+        // QR card can point at it.
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { shell.toastPill = $0 }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(toast.text)
+    }
+}
+
+/// One of a toast's actions: a small glass button, its symbol and a word.
+private struct ToastButton: View {
+    let action: Toast.Action
+    /// Tab brought the keyboard here (the window handles the keys: see
+    /// ToastHost).
+    let focused: Bool
+    let run: () -> Void
+
+    var body: some View {
+        Button(action: run) {
+            Label(action.title, systemImage: action.symbol)
+                .font(.system(size: 12, weight: .medium))
+                .padding(.horizontal, 2)
+        }
+        .buttonStyle(.glass)
+        .controlSize(.small)
+        .overlay {
+            Capsule().strokeBorder(Color.accentColor, lineWidth: 2).padding(-2).opacity(focused ? 1 : 0)
+        }
+        .help(action.help)
+        .accessibilityLabel(action.label)
     }
 }

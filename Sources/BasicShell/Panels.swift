@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The lists that open over the page: each a glass card with a search field,
 /// put away with Esc or a click outside.
@@ -83,7 +84,9 @@ struct PanelView: View {
                 NSWorkspace.shared.open(FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0])
             }
             .buttonStyle(.borderless)
-            Button("Clear") { Downloads.shared.clearFinished() }.buttonStyle(.borderless)
+            Button("Clear") { Downloads.shared.clearFinished() }
+                .buttonStyle(.borderless)
+                .disabled(!Downloads.shared.items.contains { !$0.isActive })
         case .archive:
             Button("Clear") { Archive.shared.clear() }.buttonStyle(.borderless)
         case .bookmarks:
@@ -134,7 +137,7 @@ struct PanelView: View {
             }
         case .downloads:
             let items = Downloads.shared.items
-            if items.isEmpty { empty("Nothing downloaded since BasicShell opened.") }
+            if items.isEmpty { empty("No downloads") }
             ForEach(items) { DownloadRow(item: $0) }
         }
     }
@@ -211,40 +214,175 @@ struct PanelRow: View {
     }
 }
 
+/// One download, in the panel and under the top bar's button: its icon, name,
+/// how far along it is and what is left to do with it.
 struct DownloadRow: View {
     let item: Downloads.Item
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var _hovering = State(initialValue: false)
+    private var hovering: Bool {
+        get { _hovering.wrappedValue }
+        nonmutating set { _hovering.wrappedValue = newValue }
+    }
+
+    init(item: Downloads.Item) { self.item = item }
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(nsImage: item.file.map { NSWorkspace.shared.icon(forFile: $0.path) } ?? NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)!)
+            Image(nsImage: icon)
                 .resizable()
                 .frame(width: 28, height: 28)
+                .opacity(item.state == .paused || item.state == .cancelled || item.missing ? 0.55 : 1)
             VStack(alignment: .leading, spacing: 3) {
-                Text(item.name).lineLimit(1)
-                switch item.state {
-                case .running: ProgressView(value: item.fraction).controlSize(.small)
-                case .finished: Text("Done").font(.system(size: 11)).foregroundStyle(.secondary)
-                case .failed: Text("Failed").font(.system(size: 11)).foregroundStyle(.red)
-                case .cancelled: Text("Cancelled").font(.system(size: 11)).foregroundStyle(.secondary)
-                }
+                Text(item.name)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .foregroundStyle(item.missing || item.state == .cancelled ? .secondary : .primary)
+                if item.isActive { DownloadBar(item: item) }
+                Text(item.statusText)
+                    .font(.system(size: 11))
+                    .foregroundStyle(item.state == .failed ? Color.red : Color.secondary)
+                    .lineLimit(item.state == .failed ? 2 : 1)
+                    .truncationMode(.tail)
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(item.name)
+            .accessibilityValue(item.statusText)
             Spacer(minLength: 8)
-            if item.state == .running {
-                Button { Downloads.shared.cancel(item) } label: { Image(systemName: "xmark.circle.fill") }
-                    .buttonStyle(.borderless)
-                    .help("Cancel")
-            } else if item.state == .finished, let file = item.file {
-                Button { NSWorkspace.shared.activateFileViewerSelecting([file]) } label: { Image(systemName: "magnifyingglass") }
-                    .buttonStyle(.borderless)
-                    .help("Show in Finder")
-            }
+            HStack(spacing: 2) { buttons }
         }
         .font(.system(size: 13))
         .padding(.horizontal, 10)
-        .frame(height: 48)
+        .padding(.vertical, 7)
+        .frame(minHeight: 48)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(hovering ? 0.06 : 0)))
         .contentShape(Rectangle())
+        .onHover { hovering = $0 }
         .onTapGesture(count: 2) {
-            if item.state == .finished, let file = item.file { NSWorkspace.shared.open(file) }
+            if item.state == .finished, !item.missing, let file = item.file { NSWorkspace.shared.open(file) }
         }
+        .contextMenu { menu }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: item.state)
+    }
+
+    private var icon: NSImage {
+        if item.state == .finished, !item.missing, let file = item.file { return NSWorkspace.shared.icon(forFile: file.path) }
+        let type = UTType(filenameExtension: (item.name as NSString).pathExtension) ?? .data
+        return NSWorkspace.shared.icon(for: type)
+    }
+
+    @ViewBuilder private var buttons: some View {
+        switch item.state {
+        case .running:
+            RowButton(symbol: "pause.circle.fill", title: "Pause", subject: item.name) { Downloads.shared.pause(item) }
+            RowButton(symbol: "xmark.circle.fill", title: "Cancel", subject: item.name) { Downloads.shared.cancel(item) }
+        case .paused:
+            RowButton(symbol: "play.circle.fill", title: "Resume", subject: item.name) { Downloads.shared.resume(item) }
+            RowButton(symbol: "xmark.circle.fill", title: "Cancel", subject: item.name) { Downloads.shared.cancel(item) }
+        case .failed, .cancelled:
+            if item.canResume {
+                RowButton(symbol: "play.circle.fill", title: "Resume", subject: item.name) { Downloads.shared.resume(item) }
+            }
+            if item.canRetry {
+                RowButton(symbol: "arrow.clockwise.circle.fill", title: item.restartOnly ? "Restart" : "Retry", subject: item.name) { Downloads.shared.retry(item) }
+            }
+        case .finished:
+            if let file = item.file, !item.missing {
+                RowButton(symbol: "magnifyingglass.circle.fill", title: "Show in Finder", subject: item.name) {
+                    NSWorkspace.shared.activateFileViewerSelecting([file])
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var menu: some View {
+        switch item.state {
+        case .running:
+            Button("Pause") { Downloads.shared.pause(item) }
+            Button("Cancel") { Downloads.shared.cancel(item) }
+        case .paused:
+            Button("Resume") { Downloads.shared.resume(item) }
+            Button("Cancel") { Downloads.shared.cancel(item) }
+        case .failed, .cancelled:
+            if item.canResume { Button("Resume") { Downloads.shared.resume(item) } }
+            if item.canRetry { Button(item.restartOnly ? "Restart" : "Retry") { Downloads.shared.retry(item) } }
+        case .finished:
+            if let file = item.file, !item.missing {
+                Button("Open") { NSWorkspace.shared.open(file) }
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+            }
+        }
+        if let source = item.source {
+            Button("Copy Link Address") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(source.absoluteString, forType: .string)
+            }
+        }
+        if !item.isActive {
+            Divider()
+            Button("Remove from List") { Downloads.shared.remove(item) }
+        }
+    }
+}
+
+/// How far along it is: grey while paused, so it does not look like a
+/// download that is going.
+struct DownloadBar: View {
+    let item: Downloads.Item
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        if item.total > 0 {
+            Capsule()
+                .fill(Color.primary.opacity(0.12))
+                .frame(height: 4)
+                .overlay(alignment: .leading) {
+                    Capsule()
+                        .fill(item.state == .paused ? Color.secondary : Color.accentColor)
+                        .scaleEffect(x: max(item.fraction, 0.02), y: 1, anchor: .leading)
+                        .animation(reduceMotion ? nil : .linear(duration: 0.25), value: item.fraction)
+                }
+                .accessibilityHidden(true)
+        } else if item.state == .running {
+            // The site did not say how large it is.
+            ProgressView().progressViewStyle(.linear).controlSize(.small).accessibilityHidden(true)
+        }
+    }
+}
+
+/// A round button at a row's right end: grey, darker with a circle behind it
+/// when the pointer is on it.
+private struct RowButton: View {
+    let symbol: String
+    let title: String
+    let subject: String
+    let action: () -> Void
+    private var _hovering = State(initialValue: false)
+    private var hovering: Bool {
+        get { _hovering.wrappedValue }
+        nonmutating set { _hovering.wrappedValue = newValue }
+    }
+
+    init(symbol: String, title: String, subject: String, action: @escaping () -> Void) {
+        self.symbol = symbol
+        self.title = title
+        self.subject = subject
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .symbolRenderingMode(.hierarchical)
+                .font(.system(size: 17))
+                .foregroundStyle(hovering ? Color.primary : Color.secondary)
+                .frame(width: 26, height: 26)
+                .background(Circle().fill(Color.primary.opacity(hovering ? 0.08 : 0)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.borderless)
+        .onHover { hovering = $0 }
+        .help(title)
+        .accessibilityLabel("\(title) \(subject)")
     }
 }

@@ -137,6 +137,11 @@ private struct TabSettings: View {
                     Awake.shared.remove(site: $0)
                 }
             }
+            Section("Sites muted") {
+                SiteList(sites: MutedSites.shared.sites.sorted(), empty: "None. Right-click a tab, or use the Tab menu, to mute a site's sound for good.") {
+                    MutedSites.shared.remove(site: $0)
+                }
+            }
             Section("Sites with their own zoom") {
                 SiteList(sites: SiteZoom.shared.levels.keys.sorted(), empty: "None. ⌘+ and ⌘− set a site's zoom, and so does the lock in its address.", detail: {
                     SiteZoom.shared.level(for: $0).map { "\(Int(($0 * 100).rounded()))%" }

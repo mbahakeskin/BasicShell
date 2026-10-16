@@ -38,7 +38,7 @@ extension AgentTools {
         "evaluate": "Run JavaScript in the page (async function body, return the answer; values in args). Developer tools.",
         "history": "Visited pages found by words. Switch: history.",
         "bookmarks": "Bookmarks found by words. Switch: history.",
-        "downloads": "This session's downloads. Switch: history.",
+        "downloads": "Downloads, running, paused and finished. Switch: history.",
         "save_page": "Save the page as pdf or webarchive in Downloads.",
         "record": "Record the tab as a GIF: start, stop.",
         "resize": "Window size, preset (mobile tablet desktop), user_agent, color_scheme, zoom.",

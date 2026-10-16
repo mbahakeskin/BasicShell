@@ -23,7 +23,7 @@ enum Web {
     /// The cookie jar every private tab shares: in memory only, never on
     /// disk, gone when the app quits. Shared, so that a site (Google behind a
     /// VPN, say) that wants proof you are a person asks once, not per tab.
-    private static var privateStore: WKWebsiteDataStore?
+    private(set) static var privateStore: WKWebsiteDataStore?
 
     static func configuration(privately: Bool, store: WKWebsiteDataStore? = nil) -> WKWebViewConfiguration {
         let config = WKWebViewConfiguration()

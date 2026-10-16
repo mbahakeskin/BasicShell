@@ -140,6 +140,16 @@ struct SiteTools: View {
     private var tab: Tab? { shell.selected }
 
     var body: some View {
+        if let tab, tab.isPlayingAudio || tab.muteSaid == true {
+            IconButton(symbol: tab.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill") { tab.toggleMute() }
+                .foregroundStyle(tab.isMuted ? Color.secondary : Color.primary)
+                .help(tab.isMuted ? "Unmute Tab" : "Mute Tab")
+        }
+        if let tab, tab.hasArticle || tab.isReading {
+            IconButton(symbol: "doc.plaintext") { window.toggleReader(nil) }
+                .foregroundStyle(tab.isReading ? Color.accentColor : Color.primary)
+                .help(tab.isReading ? "Hide Reader (⌥⌘R)" : "Show Reader (⌥⌘R)")
+        }
         if tab?.url?.host() != nil {
             let awake = Awake.shared.contains(tab?.url)
             IconButton(symbol: awake ? "sun.max.fill" : "moon.zzz") { window.toggleAwake(nil) }
@@ -233,43 +243,50 @@ struct FullScreenLights: View {
     }
 }
 
-/// This session's downloads, under a button that fills a ring as they come
-/// in; it shows once something has been downloaded, as in Safari.
+/// The downloads, under a button that fills a ring as they come in (grey with
+/// a pause mark when only paused ones are left); it shows once something has
+/// been downloaded, as in Safari.
 struct DownloadsButton: View {
     let shell: Shell
     let window: BrowserWindow
     var edge: Edge = .bottom
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let running = Downloads.shared.items.filter { $0.state == .running }
-        let fraction = running.isEmpty ? 0 : running.map(\.fraction).reduce(0, +) / Double(running.count)
+        let progress = Downloads.shared.aggregate
+        let fraction = progress?.fraction ?? 0
+        let paused = progress.map { !$0.running } ?? false
+        let running = Downloads.shared.running
         let open = Binding(get: { shell.downloadsOpen }, set: { showing in
             shell.downloadsOpen = showing
             window.layout(animated: true)
         })
         Button { open.wrappedValue.toggle() } label: {
             ZStack {
-                if !running.isEmpty {
+                if progress != nil {
                     Circle().stroke(Color.primary.opacity(0.15), lineWidth: 2)
                     Circle().trim(from: 0, to: max(0.03, fraction))
-                        .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .stroke(paused ? Color.secondary : Color.accentColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                         .rotationEffect(.degrees(-90))
-                        .animation(.linear(duration: 0.2), value: fraction)
+                        .animation(reduceMotion ? nil : .linear(duration: 0.2), value: fraction)
                 }
-                Image(systemName: running.isEmpty ? "arrow.down.circle" : "arrow.down")
-                    .font(.system(size: running.isEmpty ? 13 : 9, weight: running.isEmpty ? .medium : .bold))
+                Image(systemName: progress == nil ? "arrow.down.circle" : paused ? "pause.fill" : "arrow.down")
+                    .font(.system(size: progress == nil ? 13 : paused ? 8 : 9, weight: progress == nil ? .medium : .bold))
+                    .foregroundStyle(paused ? Color.secondary : Color.primary)
             }
             .frame(width: 18, height: 18)
             .frame(width: 28, height: 28)
             .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
-        .help("Downloads")
+        .help(progress == nil ? "Downloads" : paused ? "Downloads, paused at \(Int(fraction * 100)) percent" : "Downloads, \(running) running, \(Int(fraction * 100)) percent")
+        .accessibilityLabel("Downloads")
+        .accessibilityValue(progress == nil ? "" : paused ? "Paused, \(Int(fraction * 100)) percent" : "\(running) running, \(Int(fraction * 100)) percent")
         .popover(isPresented: open, arrowEdge: edge) { DownloadsPopover() }
     }
 }
 
-/// The downloads under the top bar's button: this session's, newest first.
+/// The downloads under the top bar's button, newest first.
 struct DownloadsPopover: View {
     var body: some View {
         let items = Downloads.shared.items
@@ -281,12 +298,12 @@ struct DownloadsPopover: View {
                     LazyVStack(spacing: 0) { ForEach(items) { DownloadRow(item: $0) } }
                         .padding(.vertical, 4)
                 }
-                .frame(height: min(CGFloat(items.count) * 48 + 8, 300))
+                .frame(height: min(items.reduce(CGFloat(8)) { $0 + ($1.isActive ? 60 : 50) }, 320))
             }
             Divider()
             HStack {
                 Button("Clear") { Downloads.shared.clearFinished() }
-                    .disabled(!items.contains { $0.state != .running })
+                    .disabled(!items.contains { !$0.isActive })
                 Spacer()
                 Button("Show in Finder") {
                     NSWorkspace.shared.open(FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0])
@@ -297,7 +314,7 @@ struct DownloadsPopover: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
-        .frame(width: 320)
+        .frame(width: 360)
     }
 }
 

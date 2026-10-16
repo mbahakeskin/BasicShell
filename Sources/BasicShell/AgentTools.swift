@@ -231,7 +231,7 @@ enum AgentTools {
         tool("bookmarks", "The person's bookmarks, found by words in their title or address. Same condition as `history`.", [
             "query": ["type": "string", "description": "Words to look for. Empty: all of them."],
         ], reads: true),
-        tool("downloads", "What was downloaded since BasicShell opened: name, state, where it is. Same condition as `history`.", reads: true),
+        tool("downloads", "What was downloaded (running, paused and the last hundred finished): name, state, where it is. Same condition as `history`.", reads: true),
         tool("save_page", "Saves the page into the Downloads folder, as a PDF or a web archive, and says where.", [
             "format": ["type": "string", "enum": ["pdf", "webarchive"], "description": "PDF unless said."],
         ]),
@@ -1809,8 +1809,9 @@ private struct Call {
         guard let item else { return .text("The download started.") }
         switch item.state {
         case .finished: return .text("Saved \(item.file?.path ?? item.name).")
-        case .failed: return .text("The download failed.")
+        case .failed: return .text("The download failed: \(item.problem ?? "it did not finish.")")
         case .cancelled: return .text("The download was cancelled.")
+        case .paused: return .text("The download is paused: \(item.name), \(Int(item.fraction * 100))%. It goes on when it is resumed in the Downloads list; `downloads` shows where it is.")
         case .running: return .text("Still downloading after 30 seconds: \(item.name), \(Int(item.fraction * 100))%. `downloads` shows where it gets to.")
         }
     }
@@ -2270,12 +2271,13 @@ private struct Call {
     func downloads() async throws -> Reply {
         try keeps()
         let items = Downloads.shared.items
-        guard !items.isEmpty else { return .text("Nothing has been downloaded since BasicShell opened.") }
+        guard !items.isEmpty else { return .text("Nothing has been downloaded.") }
         return .text(items.map { item in
             let state: String
             switch item.state {
             case .running: state = "downloading, \(Int(item.fraction * 100))%"
             case .finished: state = "done"
+            case .paused: state = "paused, \(Int(item.fraction * 100))%"
             case .failed: state = "failed"
             case .cancelled: state = "cancelled"
             }

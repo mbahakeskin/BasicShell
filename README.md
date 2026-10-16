@@ -66,7 +66,29 @@ the pages you open.
   one.
 - Find in the page (`⌘F`): a small field at the page's top right, every
   match marked and counted, `⌘G` and `⇧⌘G` for the next and the one before.
-- `⇧⌘C` copies the address.
+- `⇧⌘C` copies the address, and the pill that says so holds two buttons for
+  a moment: a QR code of the address (a card under the pill, "Copy Image" for
+  the code as a picture) and AirDrop.
+- `⇧⌘R` copies the whole page, top to bottom, as one picture. Pictures that
+  wait to be scrolled to are asked for first, the page is put back where it was,
+  and the drawing runs off the main thread within a pixel budget (a very long
+  page is drawn at less than full density, and says so).
+- Reader (`⌥⌘R`, and a button in the top bar when the page has an article):
+  the article on its own, light, sepia, dark or following the system, serif or
+  sans, five sizes, three widths. The page is read, never touched: a script
+  in an isolated world only reads, and hands back text made of a short list of
+  tags (no scripts, styles, frames, forms or classes of the site's). That is
+  shown in a second web view with JavaScript off and a content security policy
+  that lets in nothing but pictures. Only a page that has an article offers it
+  (a front page, a list, a bot check do not), found once the page has loaded,
+  in a few milliseconds. Esc closes it; Find, links (`⌘`-click for a new tab)
+  and `⇧⌘R` work in it.
+- A speaker on a tab that makes sound, in the sidebar and the top bar, turns
+  it off; Tab › Mute This Site keeps a site quiet (Settings › Tabs lists them).
+- Downloads can be paused, resumed, cancelled and restarted, with the speed and
+  the time left. A paused one, and the last hundred finished, are still there
+  after BasicShell is quit; a server that cannot go on from the middle starts
+  the file again.
 - The lock at the left of the address (an "i" where the page isn't secure)
   brings up the site's information: how it was fetched and by whose
   certificate (with the system's own viewer), what it was allowed (location,
@@ -110,7 +132,9 @@ the broken processes and start it afresh; and `_features` with
 `_setEnabled:forFeature:` turn on `requestIdleCallback`, HTTPS first and
 the removal of tracking parameters, which WebKit has but keeps off; `_setDeveloperExtrasEnabled:` puts Inspect Element in a
 page's right-click menu, which `_webView:contextMenu:forElement:` lets
-BasicShell arrange; `_findString:options:maxCount:` with a `_findDelegate`
+BasicShell arrange; `_setPageMuted:` and a key-value observer on `_isPlayingAudio` for the speaker
+and its mute; `WKDownload`'s resume data for a paused download;
+`_findString:options:maxCount:` with a `_findDelegate`
 marks and counts what is looked for in a page (`_hideFindUI` takes the marks
 away); the Develop and Debug menus: `_inspector` (`show`, `showConsole`,
 `toggleElementSelection`, `showMainResourceForFrame:` with `_mainFrame`) for
