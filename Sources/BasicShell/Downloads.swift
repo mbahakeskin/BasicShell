@@ -19,6 +19,8 @@ final class Downloads: NSObject, WKDownloadDelegate {
         var fraction: Double = 0
         var state: State = .running
         @ObservationIgnored weak var download: WKDownload?
+        /// Woken when it is no longer running (the agent's `download` waits for that).
+        @ObservationIgnored let ended = Waiters()
         @ObservationIgnored var watching: NSKeyValueObservation?
 
         init(source: URL?, name: String) {
@@ -61,6 +63,7 @@ final class Downloads: NSObject, WKDownloadDelegate {
         item.state = .finished
         item.fraction = 1
         item.watching = nil
+        item.ended.wake()
         if let file = item.file {
             DistributedNotificationCenter.default().post(name: .init("com.apple.DownloadFileFinished"), object: file.path)
         }
@@ -70,11 +73,13 @@ final class Downloads: NSObject, WKDownloadDelegate {
         guard let item = item(for: download) else { return }
         if item.state == .running { item.state = (error as NSError).code == NSURLErrorCancelled ? .cancelled : .failed }
         item.watching = nil
+        item.ended.wake()
     }
 
     func cancel(_ item: Item) {
         item.state = .cancelled
         item.download?.cancel { _ in }
+        item.ended.wake()
     }
 
     func clearFinished() {

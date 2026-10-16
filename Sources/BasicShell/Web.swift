@@ -118,6 +118,7 @@ extension Tab: WKUIDelegate {
         dialog = Question(kind: kind, message: message, alert: alert, field: field)
         Dialogs.show(alert, over: webView) { [weak self] answer in
             self?.dialog = nil
+            self?.dialogEnded.wake()
             answered(answer)
         }
         #else
@@ -154,6 +155,7 @@ extension Tab: WKUIDelegate {
         // Files the person just let the agent give this page (its upload tool).
         if let offered, offered.until > Date() {
             self.offered = nil
+            offerTaken.wake()
             return completionHandler(parameters.allowsMultipleSelection ? offered.files : Array(offered.files.prefix(1)))
         }
         #endif

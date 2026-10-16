@@ -175,7 +175,22 @@ final class AgentAccess {
     @ObservationIgnored private var once: [String: [String: Bool]] = [:]
     /// The tabs the agent works in.
     private(set) var held: Set<UUID> = []
-    @ObservationIgnored private var lastUsed: [UUID: Date] = [:]
+    /// What the person is shown of the agent in a tab: at work, or (for a moment, once it has been
+    /// quiet) finished. Not the same as being held: a tab is held, so that it isn't put to sleep
+    /// under the agent, for longer than it is shown.
+    enum Presence { case working, finished }
+    private(set) var presence: [UUID: Presence] = [:]
+    /// Calls on a tab that have begun and not ended: it is not finished while one is.
+    @ObservationIgnored private var calls: [UUID: Int] = [:]
+    /// The tab's three moments to come, each one timer set when the last call ended (and none polling):
+    /// shown finished, no longer shown, let go.
+    @ObservationIgnored private var due: [UUID: [DispatchWorkItem]] = [:]
+    /// Quiet for this long after a call, the agent looks to be done (a model thinks for seconds between calls).
+    static let quietFor: TimeInterval = 10
+    /// How long "finished" stays up.
+    static let finishedShown: TimeInterval = 3
+    /// A tab no call has touched for this long is let go (it may then sleep as any other).
+    static let letGoAfter: TimeInterval = 120
     /// Who is connected, by the name each gave.
     private(set) var clients: [String] = []
     /// Stopped from the page's frame: nothing more until the person says so.
@@ -183,7 +198,6 @@ final class AgentAccess {
     @ObservationIgnored private var askedToResume = Date.distantPast
     @ObservationIgnored private var asking: [String: Task<Bool, Never>] = [:]
     @ObservationIgnored private var listener: AgentListener?
-    @ObservationIgnored private var timer: Timer?
 
     /// What every `file:` address is, to the asking: one site, so that the
     /// person says once whether the agent may open files on this Mac.
@@ -208,25 +222,19 @@ final class AgentAccess {
             DispatchQueue.main.async { MainActor.assumeIsolated { AgentAccess.shared.gone(connection) } }
         }
         if listener == nil { Debug.log("agent", "couldn't listen at \(AgentAccess.socket)") }
-        // A tab the agent hasn't touched for ten minutes is let go.
-        timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
-            MainActor.assumeIsolated { AgentAccess.shared.releaseIdle() }
-        }
     }
 
-    private func stop(listening: Bool) {
+    private func stop(listening: Bool, announce: Bool = false) {
         // WebKit's features the agent switched go back, whenever it is let go.
         Features.clearTransient()
         if listening {
             listener?.close()
             listener = nil
-            timer?.invalidate()
-            timer = nil
             connections = [:]
             clients = []
         }
         once = [:]
-        for id in held { release(id) }
+        for id in held { release(id, announce: announce) }
     }
 
     /// The button on the page's frame: everything let go, and nothing more
@@ -260,8 +268,12 @@ final class AgentAccess {
             // Turned off while it was connected: nothing more.
             let reply = AgentAccess.enabled ? await AgentTools.run(tool, arguments, for: client)
                 : .failure("The agent was turned off in BasicShell's Settings › Agents. Tell the person; don't try another way.")
-            let answer: [String: Any] = ["id": id, "content": reply.parts, "error": reply.failed]
-            if let data = try? JSONSerialization.data(withJSONObject: answer) { connection.send(data) }
+            // Written down and sent on another thread: a picture is hundreds of kilobytes of text,
+            // and the main thread is the person's.
+            let answer = AgentAnswer(value: ["id": id, "content": reply.parts, "error": reply.failed])
+            DispatchQueue.global(qos: .utility).async {
+                if let data = try? JSONSerialization.data(withJSONObject: answer.value) { connection.send(data) }
+            }
         }
     }
 
@@ -269,7 +281,7 @@ final class AgentAccess {
         guard let client = connections.removeValue(forKey: ObjectIdentifier(connection)) else { return }
         clients = connections.values.sorted()
         Debug.log("agent", "\(client) disconnected")
-        if connections.isEmpty { stop(listening: false) }
+        if connections.isEmpty { stop(listening: false, announce: true) }
     }
 
     // MARK: - the tabs it works in
@@ -279,22 +291,72 @@ final class AgentAccess {
     /// A tab opened for one job and closed after it: no longer held.
     func forget(_ tab: Tab) {
         held.remove(tab.id)
-        lastUsed[tab.id] = nil
+        cancelDue(tab.id)
+        calls[tab.id] = nil
+        showing(nil, tab.id)
     }
 
-    /// The tab's page kept going, in its window, for the agent to work in.
+    /// The tab's page kept going, in its window, for the agent to work in; and shown so.
     func hold(_ tab: Tab) {
-        lastUsed[tab.id] = Date()
         tab.lastSeen = Date()
         (tab.host as? BrowserWindow)?.keepRunning(tab)
-        guard !held.contains(tab.id) else { return }
-        held.insert(tab.id)
+        let first = held.insert(tab.id).inserted
+        showing(.working, tab.id)
+        if first { Windows.all.forEach { $0.agentChanged() } }
+        // Between calls the clock runs; while one is on it doesn't.
+        if (calls[tab.id] ?? 0) == 0 { setClock(tab.id) }
+    }
+
+    /// A call on the tab begins: it is not finished meanwhile.
+    func began(_ tab: Tab) {
+        calls[tab.id, default: 0] += 1
+        cancelDue(tab.id)
+    }
+
+    /// The call is over: from now on the tab is quiet, and goes from working to finished to let go.
+    func ended(_ tab: Tab) {
+        calls[tab.id] = max(0, (calls[tab.id] ?? 1) - 1)
+        if held.contains(tab.id), (calls[tab.id] ?? 0) == 0 { setClock(tab.id) }
+    }
+
+    private func showing(_ state: Presence?, _ id: UUID) {
+        guard presence[id] != state else { return }
+        presence[id] = state
         Windows.all.forEach { $0.agentChanged() }
     }
 
-    private func release(_ id: UUID) {
+    private func cancelDue(_ id: UUID) {
+        due.removeValue(forKey: id)?.forEach { $0.cancel() }
+    }
+
+    private func setClock(_ id: UUID) {
+        cancelDue(id)
+        func later(_ seconds: TimeInterval, _ work: @escaping @MainActor () -> Void) -> DispatchWorkItem {
+            let item = DispatchWorkItem { MainActor.assumeIsolated { work() } }
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: item)
+            return item
+        }
+        due[id] = [
+            later(AgentAccess.quietFor) { [weak self] in self?.showing(.finished, id) },
+            later(AgentAccess.quietFor + AgentAccess.finishedShown) { [weak self] in self?.showing(nil, id) },
+            later(AgentAccess.letGoAfter) { [weak self] in self?.release(id) },
+        ]
+    }
+
+    /// `announce`: the agent has gone of itself (its program ended): "finished" is shown for a moment
+    /// first. Stopped by the person, or switched off, it is gone at once.
+    private func release(_ id: UUID, announce: Bool = false) {
         held.remove(id)
-        lastUsed[id] = nil
+        cancelDue(id)
+        calls[id] = nil
+        if announce, presence[id] == .working {
+            showing(.finished, id)
+            let item = DispatchWorkItem { MainActor.assumeIsolated { [weak self] in self?.showing(nil, id) } }
+            due[id] = [item]
+            DispatchQueue.main.asyncAfter(deadline: .now() + AgentAccess.finishedShown, execute: item)
+        } else {
+            presence[id] = nil
+        }
         for window in Windows.all {
             if let tab = window.shell.tabs.first(where: { $0.id == id }) {
                 AgentRecorder.stop(tab)
@@ -306,10 +368,6 @@ final class AgentAccess {
         }
     }
 
-    private func releaseIdle() {
-        let now = Date()
-        for id in held where now.timeIntervalSince(lastUsed[id] ?? .distantPast) > 600 { release(id) }
-    }
 
     // MARK: - asking
 
@@ -538,7 +596,16 @@ nonisolated enum AgentWire {
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         var on: Int32 = 1
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+        widen(fd)
         return fd
+    }
+
+    /// A buffer of a megabyte each way, where the default is a few kilobytes: an answer with a
+    /// picture in it goes in a few writes and reads, not in hundreds that each wait for the other end.
+    static func widen(_ fd: Int32) {
+        var size: Int32 = 1 << 20
+        setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &size, socklen_t(MemoryLayout<Int32>.size))
+        setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &size, socklen_t(MemoryLayout<Int32>.size))
     }
 
     static func write(_ data: Data, to fd: Int32) -> Bool {
@@ -570,6 +637,9 @@ nonisolated enum AgentWire {
         }
     }
 }
+
+/// An answer on its way to the socket: nobody changes it meanwhile.
+nonisolated struct AgentAnswer: @unchecked Sendable { let value: [String: Any] }
 
 nonisolated final class AgentConnection: @unchecked Sendable {
     fileprivate let fd: Int32
@@ -613,6 +683,7 @@ nonisolated final class AgentListener: @unchecked Sendable {
                 }
                 var on: Int32 = 1
                 setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
+                AgentWire.widen(client)
                 let connection = AgentConnection(fd: client)
                 Thread.detachNewThread {
                     var pending = Data()

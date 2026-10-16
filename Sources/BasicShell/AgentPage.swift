@@ -20,7 +20,19 @@ enum AgentPage {
       const refs = new Map(), ids = new WeakMap();
       let next = 1;
       const refOf = (e) => { let r = ids.get(e); if (!r) { r = next++; ids.set(e, r); refs.set(r, new WeakRef(e)); } return r; };
-      const byRef = (r) => { const w = refs.get(Number(r)); const e = w && w.deref(); return e && e.isConnected ? e : null; };
+      // A number whose element the page replaced by another of the same kind
+      // and name (a search box rebuilt as you type) leads on to the new one.
+      const aliases = new Map();
+      const byRef = (r) => {
+        r = Number(r);
+        for (let i = 0; i < 4; i++) {
+          const w = refs.get(r), e = w && w.deref();
+          if (e && e.isConnected) return e;
+          if (!aliases.has(r)) return null;
+          r = aliases.get(r);
+        }
+        return null;
+      };
       const clean = (s, n) => { s = String(s == null ? "" : s).replace(/\s+/g, " ").trim(); return n && s.length > n ? s.slice(0, n - 1) + "…" : s; };
 
       // A field whose contents are nobody's to read or fill but the person's.
@@ -167,6 +179,7 @@ enum AgentPage {
 
       const tree = (options) => {
         const all = options.filter === "all", max = options.max || 20000, lines = [];
+        if (!options.ref && !all) noteRead();
         let total = 0, cut = 0;
         const emit = (depth, text) => {
           const s = "  ".repeat(Math.min(depth, 8)) + text;
@@ -220,11 +233,144 @@ enum AgentPage {
         return header() + "\n\n" + lines.join("\n");
       };
 
-      const text = (offset, max) => {
-        const whole = document.body ? document.body.innerText : "";
+      // The page's text; `options.selector` takes only what matches it, `options.main`
+      // only the page's main area.
+      const text = (offset, max, options) => {
+        options = options || {};
+        let whole = document.body ? document.body.innerText : "", note = "";
+        if (options.selector) {
+          let found = [];
+          try { found = [...document.querySelectorAll(options.selector)].filter(shown); } catch (error) { return "That isn't a CSS selector: " + options.selector; }
+          if (!found.length) return header() + "\n\nNothing on the page matches " + options.selector + ".";
+          whole = found.slice(0, 30).map((e) => e.innerText || e.textContent || "").join("\n---\n");
+          note = found.length + " match" + (found.length > 1 ? "es" : "") + " of " + options.selector + (found.length > 30 ? " (first 30 read)" : "") + "\n\n";
+        } else if (options.main) {
+          const area = ["main", "[role=main]", "article", "#main-content", "#content", "#main", ".main-content", ".content"]
+            .map((s) => { try { return document.querySelector(s); } catch (error) { return null; } })
+            .find((e) => e && shown(e) && (e.innerText || "").length >= 200);
+          if (area) { whole = area.innerText; note = "The page's main area only.\n\n"; }
+          else note = "No main area found: the whole page.\n\n";
+        }
         const part = whole.slice(offset, offset + max);
         const more = whole.length - offset - part.length;
-        return header() + "\n\n" + part + (more > 0 ? "\n\n… " + more + " more characters: ask again with offset " + (offset + part.length) + "." : "");
+        return header() + "\n\n" + note + part + (more > 0 ? "\n\n… " + more + " more characters: ask again with offset " + (offset + part.length) + "." : "");
+      };
+
+      // What a page says about what it sells: the product data it declares
+      // (JSON-LD, microdata, meta tags), or else cards that show a price.
+      const structured = (limit) => {
+        const lines = [], seen = new Set();
+        const one = (v) => (Array.isArray(v) ? v[0] : v);
+        const str = (v) => { v = one(v); return v == null ? "" : typeof v === "object" ? clean(v.name || v["@id"] || "", 60) : clean(v, 80); };
+        const has = (o, t) => [].concat(o["@type"] || []).some((x) => String(x).toLowerCase() === t);
+        // A column with nothing in it is "-", so the columns stay where they are.
+        const add = (name, parts) => {
+          const line = [clean(name, 120), ...parts.map((p) => p || "-")].join(" | ").replace(/( \| -)+$/, "");
+          if (name && !seen.has(line) && lines.length < limit) { seen.add(line); lines.push(line); }
+        };
+        const offerOf = (o) => {
+          const offers = [].concat(o.offers || []);
+          const f = offers[0] || {};
+          const price = f.price != null ? f.price : f.lowPrice != null ? f.lowPrice : o.price;
+          const high = f.highPrice != null && f.highPrice !== price ? "–" + f.highPrice : "";
+          const stock = str(f.availability).replace(/^.*\//, "");
+          return [price != null ? price + high + " " + str(f.priceCurrency || o.priceCurrency) : "", stock];
+        };
+        const take = (o, depth) => {
+          if (!o || typeof o !== "object" || depth > 6) return;
+          if (Array.isArray(o)) { o.forEach((x) => take(x, depth + 1)); return; }
+          if (has(o, "product") || has(o, "productgroup") || o.offers) {
+            const [price, stock] = offerOf(o);
+            const rating = o.aggregateRating ? str(o.aggregateRating.ratingValue) + "★" + (o.aggregateRating.reviewCount || o.aggregateRating.ratingCount ? " (" + (o.aggregateRating.reviewCount || o.aggregateRating.ratingCount) + ")" : "") : "";
+            add(str(o.name), [str(o.brand), price, stock, rating, str(o.sku || o.mpn || o.gtin13), str(o.url)]);
+          } else if (o.item && typeof o.item === "object") {
+            take(o.item, depth + 1);
+          } else if (has(o, "listitem") && o.name) {
+            add(str(o.name), [str(o.url)]);
+          }
+          for (const k of ["@graph", "itemListElement", "mainEntity", "hasVariant", "isRelatedTo"]) if (o[k]) take(o[k], depth + 1);
+        };
+        for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
+          try { take(JSON.parse(s.textContent), 0); } catch (error) {}
+        }
+        for (const e of document.querySelectorAll('[itemscope][itemtype*="schema.org/Product" i]')) {
+          const p = (n) => { const x = e.querySelector('[itemprop="' + n + '"]'); return x ? clean(x.getAttribute("content") || x.getAttribute("href") || x.textContent, 80) : ""; };
+          add(p("name"), [p("brand"), p("price") ? p("price") + " " + p("priceCurrency") : "", p("availability").replace(/^.*\//, ""), p("url")]);
+        }
+        const meta = (n) => { const m = document.querySelector('meta[property="' + n + '"], meta[name="' + n + '"]'); return m ? clean(m.content, 100) : ""; };
+        const metaPrice = meta("product:price:amount") || meta("og:price:amount");
+        const metaLine = metaPrice ? [meta("og:title"), metaPrice + " " + (meta("product:price:currency") || meta("og:price:currency")), (meta("product:availability") || meta("og:availability")), meta("og:url")].filter(Boolean).join(" | ") : "";
+        let how = "declared by the page (JSON-LD, microdata)", cols = "name | brand | price | stock | rating | id | address";
+        if (!lines.length && metaLine) { lines.push(metaLine); how = "declared by the page (meta tags)"; cols = "title | price | stock | address"; }
+        if (!lines.length) {
+          // Cards that show a price: a guess from how the page looks.
+          const price = /(?:₺|\bTL\b|\bTRY\b|\$|€|£|\bUSD\b|\bEUR\b)\s?\d[\d.,]*|\d[\d.,]*\s?(?:₺|\bTL\b|\bTRY\b|\$|€|£|\bUSD\b|\bEUR\b)/gi;
+          const cards = new Map();
+          for (const a of document.querySelectorAll("a[href]")) {
+            if (cards.size >= 400 || !/^https?:/i.test(a.href) || !shown(a)) continue;
+            const title = clean(a.innerText || (a.querySelector("img") || {}).alt || a.title || a.getAttribute("aria-label"), 160);
+            if (title.length < 3) continue;
+            let card = a;
+            for (let i = 0; i < 7 && card && !((card.innerText || "").match(price)); i++) card = card.parentElement;
+            if (!card || card === document.body) continue;
+            const found = (card.innerText || "").match(price) || [];
+            if (found.length > 4) continue;
+            const was = cards.get(card);
+            if (!was || (!/^[\d.,\s₺$€£TLtl]+$/.test(title) && title.length > was.title.length)) cards.set(card, { title, href: a.href, prices: [...new Set(found.map((x) => clean(x, 24)))].slice(0, 2) });
+          }
+          for (const { title, href, prices } of cards.values()) add(title, [prices.join(" / "), href]);
+          how = "a guess from the cards that show a price (the page declares no product data)"; cols = "name | price | address";
+        }
+        if (!lines.length) return header() + "\n\nNo product data: the page declares none and no card shows a price. `read_text` with `main` reads it as text.";
+        return header() + "\n\n" + lines.length + " found, " + how + ". " + cols + ":\n" + lines.join("\n");
+      };
+
+      // The one thing a call means by `label` (what it says), `selector` (CSS),
+      // `role` and `nth`, instead of a ref: the page is searched when the call
+      // is made, so a number that has died with a page change is not needed.
+      const resolve = (q) => {
+        const want = q.label ? String(q.label).toLowerCase().replace(/\s+/g, " ").trim() : "";
+        const role_ = q.role ? String(q.role).toLowerCase() : "";
+        const found = [];
+        let bad = false;
+        const rank = (text) => {
+          if (!want) return 1;
+          const t = String(text || "").toLowerCase().replace(/\s+/g, " ").trim();
+          return t === want ? 4 : t.startsWith(want) ? 3 : t.includes(want) ? 2 : 0;
+        };
+        const walk = (node, text) => {
+          for (const c of kids(node)) {
+            if (found.length >= 500) return;
+            if (c.nodeType !== 1 || skipped.has(c.tagName) || c.getAttribute("aria-hidden") === "true") continue;
+            const file = c.tagName === "INPUT" && c.type === "file";
+            if (c.tagName === "INPUT" && c.type === "hidden") continue;
+            if (!file && !shown(c)) continue;
+            const r = role(c);
+            let matches = true;
+            if (q.selector) { try { matches = c.matches(q.selector); } catch (error) { bad = true; return; } }
+            // To fill or type into: only what takes text, a choice or a tick.
+            if (q.fields && !(["INPUT", "TEXTAREA", "SELECT"].includes(c.tagName) || c.isContentEditable || ["textbox", "searchbox", "combobox", "checkbox", "radio", "switch", "slider", "spinbutton", "listbox"].includes(r))) matches = false;
+            const interactive = file || clickable(c, r, getComputedStyle(c));
+            if (matches && (q.selector || interactive || text) && (!role_ || r === role_)) {
+              const own = text ? clean([...c.childNodes].filter((n) => n.nodeType === 3).map((n) => n.nodeValue).join(" "), 200) : "";
+              const rk = text ? rank(own) : rank(name(c, r)) || (q.selector ? rank(c.innerText) : 0);
+              if (rk && (text ? own : true)) found.push({ c, rk, on: file || onScreen(box(c)) });
+            }
+            if (!q.selector && !text && interactive && leaf.has(r)) continue;
+            walk(c, text);
+          }
+        };
+        walk(document.documentElement, false);
+        // Words that are only text, with a click handler the page added itself.
+        if (!bad && !found.length && want && !q.selector && !q.fields) walk(document.documentElement, true);
+        if (bad) return { bad: true };
+        if (!found.length) return { none: true };
+        const best = Math.max(...found.map((f) => f.rk));
+        const tier = found.filter((f) => f.rk === best);
+        const index = q.nth ? Math.min(Math.max(q.nth, 1), tier.length) - 1 : Math.max(0, tier.findIndex((f) => f.on));
+        const pick = tier[index];
+        return { ref: refOf(pick.c), what: describe(pick.c), count: tier.length, nth: index + 1,
+          others: tier.filter((f, i) => i !== index).slice(0, 4).map((f) => describe(f.c)) };
       };
 
       const find = (query, limit) => {
@@ -434,20 +580,56 @@ enum AgentPage {
 
       // Until nothing on the page has changed for `idle` milliseconds (or `cap`
       // have gone): what a click set going has come to rest. Answers how long.
+      // No looking again and again: each change sets one timer again, and when it runs out
+      // nothing has changed for `idle` (the page is quiet); `cap` is only the watchdog.
       const quiet = (idle, cap) => new Promise((resolve) => {
         const start = performance.now();
-        let last = start;
-        const watcher = new MutationObserver(() => { last = performance.now(); });
+        let timer = 0;
+        const finish = () => { watcher.disconnect(); clearTimeout(timer); clearTimeout(deadline); resolve(Math.round(performance.now() - start)); };
+        const arm = () => { clearTimeout(timer); timer = setTimeout(finish, idle); };
+        const watcher = new MutationObserver(arm);
         // Pictures loading late, animations and the like only touch a few
         // attributes (src, style…): those say nothing of the page having changed.
         watcher.observe(document.documentElement, { subtree: true, childList: true, characterData: true, attributes: true,
           attributeFilter: ["class", "hidden", "open", "disabled", "value", "checked", "aria-expanded", "aria-hidden", "aria-selected", "aria-checked", "aria-pressed", "aria-busy"] });
-        const tick = () => {
-          const now = performance.now();
-          if (now - last >= idle || now - start >= cap) { watcher.disconnect(); resolve(Math.round(now - start)); return; }
-          setTimeout(tick, 10);
-        };
-        setTimeout(tick, Math.min(idle, 10));
+        const deadline = setTimeout(finish, cap);
+        arm();
+      });
+
+      // What a call that gives the page input waits for: the page says itself that it has taken
+      // the events (the first `types` event it sees, `count` times); `ms` is the watchdog.
+      let armedWith = null;
+      const arm = (types, count, ms) => {
+        armedWith = new Promise((resolve) => {
+          let left = count, timer = 0;
+          const handlers = types.map((t) => { const h = () => { if (--left <= 0) finish(t); }; document.addEventListener(t, h, true); return [t, h]; });
+          const finish = (why) => { for (const [t, h] of handlers) document.removeEventListener(t, h, true); clearTimeout(timer); resolve(why); };
+          timer = setTimeout(() => finish("time"), ms);
+        });
+        return true;
+      };
+      const armed = () => armedWith || Promise.resolve("none");
+
+      // After `n` frames have been drawn (for what was just put on the page to be on the picture); `ms` is the watchdog.
+      const frames = (n, ms) => new Promise((resolve) => {
+        let left = n;
+        const timer = setTimeout(() => resolve("time"), ms);
+        const step = () => { if (--left <= 0) { clearTimeout(timer); resolve("frames"); } else requestAnimationFrame(step); };
+        requestAnimationFrame(step);
+      });
+
+      // What a wait is woken by, instead of looking again and again: the first change to the
+      // page, a request that finished or the page loading; or `ms` (when something is due then).
+      const changed = (ms) => new Promise((resolve) => {
+        const off = [];
+        let timer = 0, done = false;
+        const finish = (why) => { if (done) return; done = true; off.forEach((f) => f()); clearTimeout(timer); resolve(why); };
+        const watcher = new MutationObserver(() => finish("changed"));
+        watcher.observe(document, { subtree: true, childList: true, characterData: true, attributes: true });
+        off.push(() => watcher.disconnect());
+        try { const seen = new PerformanceObserver(() => finish("resource")); seen.observe({ type: "resource" }); off.push(() => seen.disconnect()); } catch (e) {}
+        for (const t of ["load", "popstate", "hashchange"]) { const h = () => finish(t); addEventListener(t, h, { once: true }); off.push(() => removeEventListener(t, h)); }
+        timer = setTimeout(() => finish("time"), Math.max(0, ms));
       });
 
       // Everything on the page that can be clicked or filled, by ref: what it
@@ -463,7 +645,7 @@ enum AgentPage {
             const r = role(c);
             if (file || clickable(c, r, getComputedStyle(c))) {
               const parts = line(c, r);
-              out.set(Number(parts[0].slice(1, -1)), { text: parts.slice(1).join(" "), on: file || onScreen(box(c)) });
+              out.set(Number(parts[0].slice(1, -1)), { text: parts.slice(1).join(" "), on: file || onScreen(box(c)), key: (r || "clickable") + "|" + name(c, r) });
               if (leaf.has(r)) continue;
             } else if (r === "dialog" || r === "alertdialog" || r === "alert") {
               const n = clean(c.getAttribute("aria-label"), 60);
@@ -488,15 +670,43 @@ enum AgentPage {
           const first = [...now].filter(([, e]) => e.on).slice(0, limit).map(([r, e]) => shownAs(r, e));
           return { fresh: true, count: now.size, lines: first, header: header() };
         }
+        return compare(old, now, limit);
+      };
+
+      // What is new, gone or different between two inventories, as lines.
+      const compare = (old, now, limit) => {
+        const shownAs = (r, e) => "[" + r + "] " + e.text;
         const lines = [];
         let added = 0, removed = 0, changed = 0;
+        // Gone and come again, one of each of the same kind and name: the page
+        // rebuilt it. The old number leads to the new one from now on.
+        const gone = new Map(), came = new Map();
+        const push = (m, k, r) => { if (!m.has(k)) m.set(k, []); m.get(k).push(r); };
+        for (const [r, e] of old) if (!now.has(r)) push(gone, e.key, r);
+        for (const [r, e] of now) if (!old.has(r)) push(came, e.key, r);
+        const rebuilt = new Map();
+        for (const [k, from] of gone) {
+          const to = came.get(k);
+          if (to && from.length === 1 && to.length === 1) { aliases.set(from[0], to[0]); rebuilt.set(to[0], from[0]); }
+        }
+        const replaced = new Set(rebuilt.values());
         for (const [r, e] of now) {
           const was = old.get(r);
-          if (!was) { added++; if (lines.length < limit) lines.push("+ " + shownAs(r, e)); }
+          if (rebuilt.has(r)) { changed++; if (lines.length < limit) lines.push("~ [" + rebuilt.get(r) + "] is now [" + r + "] " + e.text); }
+          else if (!was) { added++; if (lines.length < limit) lines.push("+ " + shownAs(r, e)); }
           else if (was.text !== e.text) { changed++; if (lines.length < limit) lines.push("~ " + shownAs(r, e)); }
         }
-        for (const [r, e] of old) if (!now.has(r)) { removed++; if (lines.length < limit) lines.push("- " + shownAs(r, e)); }
-        return { fresh: false, count: now.size, added, removed, changed, lines };
+        for (const [r, e] of old) if (!now.has(r) && !replaced.has(r)) { removed++; if (lines.length < limit) lines.push("- " + shownAs(r, e)); }
+        return { fresh: false, count: now.size, added, removed, changed, lines, rebuilt: rebuilt.size };
+      };
+
+      // What `read_page` saw last, to say only what is different the next time.
+      let readBase = null;
+      const noteRead = () => { readBase = inventory(); };
+      const since = (limit) => {
+        const now = inventory(), old = readBase;
+        readBase = now;
+        return old ? compare(old, now, limit) : null;
       };
 
       // The page's search field, or the icon that opens it.
@@ -533,19 +743,22 @@ enum AgentPage {
 
       // The refs, drawn on the page where they are, for a picture to be taken.
       const markDown = () => { const host = document.getElementById("__agent_marks"); if (host) host.remove(); };
-      const markUp = (limit) => {
+      // `region` ({x, y, w, h} in the view's own pixels) draws only what is in it, so the
+      // limit goes to what a picture of that part shows.
+      const markUp = (limit, region) => {
         markDown();
         const boxes = [];
+        const inside = (b) => !region || (b.x + b.w > region.x && b.x < region.x + region.w && b.y + b.h > region.y && b.y < region.y + region.h);
         const walk = (node) => {
           for (const c of kids(node)) {
-            if (boxes.length >= 500) return;
+            if (boxes.length >= 600) return;
             if (c.nodeType !== 1 || skipped.has(c.tagName) || c.getAttribute("aria-hidden") === "true") continue;
             if (c.tagName === "INPUT" && c.type === "hidden") continue;
             if (!shown(c)) continue;
             const r = role(c);
             if (clickable(c, r, getComputedStyle(c))) {
               const b = box(c);
-              if (b.w >= 6 && b.h >= 6 && onScreen(b)) boxes.push({ ref: refOf(c), b });
+              if (b.w >= 6 && b.h >= 6 && onScreen(b) && inside(b)) boxes.push({ ref: refOf(c), b });
               if (leaf.has(r)) continue;
             }
             walk(c);
@@ -553,25 +766,39 @@ enum AgentPage {
         };
         walk(document.documentElement);
         boxes.sort((p, q) => p.b.y - q.b.y || p.b.x - q.b.x);
+        // Two frames on the same spot are one thing to click: the inner one is kept.
+        const distinct = boxes.filter((p, i) => !boxes.some((q, j) => j > i && Math.abs(p.b.x - q.b.x) < 3 && Math.abs(p.b.y - q.b.y) < 3 && Math.abs(p.b.w - q.b.w) < 3 && Math.abs(p.b.h - q.b.h) < 3));
         const colors = ["#e11d48", "#2563eb", "#16a34a", "#ea580c", "#9333ea", "#0d9488"];
         const host = document.createElement("div");
         host.id = "__agent_marks";
         host.style.cssText = "position:fixed;left:0;top:0;width:0;height:0;z-index:2147483647;pointer-events:none;";
-        const used = boxes.slice(0, limit);
+        const used = distinct.slice(0, limit);
+        // Each number goes where it covers no other number: at a corner of its
+        // frame, or beside it.
+        const placed = [];
+        const clash = (r) => placed.some((p) => r.x < p.x + p.w && r.x + r.w > p.x && r.y < p.y + p.h && r.y + r.h > p.y);
+        const fits = (r) => r.x >= 0 && r.y >= 0 && r.x + r.w <= innerWidth && r.y + r.h <= innerHeight && !clash(r);
         for (const { ref, b } of used) {
           const color = colors[ref % colors.length];
           const x = Math.max(0, b.x), y = Math.max(0, b.y);
           const w = Math.min(b.w, innerWidth - x), h = Math.min(b.h, innerHeight - y);
           const frame = document.createElement("div");
           frame.style.cssText = "position:fixed;box-sizing:border-box;border:2px solid " + color + ";left:" + x + "px;top:" + y + "px;width:" + w + "px;height:" + h + "px;";
+          host.appendChild(frame);
+          const tw = 7 * String(ref).length + 8, th = 13;
+          const spots = [[x - 2, y - 15], [x - 2, y - 2], [x + w - tw + 2, y - 15], [x + w - tw + 2, y - 2], [x - 2, y + h - th + 2], [x + w - tw + 2, y + h - th + 2],
+            [x + w + 1, y], [x - tw - 1, y], [x + w / 2 - tw / 2, y + h / 2 - th / 2]];
+          let at = spots.map(([sx, sy]) => ({ x: sx, y: sy, w: tw, h: th })).find(fits);
+          if (!at) at = { x: Math.min(Math.max(x - 2, 0), innerWidth - tw), y: Math.min(Math.max(y - 2, 0), innerHeight - th), w: tw, h: th };
+          placed.push(at);
           const tag = document.createElement("span");
           tag.textContent = String(ref);
-          tag.style.cssText = "position:absolute;left:-2px;top:" + (y >= 15 ? "-15px" : "-2px") + ";background:" + color + ";color:#fff;font:bold 11px/13px -apple-system,sans-serif;padding:0 3px;border-radius:3px;";
-          frame.appendChild(tag);
-          host.appendChild(frame);
+          tag.style.cssText = "position:fixed;left:" + at.x + "px;top:" + at.y + "px;background:" + color + ";color:#fff;font:bold 11px/13px -apple-system,sans-serif;padding:0 3px;border-radius:3px;box-sizing:border-box;min-width:" + tw + "px;text-align:center;";
+          host.appendChild(tag);
         }
         document.documentElement.appendChild(host);
-        return { drawn: used.length, more: boxes.length - used.length };
+        const rest = distinct.slice(limit);
+        return { drawn: used.length, more: rest.length, from: rest.length ? Math.round(Math.min(...rest.map((r) => r.b.y))) : 0 };
       };
 
       // The page's links, as they read and where they go.
@@ -589,12 +816,242 @@ enum AgentPage {
         return out;
       };
 
-      return { tree, text, find, spot, fill, insert, scroll, header, byRef, selection, inspect, quiet, mark, diff, searchField, markUp, markDown, links,
+      // A page with a password or card field on it: the pages that look hardest at what runs in them.
+      const guarded = () => [...document.querySelectorAll("input")].some(secret);
+
+      return { tree, text, structured, resolve, guarded, find, spot, fill, insert, scroll, header, byRef, selection, inspect, quiet, mark, diff, searchField, markUp, markDown, links, since, arm, armed, frames, changed,
         focus: () => { const e = focused(); return { typable: typable(e), secret: secret(e), frame: !!e && e.tagName === "IFRAME", what: e && e !== document.body ? describe(e) : "" }; },
         boxOf: (r) => { const e = byRef(r); return e ? box(e) : null; },
         show: (r) => { const e = byRef(r); if (!e) return false; e.scrollIntoView({ block: "center", inline: "center", behavior: "instant" }); return true; } };
     })();
     """#
+
+    // MARK: - what the page's own server gives (the api tool)
+
+    /// The body of a function run in the page itself, so the request goes as the page's own does
+    /// (its cookies, its origin): fetches `url`, and says what JSON came back, as its shape and a
+    /// sample, or as the values at `path` (and `fields` of each) one row each.
+    static let api = #"""
+    const sensitive = /pass(word|wd)?|pwd|secret|token|otp|cvv|cvc|card.?num|credential|authoriz|api.?key|session|jwt|ssn|private/i;
+    const scrub = (v, d) => {
+      if (d > 6) return "…";
+      if (Array.isArray(v)) return v.slice(0, 50).map((x) => scrub(x, d + 1));
+      if (v && typeof v === "object") { const o = {}; for (const k of Object.keys(v).slice(0, 80)) o[k] = sensitive.test(k) ? "[hidden]" : scrub(v[k], d + 1); return o; }
+      return v;
+    };
+    if (sensitive.test(path || "") || (fields || []).some((f) => sensitive.test(f))) return "That path names something that looks like a secret (a token, a password…): BasicShell doesn't give those.";
+    let r, text;
+    try {
+      r = await fetch(url, { credentials: "include", headers: { Accept: "application/json, text/plain, */*" } });
+      text = await r.text();
+    } catch (e) { return "Couldn't get " + url + ": " + (e && e.message || e); }
+    const type = r.headers.get("content-type") || "";
+    const head = "GET " + url + " → " + r.status + " " + type.split(";")[0] + ", " + (text.length > 1024 ? Math.round(text.length / 1024) + " KB" : text.length + " B");
+    let data;
+    try { data = JSON.parse(text); } catch (e) { return head + "\nNot JSON. It starts:\n" + text.replace(/\s+/g, " ").slice(0, 400); }
+    const kind = (v) => v === null ? "null" : Array.isArray(v) ? "array" : typeof v;
+    const shape = (v, d) => {
+      if (Array.isArray(v)) return "array(" + v.length + ")" + (v.length ? " of " + shape(v[0], d + 1) : "");
+      if (v && typeof v === "object") {
+        if (d >= 3) return "{…}";
+        const keys = Object.keys(v);
+        return "{ " + keys.slice(0, 24).map((k) => k + ": " + shape(v[k], d + 1)).join(", ") + (keys.length > 24 ? ", …+" + (keys.length - 24) : "") + " }";
+      }
+      return kind(v);
+    };
+    const walk = (v, p) => {
+      let cur = [v];
+      for (const part of p.replace(/\[(\d+|\*)\]/g, ".[$1]").split(".").filter(Boolean)) {
+        const next = [];
+        for (const c of cur) {
+          if (part === "[*]") { if (Array.isArray(c)) next.push(...c); }
+          else if (/^\[\d+\]$/.test(part)) { if (Array.isArray(c) && c[+part.slice(1, -1)] !== undefined) next.push(c[+part.slice(1, -1)]); }
+          else if (c && typeof c === "object" && part in c) next.push(c[part]);
+        }
+        cur = next;
+      }
+      return cur;
+    };
+    const cell = (v) => v === undefined ? "-" : typeof v === "string" ? v.replace(/\s+/g, " ").slice(0, 160) : JSON.stringify(scrub(v, 0)).slice(0, 160);
+    if (!path) {
+      const lists = [];
+      const find = (v, p, d) => {
+        if (lists.length >= 6 || d > 3) return;
+        if (Array.isArray(v)) { if (v.length > 1) lists.push((p || "[*]") + " (" + v.length + ")"); return; }
+        if (v && typeof v === "object") for (const k of Object.keys(v).slice(0, 30)) find(v[k], p ? p + "." + k : k, d + 1);
+      };
+      find(data, "", 0);
+      let sample = data;
+      if (Array.isArray(data)) sample = data[0]; else { const first = lists[0]; if (first) { const q = first.replace(/ \(\d+\)$/, ""); sample = (walk(data, q)[0] || [])[0]; } }
+      const out = [head, "shape: " + shape(data, 0)];
+      if (lists.length) out.push("lists: " + lists.join(", ") + (lists.length ? "  (path \"" + lists[0].replace(/ \(\d+\)$/, "") + "[*]\" with `fields` takes one row each)" : ""));
+      out.push("sample: " + JSON.stringify(scrub(sample, 0)).slice(0, 900));
+      return out.join("\n");
+    }
+    const found = walk(data, path);
+    if (!found.length) return head + "\nNothing at " + path + ". The shape is: " + shape(data, 0);
+    let rows = found;
+    // A single list at the path stands for its items.
+    if (found.length === 1 && Array.isArray(found[0]) && !/\[\d+\]$/.test(path)) rows = found[0];
+    const all = rows.length;
+    rows = rows.slice(0, limit);
+    const lines = rows.map((row) => fields && fields.length ? fields.map((f) => cell(walk(row, f)[0])).join(" | ") : cell(row));
+    let body = lines.join("\n");
+    if (body.length > max) body = body.slice(0, max) + "\n… cut at " + max + " characters.";
+    return head + "\n" + all + " at " + path + (all > rows.length ? ", first " + rows.length : "") + (fields && fields.length ? " (" + fields.join(" | ") + ")" : "") + ":\n" + body;
+    """#
+
+    // MARK: - when an action's effects are over (the tracker)
+
+    /// In the page's own world, because it is the page's timers, frames and requests it has to see. Put
+    /// there once per document, the first time an agent acts in it, so a page nobody works in pays nothing.
+    /// What is going on when an action begins is background; what is started after it, by it or by
+    /// anything it started, is waited for: so a page that reacts after 400 ms is waited for, and a page
+    /// that does nothing is not (measured against a 150 ms window of no change: that missed a third of the
+    /// reactions it was tried on and waited 107 ms too long on average; this missed none and waited 43).
+    /// A page that is never quiet within the cap is noisy: for the rest of the document only the old window.
+    static let tracker = #"""
+// A page is quiet when nothing the action started is still to happen. Everything that was already
+// going on when the action began (timers, frames, requests, animations, images) is background; what is
+// started after it, by the action or by anything it started, is not, until it has run.
+(() => {
+  const KEY = Symbol.for('basicshell.quiet');
+  if (window[KEY]) return;
+  const st0 = window.setTimeout.bind(window), ct0 = window.clearTimeout.bind(window), ra0 = window.requestAnimationFrame.bind(window);
+  const H = 600;                                  // a timer longer than this is not waited for
+  const S = { cur: null, active: false, timers: new Map(), raf: new Map(), net: new Map(), seq: 0, bgImages: new WeakSet(), bgAnimations: new WeakSet(),
+              watching: new WeakSet(), listeners: new Set(), noisy: false, born: 0, strikes: 0, waste: 0, fast: 0, netStart: new Map() };
+  const tell = () => { for (const f of [...S.listeners]) f(); };
+  const tag = () => { const t = S.cur === 'bg' ? 'bg' : S.active ? 'fg' : 'bg'; if (t === 'fg') S.born = performance.now(); return t; };
+  const st = window.setTimeout, ct = window.clearTimeout, ra = window.requestAnimationFrame, ca = window.cancelAnimationFrame, fe = window.fetch;
+
+  // Proxies around the natives, not functions of our own: a page that asks a function for its source (as
+  // detectors of tampering do) is told "[native code]", and `name` and `length` are the native's.
+  const wrap = (target, apply) => new Proxy(target, { apply });
+  window.setTimeout = wrap(st, (target, self, args) => {
+    const fn = args[0], ms = Number(args[1]) || 0;
+    if (typeof fn !== 'function') return Reflect.apply(target, self, args);
+    const t = tag();
+    const rest = args.slice(2);
+    const id = Reflect.apply(target, self, [function () {
+      const was = S.cur; S.cur = t; S.timers.delete(id);
+      try { return fn.apply(this, arguments); } finally { S.cur = was; tell(); }
+    }, ms, ...rest]);
+    S.timers.set(id, ms <= H ? t : 'bg');
+    return id;
+  });
+  window.clearTimeout = wrap(ct, (target, self, args) => { if (S.timers.delete(args[0])) tell(); return Reflect.apply(target, self, args); });
+  window.requestAnimationFrame = wrap(ra, (target, self, args) => {
+    const fn = args[0], t = tag();
+    const id = Reflect.apply(target, self, [function (ts) {
+      const was = S.cur; S.cur = t; S.raf.delete(id);
+      try { return fn.call(this, ts); } finally { S.cur = was; tell(); }
+    }]);
+    S.raf.set(id, t);
+    return id;
+  });
+  window.cancelAnimationFrame = wrap(ca, (target, self, args) => { if (S.raf.delete(args[0])) tell(); return Reflect.apply(target, self, args); });
+
+  const track = (promise, t) => { const id = ++S.seq; S.net.set(id, t); S.netStart.set(id, performance.now()); const end = () => { S.net.delete(id); S.netStart.delete(id); tell(); }; promise.then(end, end); return id; };
+  const response = new WeakMap();
+  window.fetch = wrap(fe, (target, self, args) => {
+    const t = tag();
+    const p = Reflect.apply(target, self, args);
+    track(p, t);
+    p.then((r) => response.set(r, t), () => {});
+    return p;
+  });
+  for (const m of ['json', 'text', 'blob', 'arrayBuffer', 'formData']) {
+    const o = Response.prototype[m];
+    if (!o) continue;
+    Response.prototype[m] = wrap(o, (target, self, args) => { const p = Reflect.apply(target, self, args); track(p, response.get(self) || 'bg'); return p; });
+  }
+  XMLHttpRequest.prototype.send = wrap(XMLHttpRequest.prototype.send, (target, self, args) => {
+    const id = ++S.seq; S.net.set(id, tag()); S.netStart.set(id, performance.now());
+    self.addEventListener('loadend', () => { S.net.delete(id); S.netStart.delete(id); tell(); }, { once: true });
+    return Reflect.apply(target, self, args);
+  });
+  document.addEventListener('load', tell, true); document.addEventListener('error', tell, true);
+
+  const animations = () => document.getAnimations().filter((a) => {
+    if (a.playState !== 'running' || S.bgAnimations.has(a)) return false;
+    const end = a.effect && a.effect.getComputedTiming().endTime;
+    return Number.isFinite(end);
+  });
+  const inView = (i) => { const b = i.getBoundingClientRect(); return b.width > 0 && b.height > 0 && b.bottom > 0 && b.top < innerHeight && b.right > 0 && b.left < innerWidth; };
+  // A lazy image far off the page never loads by itself: it counts only when the action is one that brings
+  // pictures into view (a scroll), and then once it is in view.
+  const images = (lazy) => [...document.images].filter((i) => !i.complete && i.src && !S.bgImages.has(i) && (i.loading !== 'lazy' || (lazy && inView(i))));
+  const count = (m) => { let n = 0; for (const t of m.values()) if (t === 'fg') n++; return n; };
+  // A request is waited for as long as `budget` from when it began (a reaction fetches and renders within
+  // that; a beacon or a long poll goes on much longer and is not one). `S.expiry` is when the next ages out.
+  let netBudget = 1e9;
+  const liveNet = () => { let n = 0; S.expiry = Infinity; const now = performance.now(); for (const [id, t] of S.net) { if (t !== 'fg') continue; const left = (S.netStart.get(id) || now) + netBudget - now; if (left > 0) { n++; S.expiry = Math.min(S.expiry, left); } } return n; };
+  const causes = (lazy) => count(S.timers) + count(S.raf) + liveNet() + animations().length + images(lazy).length;
+  const watch = () => { for (const a of animations()) if (!S.watching.has(a)) { S.watching.add(a); a.finished.then(tell, tell); } };
+  // Task turns, not frames: a window that is covered or in the background gets no frames, and a page is
+  // asked about its animations (document.getAnimations) with its styles brought up to date on the spot.
+  const frames = (n) => new Promise((r) => { const go = () => { if (--n <= 0) r(); else st0(go, 0); }; st0(go, 0); });
+
+  // The action is about to begin: all there is now is background.
+  const begin = () => {
+    S.active = true; S.cur = null;
+    for (const m of [S.timers, S.raf, S.net]) for (const k of m.keys()) m.set(k, 'bg');
+    for (const a of document.getAnimations()) S.bgAnimations.add(a);
+    for (const i of document.images) if (!i.complete) S.bgImages.add(i);
+    return true;
+  };
+
+  const MUT = { subtree: true, childList: true, characterData: true, attributes: true,
+    attributeFilter: ['class', 'hidden', 'open', 'disabled', 'value', 'checked', 'aria-expanded', 'aria-hidden', 'aria-selected', 'aria-checked', 'aria-pressed', 'aria-busy'] };
+  // Resolves when nothing the action started is pending for two frames and the page has not changed for
+  // `margin` ms (a margin for what cannot be seen: messages between tasks); `cap` is the watchdog. A page
+  // that never gets quiet within it is noisy: from then on only the mutation window is used.
+  const settled = ({ cap = 500, margin = 30, window: win = 150, lazy = false, netBudget: nb = 1e9 } = {}) => new Promise((resolve) => {
+    netBudget = nb;
+    const t0 = performance.now();
+    let timer = 0, done = false, checking = false, lastChange = 0, busy = false, busyEnd = 0;
+    const mo = new MutationObserver(() => { lastChange = performance.now(); if (S.noisy) arm(win); else if (quiet) arm(margin); });
+    let quiet = false;
+    const arm = (ms) => { ct0(timer); timer = st0(() => finish(S.noisy ? 'window' : 'quiet'), ms); };
+    const finish = (why) => {
+      if (done) return; done = true; S.listeners.delete(check); mo.disconnect(); ct0(timer); ct0(deadline);
+      if (why === 'quiet') S.strikes = 0;
+      // A page that goes on being quiet quickly is forgiven its wasted waits, one for every five: a document that
+      // lives for hours does not drift into the old window because of a few chance hits.
+      if (why === 'quiet' && performance.now() - t0 <= win && ++S.fast >= 5) { S.fast = 0; if (S.waste > 0) S.waste--; }
+      // Waiting past the old window for nothing to change is waiting wasted: twice in a document and it is not done again.
+      const ms = performance.now() - t0;
+      // (only when it was something pending that was waited on, not a stall of the page's own thread)
+      if (ms > 300 && (busy || busyEnd > t0 + win) && lastChange < t0 + win && !S.noisy && ++S.waste >= 2) S.noisy = true;
+      resolve({ ms: Math.round(performance.now() - t0), why });
+    };
+    const check = async () => {
+      if (done || checking || S.noisy) return;
+      checking = true; watch();
+      // When something was pending, for how long (a stall of the page's own thread is not that).
+      if (causes(lazy) > 0) busy = true; else if (busy) { busy = false; busyEnd = performance.now(); }
+      if (causes(lazy) === 0) { await frames(2); watch(); if (!done && causes(lazy) === 0) { quiet = true; arm(margin); } else quiet = false; } else { quiet = false; ct0(timer); if (Number.isFinite(S.expiry) && S.expiry > 0) st0(check, S.expiry + 2); }
+      checking = false;
+    };
+    mo.observe(document.documentElement, MUT);
+    // Two in a row, with new work still being started each time, and the page is noisy.
+    const deadline = st0(() => {
+      if (done) return;
+      if (performance.now() - S.born < 300 && ++S.strikes >= 2) S.noisy = true;
+      // What was still pending has shown it is long-lived: it is background from now on, and the next action need not wait for it.
+      for (const m of [S.timers, S.raf, S.net]) for (const k of m.keys()) m.set(k, 'bg');
+      for (const a of document.getAnimations()) S.bgAnimations.add(a);
+      for (const i of document.images) if (!i.complete) S.bgImages.add(i);
+      finish('cap');
+    }, cap);
+    if (S.noisy) arm(win); else { S.listeners.add(check); st0(check, 0); }
+  });
+
+  const api = { native: { st0, ct0, ra0 }, begin, settled, state: () => ({ timers: count(S.timers), raf: count(S.raf), net: count(S.net), anim: animations().length, imgs: images().length, noisy: S.noisy, waste: S.waste }) };
+  Object.defineProperty(window, KEY, { value: api, enumerable: false });
+})();
+"""#
 
     // MARK: - frames from other sites
 

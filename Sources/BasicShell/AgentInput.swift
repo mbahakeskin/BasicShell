@@ -26,7 +26,12 @@ enum AgentInput {
 
     static func move(_ web: WKWebView, to point: CGPoint) {
         guard let event = mouse(.mouseMoved, web, at: point, count: 0, modifiers: []) else { return }
-        web.mouseMoved(with: event)
+        // Through the window, as the person's pointer comes: a move handed straight to the
+        // view doesn't reach the page, and hover styles and menus stay as they were.
+        let was = web.window?.acceptsMouseMovedEvents
+        web.window?.acceptsMouseMovedEvents = true
+        web.window?.sendEvent(event)
+        if let was { web.window?.acceptsMouseMovedEvents = was }
     }
 
     static func click(_ web: WKWebView, at point: CGPoint, right: Bool, count: Int, modifiers: NSEvent.ModifierFlags) {

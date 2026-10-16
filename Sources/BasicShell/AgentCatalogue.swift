@@ -10,23 +10,23 @@ import Foundation
 extension AgentTools {
     /// A line for each tool.
     static let lines: [String: String] = [
-        "tabs": "List open tabs: number, title, address, state. No private ones.",
+        "tabs": "List open tabs: number, title, address, state. Filter: from_tab to_tab, yours, query, window. No private ones.",
         "open": "Open address in a new background tab, wait, list its controls. http, https, file.",
         "close": "Close a tab.",
         "select": "Show a tab to the person.",
         "navigate": "Go to an address, or back, forward, reload, hard_reload. Lists the page's controls.",
-        "read_text": "The page's text. Long page: offset.",
-        "read_page": "The page's controls with refs, to click or fill by ref. filter all: text too.",
+        "read_text": "The page's text. Long page: offset. selector or main for a part; structured for products (name, price, stock).",
+        "read_page": "The page's controls with refs, to click or fill by ref. filter all: text too. since_last: only what changed.",
         "find": "Controls or text by words, with refs.",
         "screenshot": "Picture of the tab. max_width, quality, region or ref, marks (refs drawn on it), full_page with tile or overview.",
-        "click": "Click a ref, or x y in the last screenshot. Says what changed.",
-        "hover": "Pointer over a ref, or x y.",
-        "drag": "Drag from ref or x y to to_ref or to_x to_y.",
-        "type": "Type text where the keyboard is, or into ref. submit: Enter after.",
+        "click": "Click a ref, a label (what it says), a selector, or x y in a screenshot. Says what changed; expect checks the result.",
+        "hover": "Pointer over a ref, label, selector or x y. Says what appeared.",
+        "drag": "Drag from ref, label, selector or x y to to_ref, to_label, to_selector or to_x to_y.",
+        "type": "Type text where the keyboard is, or into a ref, label or selector. submit: Enter after.",
         "key": "Press keys, space-separated (Enter Tab cmd+a). repeat.",
-        "scroll": "Scroll the page, or bring ref into view.",
-        "fill": "Set a field by ref: text, choice, or true false.",
-        "fill_form": "Fill many fields [{ref, value}] in one call, then submit (Enter, or click submit_ref).",
+        "scroll": "Scroll the page, or bring a ref, label or selector into view.",
+        "fill": "Set a field by ref, label or selector: text, choice, or true false.",
+        "fill_form": "Fill many fields [{ref or label, value}] in one call, then submit (Enter, or click submit_ref or submit_label).",
         "search": "Search the site: finds its search field, types the query, Enter.",
         "read_pages": "Read up to 25 addresses in one call: each page's text, links optional.",
         "upload": "Give files (full paths) to a file field ref. The person is asked.",
@@ -34,7 +34,8 @@ extension AgentTools {
         "wait": "Wait seconds, or until text, gone, selector, url_contains or network_idle.",
         "console": "The page's console lines. Developer tools.",
         "network": "The page's requests; show N for one's details. Developer tools.",
-        "evaluate": "Run JavaScript in the page (async function body, return the answer). Developer tools.",
+        "api": "The page's own fetch/XHR calls (list), or what one returns: JSON shape and sample, or path + fields as rows. Developer tools.",
+        "evaluate": "Run JavaScript in the page (async function body, return the answer; values in args). Developer tools.",
         "history": "Visited pages found by words. Switch: history.",
         "bookmarks": "Bookmarks found by words. Switch: history.",
         "downloads": "This session's downloads. Switch: history.",
@@ -54,7 +55,7 @@ extension AgentTools {
         "site_info": "Connection security, certificate, permissions, cookie count, zoom, how the tab is set.",
         "features": "List, set or reset WebKit features (not privacy or security). Switch: WebKit features.",
         "storage": "Cookies, local or session storage, databases: read, delete, clear. Switch: storage.",
-        "batch": "Run up to 20 {name, input} tools in order; stops at the first that fails.",
+        "batch": "Run up to 20 {name, input, optional, repeat} tools in order; stops at the first that fails (unless optional). repeat: until it fails.",
         "help": "The whole description of a tool (what its parameters mean, limits, cases); no tool: the list.",
     ]
 
@@ -68,6 +69,24 @@ extension AgentTools {
         "modifiers": "cmd shift alt ctrl joined by +",
         "code": "async function body; return the answer",
         "paths": "full file paths",
+        "label": "what it says (name or text), instead of ref",
+        "selector": "CSS selector, instead of ref",
+        "role": "with label or selector: button, link, textbox…",
+        "nth": "which of several matches, 1 = first",
+        "picture": "number a region or tile screenshot gave, for x y in it",
+        "expect": "{text, gone, selector, url_contains, seconds}: fails if the page isn't so",
+        "args": "values for the code, read there as args.name",
+        "main": "only the main area, without menu and footer",
+        "structured": "products the page declares: name, brand, price, stock",
+        "from_tab": "first tab number", "to_tab": "last tab number",
+        "yours": "only tabs the agent opened",
+        "to_label": "where to let go: what it says", "to_selector": "where to let go: CSS selector",
+        "submit_label": "name of the button to click after",
+        "full_urls": "addresses whole, not cut",
+        "request": "number of a call in the api list",
+        "path": "place in the JSON: data.items[*].name",
+        "fields": "what to take from each item: [name, price]",
+        "since_last": "only what changed since your last read_page of this page",
     ]
 
     private static func terse(_ schema: Any, _ key: String? = nil) -> Any {
@@ -78,6 +97,8 @@ extension AgentTools {
             let page = (dict["enum"] as? [String])?.contains("page") == true
             dict["description"] = key == "observe" && page ? "page (default): list the page's controls; none" : hint
         }
+        // What an object takes is in its hint, and in `help`.
+        if key == "expect" { dict.removeValue(forKey: "properties") }
         if let properties = dict["properties"] as? [String: Any] {
             var kept: [String: Any] = [:]
             for (name, value) in properties { kept[name] = terse(value, name) }

@@ -88,6 +88,31 @@ final class Tab: NSObject, Identifiable {
     @ObservationIgnored var agentNumber: Int?
     /// The web view's points to a pixel of the last picture the agent took.
     @ObservationIgnored var agentScale: CGFloat = 1
+    /// The last pictures it took, by number, so a click can be given in the
+    /// pixels of a part of the view or of a tile of the page (see PictureFrame).
+    @ObservationIgnored var agentFrames: [Int: PictureFrame] = [:]
+    @ObservationIgnored var agentPictures = 0
+    // What the agent waits for in a page, each woken by its own event (see Waiters).
+    /// Main-frame navigations the page's delegate was asked about and let go: one begun by
+    /// a click is decided before it shows as loading, so this is how a wait knows to wait.
+    @ObservationIgnored var navigationIntents = 0
+    @ObservationIgnored var agentIntents = 0
+    @ObservationIgnored let loadEnded = Waiters()
+    @ObservationIgnored let loadBegun = Waiters()
+    @ObservationIgnored let dialogEnded = Waiters()
+    @ObservationIgnored let offerTaken = Waiters()
+
+    /// Until the page is no longer loading.
+    func settled(atMost seconds: Double = 10) async {
+        guard let web = webView, web.isLoading else { return }
+        await loadEnded.wait(atMost: seconds)
+    }
+
+    /// Until the page has begun loading, if it hasn't: for a navigation that was decided on and not yet started.
+    func beginning(atMost seconds: Double) async {
+        guard let web = webView, !web.isLoading else { return }
+        await loadBegun.wait(atMost: seconds)
+    }
     /// What the page logged and loaded, while the developer tools are on.
     struct Logged {
         let id: Int
@@ -233,6 +258,9 @@ final class Tab: NSObject, Identifiable {
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.isLoading = web.isLoading
+                    #if AGENT
+                    if web.isLoading { self.loadBegun.wake() } else { self.loadEnded.wake() }
+                    #endif
                     Extensions.shared.changed(self, .loading)
                 }
             },
@@ -250,6 +278,9 @@ final class Tab: NSObject, Identifiable {
 
     func load(_ url: URL) {
         self.url = url
+        #if AGENT
+        navigationIntents += 1
+        #endif
         let web = makeWebView()
         if url.isFileURL {
             // A file may read only what sits beside it.
@@ -337,6 +368,12 @@ extension Tab: WKNavigationDelegate {
             host?.open(url, from: self, select: action.modifierFlags.contains(.shift))
             return
         }
+        #if AGENT
+        // A move within the page (an anchor) isn't a load.
+        let here = webView.url?.absoluteString.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).first
+        let there = url.absoluteString.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).first
+        if action.targetFrame?.isMainFrame ?? true, !(url.fragment != nil && here == there) { navigationIntents += 1 }
+        #endif
         decisionHandler(.allow, preferences)
     }
 

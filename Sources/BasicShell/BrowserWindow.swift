@@ -239,7 +239,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         }
         page.layer?.cornerRadius = framed ? 10 : 0
         #if AGENT
-        agentFrame?.rootView = AgentFrame(radius: framed ? 10 : 0)
+        agentFrame?.rootView = AgentFrame(radius: framed ? 10 : 0, tab: shell.selected)
         #endif
         if animated {
             NSAnimationContext.runAnimationGroup { context in
@@ -639,9 +639,11 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     /// The frame around the page, there while the tab shown is one the agent
     /// works in.
     func agentChanged() {
-        let framed = shell.selected.map { AgentAccess.shared.holds($0) } ?? false
+        // Framed while the agent is at work in the tab shown, and for a moment once it has finished.
+        let framed = shell.selected.map { AgentAccess.shared.presence[$0.id] != nil } ?? false
+        agentFrame?.rootView = AgentFrame(radius: page.layer?.cornerRadius ?? 0, tab: shell.selected)
         if framed, agentFrame == nil {
-            let host = AgentFrameHost(rootView: AgentFrame())
+            let host = AgentFrameHost(rootView: AgentFrame(radius: page.layer?.cornerRadius ?? 0, tab: shell.selected))
             host.sizingOptions = []
             host.safeAreaRegions = []
             host.frame = page.frame

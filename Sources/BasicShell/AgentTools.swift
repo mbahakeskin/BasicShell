@@ -48,6 +48,20 @@ enum AgentTools {
     private static let x: [String: Any] = ["type": "number", "description": "Across, in the pixels of the last `screenshot` of this tab."]
     private static let y: [String: Any] = ["type": "number", "description": "Down, in the pixels of the last `screenshot` of this tab."]
 
+    // What a call can mean instead of a ref: found on the page when it is made.
+    private static let label: [String: Any] = ["type": "string", "description": "Instead of a ref: what the thing says (its name or text, case ignored; the best match is taken). Looked for when the call is made, so it works on a page that has changed since `read_page`."]
+    private static let selector: [String: Any] = ["type": "string", "description": "Instead of a ref: a CSS selector (with `label`, the matches that say it)."]
+    private static let role: [String: Any] = ["type": "string", "description": "With `label` or `selector`: only things of this role (button, link, textbox, checkbox…), as `read_page` shows it."]
+    private static let nth: [String: Any] = ["type": "integer", "description": "With `label` or `selector`: which of several matches, 1 for the first on the page. Left out: the first in the view."]
+    private static let picture: [String: Any] = ["type": "integer", "description": "Which picture x and y are in: the number a `screenshot` of a `region` or a `tile` gave. Left out: the last screenshot of the whole view."]
+    private static let expect: [String: Any] = [
+        "type": "object",
+        "description": "After the action, wait up to `seconds` (3 unless said, 10 at most) for the page to be as said, and report whether it was: {text: words that should be on the page, gone: words that should not be, selector: CSS that should match, url_contains}. If it did not come to hold, the call fails, so a `batch` stops there.",
+        "properties": [
+            "text": ["type": "string"], "gone": ["type": "string"], "selector": ["type": "string"], "url_contains": ["type": "string"], "seconds": ["type": "number"],
+        ] as [String: Any],
+    ]
+
     private static let observe: [String: Any] = [
         "type": "string", "enum": ["none", "changes"],
         "description": "What comes back besides where the tab is. \"changes\" (the default): what appeared, went or changed among the things that can be clicked or filled, or, when a new page has loaded, what is on it: so a `read_page` isn't needed to see the result. \"none\": only where the tab is.",
@@ -60,7 +74,14 @@ enum AgentTools {
     /// Every tool with its whole description: what `help` gives, and what the
     /// terse list the agent is handed is made from.
     static let full: [[String: Any]] = [
-        tool("tabs", "The open tabs in every window: each one's number, title and address, which is shown, which are asleep. Private tabs are left out.", reads: true),
+        tool("tabs", "The open tabs in every window: each one's number, title and address, which is shown, which are asleep. Private tabs are left out. Long addresses are cut; the numbers are the same however it is filtered.", [
+            "from_tab": ["type": "integer", "description": "Only tabs from this number on (with `to_tab`: that range)."],
+            "to_tab": ["type": "integer", "description": "Only tabs up to this number."],
+            "yours": ["type": "boolean", "description": "Only the tabs the agent opened or has worked in."],
+            "query": ["type": "string", "description": "Only tabs with these words in their title or address."],
+            "window": ["type": "integer", "description": "Only this window's (1 is the first listed)."],
+            "full_urls": ["type": "boolean", "description": "Give the addresses whole."],
+        ], reads: true),
         tool("open", "Opens an address in a new tab, behind the tab the person is looking at unless `front` is true, and waits for it to load.", [
             "url": ["type": "string", "description": "The address: http, https, or a file on this Mac (file:// or a path such as /Users/me/page.html). Files count as one site, \"files on this Mac\", which the person allows once (or not at all, with bypass)."],
             "front": ["type": "boolean", "description": "Show the new tab to the person. Off unless they want to watch."],
@@ -75,16 +96,21 @@ enum AgentTools {
         tool("read_text", "The page's text as it reads, with its title and address. For articles and long pages.", [
             "max_chars": ["type": "integer", "description": "How much to give, 20000 unless said."],
             "offset": ["type": "integer", "description": "Where to start, to read on through a long page."],
+            "selector": ["type": "string", "description": "Only the text of what matches this CSS selector."],
+            "main": ["type": "boolean", "description": "Only the page's main area (main, article…), without the menu and footer."],
+            "structured": ["type": "boolean", "description": "Not the text but what the page says it sells: name, brand, price, stock, rating and address of each product it declares (JSON-LD, microdata, meta tags); on a page that declares none, a guess from the cards that show a price."],
+            "limit": ["type": "integer", "description": "With structured: how many products, 40 unless said, 200 at most."],
         ], reads: true),
         tool("read_page", "What is on the page, each thing that can be clicked or filled with its ref number, role, name and state. Use the refs with click, fill, type and the rest.", [
             "filter": ["type": "string", "enum": ["interactive", "all"], "description": "\"interactive\" (the default): what can be clicked or filled. \"all\": the text and headings too."],
             "ref": ["type": "integer", "description": "Only what is inside this."],
             "max_chars": ["type": "integer", "description": "How much to give, 20000 unless said."],
+            "since_last": ["type": "boolean", "description": "Only what is new, gone or different since your last `read_page` of this page (the first time, and on a new page, all of it). For watching a page that changes, or a long page you have read."],
         ], reads: true),
         tool("find", "Things on the page whose name, role, value or text has these words in it, with their refs.", [
             "query": ["type": "string", "description": "What to look for, as it is written on the page."],
         ], required: ["query"], reads: true),
-        tool("screenshot", "A picture of the page as it is in the tab now. Positions given to click, hover and scroll are in its pixels. You decide how much to see and at what price: `max_width` and `quality` make it smaller (800 shows a layout; 1440 reads small print), `region` or `ref` take one part, enlarged, `marks` draws the refs on the things that can be clicked, so you answer with a number, and `full_page` goes through a long page one view (`tile`) at a time, or all at once as a small `overview`.", [
+        tool("screenshot", "A picture of the page as it is in the tab now. Positions given to click, hover and scroll are in its pixels (for a `region` or a `tile`, give the `picture` number it says). You decide how much to see and at what price: `max_width` and `quality` make it smaller (800 shows a layout; 1440 reads small print), `region` or `ref` take one part, enlarged, `marks` draws the refs on the things that can be clicked, so you answer with a number, and `full_page` goes through a long page one view (`tile`) at a time, or all at once as a small `overview`.", [
             "ref": ["type": "integer", "description": "Only this thing, brought into view first."],
             "region": ["type": "array", "items": ["type": "number"], "minItems": 4, "maxItems": 4,
                        "description": "Only this part, enlarged to show its detail: [left, top, right, bottom] in the pixels of the last whole-view screenshot."],
@@ -95,56 +121,64 @@ enum AgentTools {
             "tile": ["type": "integer", "description": "With full_page: which view of the page, from 1 (the top) down."],
             "overview": ["type": "boolean", "description": "With full_page: the whole page as one picture no taller than 1600 pixels, to see its shape; on a long page it can take several seconds."],
         ], reads: true),
-        tool("click", "Clicks something on the page: by its ref, or at a position in the last screenshot.", [
-            "ref": ref, "x": x, "y": y,
+        tool("click", "Clicks something on the page: by its ref, by what it says (`label`) or a CSS `selector`, or at a position in a screenshot.", [
+            "ref": ref, "label": label, "selector": selector, "role": role, "nth": nth, "x": x, "y": y, "picture": picture,
             "button": ["type": "string", "enum": ["left", "right"], "description": "Left unless said."],
             "count": ["type": "integer", "description": "2 for a double click, 3 for a triple."],
             "modifiers": ["type": "string", "description": "Keys held meanwhile: any of cmd, shift, alt, ctrl, joined with +."],
-            "observe": observe,
+            "observe": observe, "expect": expect,
         ]),
-        tool("hover", "Moves the pointer over something, for menus and hints that show then.", ["ref": ref, "x": x, "y": y]),
-        tool("drag", "Presses on one place, drags the pointer to another and lets go: sliders, sortable lists, canvases, maps, selecting text. Each end is a ref, or a position in the last screenshot. A page that drags with the browser's own drag and drop (a file or a link dragged between things) may not take it.", [
-            "ref": ref, "x": x, "y": y,
+        tool("hover", "Moves the pointer over something, for menus and hints that show then; says what appeared or changed.", [
+            "ref": ref, "label": label, "selector": selector, "role": role, "nth": nth, "x": x, "y": y, "picture": picture, "observe": observe,
+        ]),
+        tool("drag", "Presses on one place, drags the pointer to another and lets go: sliders, sortable lists, canvases, maps, selecting text. Each end is a ref, a `label` or `selector`, or a position in a screenshot. A page that drags with the browser's own drag and drop (a file or a link dragged between things) may not take it.", [
+            "ref": ref, "label": label, "selector": selector, "x": x, "y": y, "picture": picture,
             "to_ref": ["type": "integer", "description": "Where to let go: the number of something on the page."],
+            "to_label": ["type": "string", "description": "Where to let go: what it says."],
+            "to_selector": ["type": "string", "description": "Where to let go: a CSS selector."],
             "to_x": x, "to_y": y,
             "modifiers": ["type": "string", "description": "Keys held meanwhile: any of cmd, shift, alt, ctrl, joined with +."],
-            "observe": observe,
+            "observe": observe, "expect": expect,
         ]),
         tool("type", "Types text where the keyboard is in the page, or into `ref` (clicked first). Never into a password or card field.", [
             "text": ["type": "string", "description": "What to type."],
-            "ref": ref,
+            "ref": ref, "label": label, "selector": selector,
             "submit": ["type": "boolean", "description": "Press Return after."],
-            "observe": observe,
+            "observe": observe, "expect": expect,
         ], required: ["text"]),
         tool("key", "Presses keys in the page, one after another.", [
             "keys": ["type": "string", "description": "Space-separated: Enter, Tab, Escape, Backspace, Delete, Space, ArrowUp/Down/Left/Right, Home, End, PageUp, PageDown, or a character; with modifiers as cmd+a, shift+Tab."],
             "repeat": ["type": "integer", "description": "How many times to go through them, 1 unless said, 100 at most."],
-            "observe": observe,
+            "observe": observe, "expect": expect,
         ], required: ["keys"]),
         tool("scroll", "Scrolls the page, or what is under a position, or brings a ref into view.", [
             "direction": ["type": "string", "enum": ["down", "up", "left", "right"], "description": "Which way. Down unless said."],
             "amount": ["type": "number", "description": "How far, in screens of the view: 0.8 unless said."],
             "ref": ["type": "integer", "description": "Bring this into view instead."],
+            "label": label, "selector": selector,
             "x": x, "y": y,
         ]),
-        tool("fill", "Sets a field: a text field's text (what was there goes), a menu's choice by its text, a checkbox or radio on or off.", [
-            "ref": ref,
+        tool("fill", "Sets a field: a text field's text (what was there goes), a menu's choice by its text, a checkbox or radio on or off. The field is a ref, a `label` or a `selector`.", [
+            "ref": ref, "label": label, "selector": selector,
             "value": ["type": "string", "description": "The text, the choice, or \"true\" or \"false\" for a checkbox or a radio."],
-            "observe": observe,
-        ], required: ["ref", "value"]),
+            "observe": observe, "expect": expect,
+        ], required: ["value"]),
         tool("fill_form", "Fills several fields in one go (a text field's text, a menu's choice, a checkbox on or off), then, if asked, presses Return in the last one or clicks a button: a whole form in one call instead of one call a field. Never a password or card field.", [
             "fields": ["type": "array", "items": ["type": "object", "properties": [
                 "ref": ["type": "integer", "description": "The field's number from `read_page` or `find`."],
+                "label": ["type": "string", "description": "Instead of a ref: the field's name, as it is on the page."],
+                "selector": ["type": "string", "description": "Instead of a ref: a CSS selector."],
                 "value": ["type": "string", "description": "What to put there: the text, the choice, or \"true\" or \"false\" for a checkbox or a radio."],
-            ] as [String: Any], "required": ["ref", "value"]] as [String: Any], "description": "The fields, in order; 30 at most."],
+            ] as [String: Any], "required": ["value"]] as [String: Any], "description": "The fields, in order; 30 at most. Each has a `ref`, a `label` or a `selector`."],
             "submit": ["type": "boolean", "description": "Press Return in the last field after."],
             "submit_ref": ["type": "integer", "description": "Instead, the number of the button to click after."],
-            "observe": observe,
+            "submit_label": ["type": "string", "description": "Instead, the name of the button to click after."],
+            "observe": observe, "expect": expect,
         ], required: ["fields"]),
         tool("search", "Searches the site you are on: finds the page's search field itself (opening it first when it is only an icon), puts the query in and presses Return. One call instead of reading the page, filling and submitting.", [
             "query": ["type": "string", "description": "What to search for."],
             "submit": ["type": "boolean", "description": "Press Return after. True unless said."],
-            "observe": observe,
+            "observe": observe, "expect": expect,
         ], required: ["query"]),
         tool("read_pages", "Reads many pages in one call: each address is loaded in a tab of its own, in the background and a few at a time (pictures, video and fonts are not loaded), its text is taken and the tab is closed. For gathering from a list of pages, or following links. The person is asked, unless nothing is asked, for each site once.", [
             "urls": ["type": "array", "items": ["type": "string"], "description": "Addresses, http, https or a file on this Mac; 25 at most."],
@@ -177,8 +211,18 @@ enum AgentTools {
             "show": ["type": "integer", "description": "The number of a request: its headers and bodies, secrets replaced by [hidden]."],
             "clear": ["type": "boolean", "description": "Forget them after."],
         ], reads: true),
+        tool("api", "The calls the page itself made to fetch its data (fetch and XHR), and what one of them returns: with nothing asked, the list; with a `request` number from it, or an `url` of the page's own site, the JSON it gives (as the tab's own session, signed in as the tab is) as its shape and a sample, or with `path` and `fields` just the values wanted, one row each. For getting a listing from the site's own data instead of scraping its page, and for reading many pages' worth with one call. Only GET requests are repeated; a POST (GraphQL, say) is not: `network` with `show` has its body if the person turned bodies on. Needs the developer tools turned on in Settings › Agents; pages opened before that have no list.", [
+            "request": ["type": "integer", "description": "The number of a call in the list, to repeat it."],
+            "url": ["type": "string", "description": "Instead, an address on the page's own site, or one the page called (relative ones are taken from the page)."],
+            "pattern": ["type": "string", "description": "For the list: only calls with this in their address."],
+            "path": ["type": "string", "description": "Where in the JSON to look: names and [n] or [*], as in data.items[*] or products[0].price. Left out: the shape and a sample."],
+            "fields": ["type": "array", "items": ["type": "string"], "description": "With `path` at a list of things: what to take from each, as paths from it (name, price.value)."],
+            "limit": ["type": "integer", "description": "How many rows, 50 unless said, 500 at most."],
+            "max_chars": ["type": "integer", "description": "How much to give, 8000 unless said."],
+        ]),
         tool("evaluate", "Runs JavaScript in the page and gives what it returns. Needs the developer tools turned on in BasicShell's Settings › Agents.", [
-            "code": ["type": "string", "description": "The body of an async function: use `return` for the answer."],
+            "code": ["type": "string", "description": "The body of an async function: use `return` for the answer. Put values in `args` and read them as `args.name`, not inside the code's own text."],
+            "args": ["type": "object", "description": "Values for the code, seen there as the object `args`: an address, a word, a list. They need no quoting inside the code."],
         ], required: ["code"]),
         tool("history", "Pages the person visited, newest first, found by words in their title or address. Needs to be allowed in BasicShell's Settings › Agents.", [
             "query": ["type": "string", "description": "Words to look for. Empty: the latest."],
@@ -254,10 +298,12 @@ enum AgentTools {
             "name": ["type": "string", "description": "For delete: the cookie's or the item's name (or the database's)."],
             "values": ["type": "boolean", "description": "Also give the values (cut at 300 characters; tokens and passwords stay [hidden], and an HttpOnly cookie's value is never given)."],
         ]),
-        tool("batch", "Does several things in one go, one after another, stopping at the first that fails: `actions` is a list of {name, input}, each a tool of these and what it takes. Refs die when a page changes, so use it for steps whose refs or positions are already known. 20 at most.", [
+        tool("batch", "Does several things in one go, one after another, stopping at the first that fails: `actions` is a list of {name, input}, each a tool of these and what it takes. Refs die when a page changes, but a `label` or `selector` is found when its step runs, so a batch can go to a page, search and click. 20 at most. An action may also have `optional: true` (if it fails, go on) and `repeat: N` (do it again up to N times, until it fails, as in clicking Load more until it is gone; only the last answer is given).", [
             "actions": ["type": "array", "items": ["type": "object", "properties": [
                 "name": ["type": "string", "description": "The tool's name."],
                 "input": ["type": "object", "description": "What that tool takes."],
+                "optional": ["type": "boolean", "description": "If it fails, go on instead of stopping."],
+                "repeat": ["type": "integer", "description": "Do it again up to this many times (50 at most), until it fails."],
             ] as [String: Any], "required": ["name"]] as [String: Any]],
         ], required: ["actions"]),
     ]
@@ -266,13 +312,60 @@ enum AgentTools {
 
     static func run(_ name: String, _ arguments: [String: Any], for client: String) async -> Reply {
         let started = Date()
-        let reply = await perform(name, arguments, for: client)
+        func work() async -> Reply {
+            var reply = await perform(name, arguments, for: client)
+            // What the action was to bring about, when the call said so.
+            if !reply.failed, name != "batch", let expect = arguments["expect"] as? [String: Any], !expect.isEmpty {
+                reply = await Call(arguments: arguments, client: client).expecting(expect, after: reply)
+            }
+            return reply
+        }
+        // Calls may arrive together (see AgentBridge). Those that change or picture a tab wait
+        // for each other on that tab, so two clicks or a click and a picture don't tread on each
+        // other; everything else, and anything on another tab, goes on at once.
+        // The tab a call is about: not finished while it is on (see AgentAccess.began).
+        let used = tabless.contains(name) ? nil : Call(arguments: arguments, client: client).tabForLock()
+        if let used { AgentAccess.shared.began(used) }
+        var reply: Reply
+        if alone.contains(name), let tab = used {
+            reply = await exclusively(tab.id) { await work() }
+        } else {
+            reply = await work()
+        }
+        if let used { AgentAccess.shared.ended(used) }
         let took = Int(Date().timeIntervalSince(started) * 1000)
         // A batch is noted by what is in it.
         if name != "batch" {
             let quiet = ["tabs", "history", "bookmarks", "downloads", "clipboard", "extensions", "features"].contains(name)
             let site = quiet ? nil : Call(arguments: arguments, client: client).site()
             AgentAccess.shared.note(name, site: site, client: client, failed: reply.failed, took: took)
+        }
+        return reply
+    }
+
+    /// What takes a tab to itself while it runs.
+    private static let alone: Set<String> = ["click", "hover", "drag", "type", "key", "scroll", "fill", "fill_form", "search", "navigate", "upload", "dialog",
+                                             "close", "resize", "block", "render", "evaluate", "screenshot", "record", "arrange", "api", "save_page"]
+    /// The tools that are not about one tab.
+    private static let tabless: Set<String> = ["tabs", "open", "batch", "history", "bookmarks", "downloads", "clipboard", "extensions", "features", "read_pages", "help"]
+    private static var busy: Set<UUID> = []
+    private static var queued: [UUID: [CheckedContinuation<Void, Never>]] = [:]
+
+    /// `work` once nothing else holds the tab; those that come meanwhile wait their turn.
+    private static func exclusively(_ id: UUID, _ work: () async -> Reply) async -> Reply {
+        if busy.contains(id) {
+            await withCheckedContinuation { queued[id, default: []].append($0) }
+        } else {
+            busy.insert(id)
+        }
+        let reply = await work()
+        if var line = queued[id], !line.isEmpty {
+            let next = line.removeFirst()
+            queued[id] = line.isEmpty ? nil : line
+            next.resume()
+        } else {
+            busy.remove(id)
+            queued[id] = nil
         }
         return reply
     }
@@ -310,6 +403,7 @@ enum AgentTools {
             case "wait": return try await call.wait()
             case "console": return try await call.logged(network: false)
             case "network": return try await call.logged(network: true)
+            case "api": return try await call.api()
             case "evaluate": return try await call.evaluate()
             case "history": return try await call.history()
             case "bookmarks": return try await call.bookmarks()
@@ -348,16 +442,41 @@ enum AgentTools {
         }
         guard actions.count <= 20 else { return .failure("`batch` takes 20 actions at most; this has \(actions.count).") }
         var parts: [[String: Any]] = []
+        var executions = 0
         for (index, action) in actions.enumerated() {
             guard let name = action["name"] as? String, name != "batch" else {
                 return Reply(parts: parts + [["type": "text", "text": "Action \(index + 1) has no tool name, or is a `batch`, which can't hold one."]], failed: true)
             }
-            let reply = await run(name, action["input"] as? [String: Any] ?? [:], for: client)
-            parts.append(["type": "text", "text": "[\(index + 1)] \(name):"])
-            parts += reply.parts
-            if reply.failed {
-                parts.append(["type": "text", "text": "Stopped at action \(index + 1) of \(actions.count); the rest were not done."])
-                return Reply(parts: parts, failed: true)
+            let input = action["input"] as? [String: Any] ?? [:]
+            let optional = (action["optional"] as? Bool) ?? false
+            let times = min(max((action["repeat"] as? NSNumber)?.intValue ?? 1, 1), 50)
+            // `repeat` goes on until it fails, so "click Load more until it is gone" is one entry;
+            // only the last good answer is given. Ending that way is what it is for, not a failure.
+            var good: Reply?
+            var failure: Reply?
+            var done = 0
+            for _ in 0..<times {
+                guard executions < 100 else { break }
+                executions += 1
+                let one = await run(name, input, for: client)
+                if one.failed { failure = one; break }
+                good = one
+                done += 1
+            }
+            parts.append(["type": "text", "text": "[\(index + 1)] \(name)\(times > 1 ? " ×\(done)" : ""):"])
+            if let failure {
+                let ended = times > 1 && done > 0
+                if ended, let good { parts += good.parts } else { parts += failure.parts }
+                if ended {
+                    parts.append(["type": "text", "text": "(Then it failed, which ends a `repeat`: " + ((failure.parts.first?["text"] as? String)?.split(separator: "\n").first.map(String.init) ?? "failed") + ")"])
+                } else if optional {
+                    parts.append(["type": "text", "text": "(That failed, which `optional` allows: carried on.)"])
+                } else {
+                    parts.append(["type": "text", "text": "Stopped at action \(index + 1) of \(actions.count); the rest were not done."])
+                    return Reply(parts: parts, failed: true)
+                }
+            } else if let good {
+                parts += good.parts
             }
         }
         return Reply(parts: parts)
@@ -388,6 +507,21 @@ enum AgentTools {
         if [7, 8].contains(Features.category(of: feature)) { return true }
         let words = "privacy|secur|itp|cookie|tracking|sandbox|lockdown|icecandidate|ice candidate|embedding|storage ?access|samesite|capture|webauthn|local ?network|sanitiz|quirk|origin"
         return (Features.key(of: feature) + " " + Features.name(of: feature)).range(of: words, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    /// How many pages `read_pages` loads at once: each is a web content process of its own, so on a
+    /// Mac with few cores (a fanless one most of all) fewer, and fewer still when it is hot or
+    /// saving power; the person's own browsing comes first.
+    static func pagesAtOnce() -> Int {
+        let info = ProcessInfo.processInfo
+        var width = min(5, max(2, info.activeProcessorCount / 2))
+        switch info.thermalState {
+        case .fair: width = min(width, 3)
+        case .serious, .critical: width = 1
+        default: break
+        }
+        if info.isLowPowerModeEnabled { width = min(width, 2) }
+        return width
     }
 
     // MARK: - tabs by number
@@ -448,6 +582,9 @@ private struct Call {
         return tab
     }
 
+    /// The tab a call is about, if it names one that is there.
+    func tabForLock() -> Tab? { try? target() }
+
     /// The site a call is about, for the list of what the agent did.
     func site() -> String? {
         if let first = (arguments["urls"] as? [Any])?.first as? String, let url = try? address(first) { return AgentAccess.site(url) }
@@ -462,11 +599,16 @@ private struct Call {
     private func page(_ kind: AgentAccess.Kind, settled: Bool = true) async throws -> (Tab, WKWebView) {
         let tab = try target()
         try await access.permit(kind, in: tab, for: client)
-        let wasAsleep = tab.isFrozen || tab.isUnloaded || tab.webView == nil
+        let restoring = tab.isUnloaded || tab.webView == nil
         access.hold(tab)
         guard let web = tab.webView else { throw Refusal(message: "That tab has no page.") }
-        if wasAsleep { try? await Task.sleep(for: .milliseconds(300)) }
-        if settled { await settle(web) }
+        tab.agentIntents = tab.navigationIntents
+        if settled {
+            // A page made again begins to load by itself; the wait is for that load's end.
+            if restoring { await tab.beginning(atMost: 0.5) }
+            await tab.settled()
+        }
+        if kind == .act { await beginAction(web) }
         if let dialog = tab.dialog {
             throw Refusal(message: "The page has a question up and does nothing until it is answered: \(dialog.kind) \"\(dialog.message)\". Answer it with `dialog`.")
         }
@@ -475,17 +617,43 @@ private struct Call {
         return (tab, web)
     }
 
-    /// Waits for a page that is loading, ten seconds at most.
-    private func settle(_ web: WKWebView, atMost seconds: Double = 10) async {
-        let until = Date().addingTimeInterval(seconds)
-        while web.isLoading, Date() < until { try? await Task.sleep(for: .milliseconds(20)) }
-    }
-
     /// Until nothing on the page has changed for a moment, `atMost` milliseconds
     /// at most: what a click started has come to rest. It stands in for the
     /// fixed waits there were, which were over a quarter of a second each.
     private func rest(_ web: WKWebView, idle: Int = 150, atMost: Int = 500) async {
         _ = try? await script("return __agent.quiet(idle, cap);", ["idle": idle, "cap": atMost], in: web, timeout: Double(atMost) / 1000 + 3)
+    }
+
+    /// The tracker (AgentPage.tracker) puts code in the pages an agent works in. For the person who wants none
+    /// there: `defaults write <this app's id> agent.quietTracker -bool false`, and the old window of no change
+    /// is used instead.
+    private static var trackerOn: Bool { UserDefaults.standard.object(forKey: "agent.quietTracker") as? Bool ?? true }
+
+    /// Whether the tracker may go into this page: not where the person is typing a password or a card number
+    /// (a login or a payment page, which look hardest at what runs in them), and not if it is switched off.
+    private func trackerAllowed(_ web: WKWebView) async -> Bool {
+        guard Call.trackerOn else { return false }
+        return (try? await script("return __agent.guarded();", in: web, timeout: 3)) as? Bool != true
+    }
+
+    /// Before an action: everything going on in the page now is background (see AgentPage.tracker).
+    private func beginAction(_ web: WKWebView) async {
+        guard await trackerAllowed(web) else { return }
+        _ = try? await script(AgentPage.tracker + "\nreturn window[Symbol.for('basicshell.quiet')].begin();", in: web, world: .page, timeout: 3)
+    }
+
+    /// Until what the action started is over: nothing it set going is pending (timers, frames, requests,
+    /// animations, images) and the page has not changed for `margin` ms. A page the tracker can't be put
+    /// in, one that is never quiet, or a document that went meanwhile gets the old window of no change.
+    private func effectsOver(_ web: WKWebView, _ tab: Tab, cap: Int = 500, margin: Int = 30, pictures: Bool = false) async {
+        guard await trackerAllowed(web) else { return await rest(web) }
+        do {
+            _ = try await script(AgentPage.tracker + "\nreturn await window[Symbol.for('basicshell.quiet')].settled({ cap, margin, window: 150, lazy, netBudget: 400 });",
+                                 ["cap": cap, "margin": margin, "lazy": pictures], in: web, world: .page, timeout: Double(cap) / 1000 + 3)
+        } catch {
+            await tab.settled()
+            await rest(web)
+        }
     }
 
     /// Before an action: what can be clicked or filled now, to tell after what
@@ -498,6 +666,11 @@ private struct Call {
     /// What is on a new page, or what changed on this one, as lines.
     private func changes(_ web: WKWebView, listing: Int = 30) async -> String {
         guard let result = try? await script("return __agent.diff(limit);", ["limit": listing], in: web, timeout: 5) as? [String: Any] else { return "" }
+        return changeLines(result)
+    }
+
+    /// An answer of the page's `diff` or `since`, as lines.
+    private func changeLines(_ result: [String: Any], since: Bool = false) -> String {
         let lines = result["lines"] as? [String] ?? []
         if result["fresh"] as? Bool == true {
             let count = result["count"] as? Int ?? 0
@@ -506,19 +679,33 @@ private struct Call {
             return "\nOn the page: \(count) things to click or fill; \(lines.isEmpty ? "none in the view" : "in the view") below\(more > 0 && !lines.isEmpty ? " (`read_page` lists all \(count))" : ""):\n" + lines.joined(separator: "\n")
         }
         let added = result["added"] as? Int ?? 0, removed = result["removed"] as? Int ?? 0, changed = result["changed"] as? Int ?? 0
-        guard added + removed + changed > 0 else { return "\nNothing that can be clicked or filled changed on the page." }
+        guard added + removed + changed > 0 else { return since ? "\nNothing that can be clicked or filled has changed since your last `read_page` of this page." : "\nNothing that can be clicked or filled changed on the page." }
         let counts = [added > 0 ? "\(added) appeared" : nil, removed > 0 ? "\(removed) went" : nil, changed > 0 ? "\(changed) changed" : nil].compactMap { $0 }.joined(separator: ", ")
         let shown = lines.count
-        return "\nChanged: \(counts) (+ new, - gone, ~ changed)\(added + removed + changed > shown ? "; first \(shown)" : ""):\n" + lines.joined(separator: "\n")
+        let rebuilt = (result["rebuilt"] as? Int ?? 0) > 0 ? " The page rebuilt something: \"[old] is now [new]\" lines mean the old number still works." : ""
+        return "\n\(since ? "Since your last `read_page`" : "Changed"): \(counts) (+ new, - gone, ~ changed)\(added + removed + changed > shown ? "; first \(shown)" : ""):\n" + lines.joined(separator: "\n") + rebuilt
     }
 
     /// After something was done: lets what it started get under way, waits
     /// for a load and for the page to come to rest, and says where the tab
     /// is and, if it was marked before, what changed.
     private func after(_ tab: Tab, _ web: WKWebView, observing marked: Bool = false) async -> String {
-        try? await Task.sleep(for: .milliseconds(60))
-        await settle(web)
-        await rest(web)
+        // A navigation the page decided on (a click on a link) may not show as loading yet.
+        let navigated = tab.navigationIntents != tab.agentIntents
+        if navigated {
+            await tab.beginning(atMost: 0.5)
+            tab.agentIntents = tab.navigationIntents
+        }
+        await tab.settled()
+        if let (condition, seconds) = expectation() {
+            // The call says what it is waiting for: that is waited for, not for the page to be quiet.
+            _ = try? await hold(condition, for: seconds, in: tab, web)
+        } else if navigated {
+            // A new document: what it started is not known, only that nothing has changed for a while.
+            await rest(web)
+        } else {
+            await effectsOver(web, tab)
+        }
         if let dialog = tab.dialog { return "\nThe page now asks (\(dialog.kind)): \"\(dialog.message)\". Answer it with `dialog`." }
         var text = "\nNow at: \(tab.name) — \(tab.url?.absoluteString ?? "")"
         if marked { text += await changes(web) }
@@ -574,21 +761,41 @@ private struct Call {
     func tabs() async throws -> Reply {
         var lines: [String] = []
         let front = Windows.front
+        let from = integer("from_tab"), to = integer("to_tab"), onlyWindow = integer("window")
+        let words = (string("query") ?? "").lowercased().split(separator: " ").map(String.init)
+        let filtered = from != nil || to != nil || onlyWindow != nil || !words.isEmpty || flag("yours")
+        var listed = 0, all = 0
+        // Everyone is numbered in the order there is, whatever is asked for.
         for (index, window) in Windows.all.enumerated() {
             let tabs = window.shell.tabs.filter { !$0.isPrivate }
-            lines.append("Window \(index + 1)\(window === front ? " (in front)" : ""):")
-            if tabs.isEmpty { lines.append("  no tabs") }
+            var rows: [String] = []
             for tab in tabs {
+                let number = AgentTools.number(of: tab)
+                all += 1
+                if let from, number < from { continue }
+                if let to, number > to { continue }
+                if flag("yours"), !access.holds(tab) { continue }
+                let address = tab.url?.absoluteString ?? "empty"
+                let hay = (tab.name + " " + address).lowercased()
+                if !words.allSatisfy({ hay.contains($0) }) { continue }
                 var notes: [String] = []
                 if tab === window.shell.selected { notes.append("shown") }
                 if tab.pinned { notes.append("pinned") }
                 if tab.isUnloaded || tab.isFrozen || tab.webView == nil { notes.append("asleep") }
                 if tab.isLoading { notes.append("loading") }
                 if access.holds(tab) { notes.append("yours") }
-                lines.append("  [\(AgentTools.number(of: tab))] \(tab.name) — \(tab.url?.absoluteString ?? "empty")\(notes.isEmpty ? "" : " (\(notes.joined(separator: ", ")))")")
+                // An address of a hundred characters is a login redirect or a tracker, rarely what was meant.
+                let shown = flag("full_urls") || address.count <= 100 ? address : String(address.prefix(80)) + "… (\(address.count) characters)"
+                rows.append("  [\(number)] \(tab.name) — \(shown)\(notes.isEmpty ? "" : " (\(notes.joined(separator: ", ")))")")
             }
+            if let onlyWindow, onlyWindow != index + 1 { continue }
+            listed += rows.count
+            if rows.isEmpty && filtered { continue }
+            lines.append("Window \(index + 1)\(window === front ? " (in front)" : ""):")
+            lines += rows.isEmpty ? ["  no tabs"] : rows
         }
         if Windows.all.isEmpty { lines.append("No window is open; `open` makes one.") }
+        if filtered { lines.append(listed == 0 ? "No tab matches (of \(all))." : "\(listed) of \(all) tabs.") }
         return .text(lines.joined(separator: "\n"))
     }
 
@@ -619,11 +826,12 @@ private struct Call {
         tab.load(url)
         var listing = ""
         if let web = tab.webView {
-            try? await Task.sleep(for: .milliseconds(40))
-            await settle(web)
+            await tab.settled()
             await rest(web, idle: 120, atMost: 1500)
-            if string("observe") != "none" { listing = await changes(web, listing: 40) }
+            if string("observe") != "none" { listing = await changes(web, listing: 15) }
         }
+        // A load can take longer than the agent is allowed to be quiet: still at work.
+        access.hold(tab)
         return .text("Opened tab [\(AgentTools.number(of: tab))]: \(tab.name) — \(tab.url?.absoluteString ?? url.absoluteString)" + listing)
     }
 
@@ -674,10 +882,9 @@ private struct Call {
             tab.load(url)
         }
         guard let web = tab.webView else { throw Refusal(message: "That tab has no page.") }
-        try? await Task.sleep(for: .milliseconds(40))
-        await settle(web)
+        await tab.settled()
         await rest(web, idle: 120, atMost: 1500)
-        let listing = string("observe") == "none" ? "" : await changes(web, listing: 40)
+        let listing = string("observe") == "none" ? "" : await changes(web, listing: 15)
         return .text("Tab [\(AgentTools.number(of: tab))] is at: \(tab.name) — \(tab.url?.absoluteString ?? "")" + listing)
     }
 
@@ -685,12 +892,24 @@ private struct Call {
 
     func readText() async throws -> Reply {
         let (_, web) = try await page(.read)
-        let text = try await script("return __agent.text(offset, max);", ["offset": max(0, integer("offset") ?? 0), "max": min(max(integer("max_chars") ?? 20000, 500), 200_000)], in: web)
+        if flag("structured") {
+            let text = try await script("return __agent.structured(limit);", ["limit": min(max(integer("limit") ?? 40, 1), 200)], in: web)
+            return .text(text as? String ?? "")
+        }
+        var options: [String: Any] = ["main": flag("main")]
+        if let selector = string("selector"), !selector.isEmpty { options["selector"] = selector }
+        let text = try await script("return __agent.text(offset, max, options);", ["offset": max(0, integer("offset") ?? 0), "max": min(max(integer("max_chars") ?? 20000, 500), 200_000), "options": options], in: web)
         return .text(text as? String ?? "")
     }
 
     func readPage() async throws -> Reply {
         let (_, web) = try await page(.read)
+        // Only what is different from the last time: the same listing the actions give.
+        if flag("since_last"), integer("ref") == nil, string("filter") != "all",
+           let said = try await script("return __agent.since(limit);", ["limit": 60], in: web) as? [String: Any] {
+            let header = try await script("return __agent.header();", in: web) as? String ?? ""
+            return .text(header + "\n" + changeLines(said, since: true))
+        }
         var options: [String: Any] = ["filter": string("filter") ?? "interactive", "max": min(max(integer("max_chars") ?? 20000, 500), 200_000)]
         if let ref = integer("ref") { options["ref"] = ref }
         let text = try await script("return __agent.tree(options);", ["options": options], in: web)
@@ -712,11 +931,14 @@ private struct Call {
         let marks = flag("marks")
         if flag("full_page"), integer("ref") == nil, arguments["region"] == nil {
             if flag("overview") {
-                guard let whole = await AgentPicture.wholePage(of: web, widest: widest, tallest: 1600) else {
+                guard let whole = await AgentPicture.wholePage(of: web, widest: widest, tallest: 1600, columns: true) else {
                     throw Refusal(message: "The whole page couldn't be pictured just now. Try a `tile` of it, or `read_text`.")
                 }
+                let how = whole.columns > 1
+                    ? "laid out in \(whole.columns) numbered columns, left to right, each going on where the one before ended (about \(Int(whole.slice)) points of the page in each, \(Int(whole.pageHeight)) in all)"
+                    : "shrunk to show its shape"
                 return Reply(parts: [
-                    ["type": "text", "text": "The whole page of \(tab.name), \(whole.width)×\(whole.height), shrunk to show its shape (a long page is too small to read: ask for `tile`s of it). Positions in it are not for `click`."],
+                    ["type": "text", "text": "The whole page of \(tab.name), \(whole.width)×\(whole.height), \(how) (small print is too small to read: ask for `tile`s of it). Positions in it are not for `click`."],
                     ["type": "image", "data": whole.jpeg.base64EncodedString(), "mimeType": "image/jpeg"],
                 ])
             }
@@ -742,17 +964,19 @@ private struct Call {
             // Enlarged, to the width asked for at most.
             enlarge = min(4, max(1, widest / area.width))
         }
-        let drawn = try await drawMarks(marks, in: web)
+        let drawn = try await drawMarks(marks, in: web, only: part)
+        let scrolled = (try? await script("return [scrollX, scrollY];", in: web)) as? [Double]
         let taken = await AgentPicture.take(of: web, part: part, widest: widest, enlarge: enlarge, quality: quality)
         if marks { _ = try? await script("__agent.markDown(); return true;", in: web) }
         guard let picture = taken else {
             throw Refusal(message: "The page couldn't be pictured just now. Try again, or read it with `read_page`.")
         }
         if part == nil { tab.agentScale = picture.scale }
+        let number = keep(PictureFrame(origin: part?.origin ?? .zero, scale: picture.scale, scroll: part == nil ? nil : scrolled.flatMap { $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil }), in: tab)
         let size = "\(picture.width)×\(picture.height)"
         var note = part == nil
             ? "The view of \(tab.name), \(size). Positions for click, hover and scroll are in these pixels."
-            : "That part of the page, \(size)\(enlarge > 1 ? ", enlarged" : ""). Positions for click are in the pixels of a screenshot of the whole view, not of this one."
+            : "That part of the page (picture \(number)), \(size)\(enlarge > 1 ? ", enlarged" : ""). To click or hover in it, give positions in its own pixels with `picture: \(number)`; without `picture` they are the whole view's."
         if let drawn { note += drawn }
         return Reply(parts: [
             ["type": "text", "text": note],
@@ -761,12 +985,28 @@ private struct Call {
     }
 
     /// The refs drawn on the page for a picture (see `marks`); says what was drawn.
-    private func drawMarks(_ marks: Bool, in web: WKWebView) async throws -> String? {
+    private func drawMarks(_ marks: Bool, in web: WKWebView, only part: CGRect? = nil) async throws -> String? {
         guard marks else { return nil }
-        guard let result = try await script("return __agent.markUp(limit);", ["limit": 80], in: web) as? [String: Any] else { return nil }
-        try? await Task.sleep(for: .milliseconds(40))
-        let drawn = result["drawn"] as? Int ?? 0, more = result["more"] as? Int ?? 0
-        return " The numbers drawn on it (\(drawn)\(more > 0 ? ", \(more) more not drawn" : "")) are refs: click, fill and type by them."
+        // Only what a part of the view shows: its limit is not spent on what is outside it.
+        var region: Any = NSNull()
+        if let part {
+            let zoom = web.pageZoom
+            region = ["x": part.minX / zoom, "y": part.minY / zoom, "w": part.width / zoom, "h": part.height / zoom]
+        }
+        guard let result = try await script("return __agent.markUp(limit, region);", ["limit": 80, "region": region], in: web) as? [String: Any] else { return nil }
+        // Drawn on the page once two frames have been.
+        _ = try? await script("return await __agent.frames(2, 150);", in: web, timeout: 3)
+        let drawn = result["drawn"] as? Int ?? 0, more = result["more"] as? Int ?? 0, from = result["from"] as? Int ?? 0
+        let rest = more > 0 ? ", \(more) more not drawn, from about \(from) points down the view: a `region` with `marks` shows those" : ""
+        return " The numbers drawn on it (\(drawn)\(rest)) are refs: click, fill and type by them."
+    }
+
+    /// Notes where a picture lies, and gives it a number; the last eight are kept.
+    private func keep(_ frame: PictureFrame, in tab: Tab) -> Int {
+        tab.agentPictures += 1
+        tab.agentFrames[tab.agentPictures] = frame
+        tab.agentFrames = tab.agentFrames.filter { $0.key > tab.agentPictures - 8 }
+        return tab.agentPictures
     }
 
     /// One view of a long page: the page is walked through a view at a time,
@@ -775,7 +1015,7 @@ private struct Call {
     private func tile(of tab: Tab, _ web: WKWebView, widest: CGFloat, quality: Double, marks: Bool) async throws -> Reply {
         guard let size = try await script("""
             const d = document.scrollingElement || document.documentElement;
-            return { h: d.scrollHeight, vh: innerHeight, y: scrollY };
+            return { h: d.scrollHeight, vh: innerHeight, y: scrollY, x: scrollX };
             """, in: web) as? [String: Any],
               let height = (size["h"] as? NSNumber)?.doubleValue, let view = (size["vh"] as? NSNumber)?.doubleValue, view >= 1
         else { throw Refusal(message: "The page's height couldn't be read just now.") }
@@ -783,16 +1023,19 @@ private struct Call {
         let tiles = max(1, Int((height / view).rounded(.up)))
         let number = min(max(integer("tile") ?? 1, 1), tiles)
         let top = min(Double(number - 1) * view, max(0, height - view))
+        await beginAction(web)
         _ = try await script("window.scrollTo(0, y); return true;", ["y": top], in: web)
-        await rest(web, idle: 60, atMost: 400)
+        // What the scroll brought into view (lazy pictures) is waited for.
+        await effectsOver(web, tab, cap: 600, pictures: true)
         let drawn = try await drawMarks(marks, in: web)
         let taken = await AgentPicture.take(of: web, part: nil, widest: widest, quality: quality)
         if marks { _ = try? await script("__agent.markDown(); return true;", in: web) }
         _ = try? await script("window.scrollTo(0, y); return true;", ["y": was], in: web)
         guard let picture = taken else { throw Refusal(message: "That part of the page couldn't be pictured just now.") }
         let next = number < tiles ? " `tile: \(number + 1)` is the next." : " That is the last."
+        let kept = keep(PictureFrame(origin: .zero, scale: picture.scale, scroll: CGPoint(x: (size["x"] as? NSNumber)?.doubleValue ?? 0, y: top)), in: tab)
         return Reply(parts: [
-            ["type": "text", "text": "Tile \(number) of \(tiles) of \(tab.name) (the page is \(Int(height)) points tall; a tile is one view, \(picture.width)×\(picture.height)).\(next) `overview` shows all of it small. Positions in a tile are not for `click`; scroll there first." + (drawn ?? "")],
+            ["type": "text", "text": "Tile \(number) of \(tiles) of \(tab.name) (picture \(kept); the page is \(Int(height)) points tall; a tile is one view, \(picture.width)×\(picture.height)).\(next) `overview` shows all of it. To click or hover in this tile, give positions in its pixels with `picture: \(kept)`: the page is scrolled to it first." + (drawn ?? "")],
             ["type": "image", "data": picture.jpeg.base64EncodedString(), "mimeType": "image/jpeg"],
         ])
     }
@@ -802,7 +1045,8 @@ private struct Call {
     /// Where in the web view (its own points, from its top left) a call
     /// means: a ref's own spot, or a position in the last screenshot.
     private func place(in tab: Tab, _ web: WKWebView, typing: Bool = false) async throws -> (point: CGPoint, what: String, file: Bool) {
-        if let ref = integer("ref") {
+        if let meant = try await meant(in: web, fields: typing) {
+            let ref = meant.ref
             guard let spot = try await script("return __agent.spot(ref);", ["ref": ref], in: web) as? [String: Any] else {
                 throw Refusal(message: "The page didn't say where that is.")
             }
@@ -817,15 +1061,60 @@ private struct Call {
             }
             guard let x = spot["x"] as? Double, let y = spot["y"] as? Double else { throw Refusal(message: "The page didn't say where that is.") }
             let zoom = web.pageZoom
-            var described = what
+            var described = what + meant.note
             if let under = spot["under"] as? String { described += " (something is over it there: \(under))" }
             return (CGPoint(x: x * zoom, y: y * zoom), described, file)
         }
-        guard let x = number("x"), let y = number("y") else { throw Refusal(message: "Say where: a ref, or x and y in the last screenshot.") }
-        let scale = tab.agentScale
-        let point = CGPoint(x: x * scale, y: y * scale)
+        guard let x = number("x"), let y = number("y") else { throw Refusal(message: "Say where: a ref, a label or selector, or x and y in a screenshot.") }
+        var origin = CGPoint.zero, scale = tab.agentScale
+        if let picture = integer("picture") {
+            guard let frame = tab.agentFrames[picture] else {
+                throw Refusal(message: "Picture \(picture) isn't kept now (the last eight are); take the screenshot again.")
+            }
+            origin = frame.origin
+            scale = frame.scale
+            // A tile or a part is of the page as it was scrolled then.
+            if let scroll = frame.scroll {
+                await beginAction(web)
+                _ = try await script("window.scrollTo(x, y); return true;", ["x": scroll.x, "y": scroll.y], in: web)
+                await effectsOver(web, tab, cap: 400, pictures: true)
+            }
+        }
+        let point = CGPoint(x: origin.x + x * scale, y: origin.y + y * scale)
         guard web.bounds.contains(point) else { throw Refusal(message: "That position is outside the page's view; take a screenshot and use its pixels.") }
         return (point, "(\(Int(x)), \(Int(y)))", false)
+    }
+
+    /// Whether the call names something on the page: a ref, a label or a selector.
+    private var hasTarget: Bool {
+        integer("ref") != nil || !(string("label") ?? "").isEmpty || !(string("selector") ?? "").isEmpty
+    }
+
+    /// The ref meant: the one given, or what `label` and `selector` (with `role`, `nth`)
+    /// find on the page now. Nil when the call names nothing.
+    private func meant(in web: WKWebView, fields: Bool = false) async throws -> (ref: Int, note: String)? {
+        if let ref = integer("ref") { return (ref, "") }
+        let label = (string("label") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let selector = (string("selector") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty || !selector.isEmpty else { return nil }
+        var query: [String: Any] = [:]
+        if !label.isEmpty { query["label"] = label }
+        if !selector.isEmpty { query["selector"] = selector }
+        if let role = string("role"), !role.isEmpty { query["role"] = role }
+        if let nth = integer("nth") { query["nth"] = nth }
+        if fields { query["fields"] = true }
+        guard let said = try await script("return __agent.resolve(query);", ["query": query], in: web) as? [String: Any] else {
+            throw Refusal(message: "The page didn't say what that is.")
+        }
+        let named = [label.isEmpty ? nil : "\"\(label)\"", selector.isEmpty ? nil : selector].compactMap { $0 }.joined(separator: " in ")
+        if said["bad"] as? Bool == true { throw Refusal(message: "\(selector) isn't a CSS selector.") }
+        guard let ref = (said["ref"] as? NSNumber)?.intValue else {
+            throw Refusal(message: "Nothing on the page that can be seen matches \(named). `find` looks for words, `read_page` lists what there is.")
+        }
+        let count = (said["count"] as? NSNumber)?.intValue ?? 1, nth = (said["nth"] as? NSNumber)?.intValue ?? 1
+        guard count > 1 else { return (ref, "") }
+        let others = (said["others"] as? [String] ?? []).joined(separator: "; ")
+        return (ref, " (\(count) match \(named); took number \(nth), `nth` takes another. The others: \(others))")
     }
 
     private var secretRefusal: String {
@@ -873,17 +1162,22 @@ private struct Call {
         if place.file { throw Refusal(message: "That is a file field; give it files with `upload`.") }
         let count = min(max(integer("count") ?? 1, 1), 3)
         let marked = await mark(web)
-        AgentInput.click(web, at: place.point, right: string("button") == "right", count: count, modifiers: modifiers(string("modifiers")))
+        let right = string("button") == "right", keys = modifiers(string("modifiers"))
+        await delivered(web, ["mouseup"], count: count) { AgentInput.click(web, at: place.point, right: right, count: count, modifiers: keys) }
         AgentRecorder.note(tab)
         return .text("Clicked \(place.what)." + (await after(tab, web, observing: marked)))
     }
 
     func hover() async throws -> Reply {
         let (tab, web) = try await page(.act)
+        let marked = await mark(web)
         let place = try await place(in: tab, web)
-        AgentInput.move(web, to: place.point)
-        try? await Task.sleep(for: .milliseconds(150))
-        return .text("The pointer is over \(place.what).")
+        await delivered(web, ["mousemove"], limit: 0.15) { AgentInput.move(web, to: place.point) }
+        // What a menu or a hint put up, found among the things that can be clicked.
+        await effectsOver(web, tab, cap: 400)
+        // A page that isn't shown has nothing to point at.
+        let behind = (tab.host as? BrowserWindow).map { $0.shell.selected !== tab } ?? false
+        return .text("The pointer is over \(place.what)." + (behind ? " The tab isn't the one shown, and a page behind doesn't take hover: `select` it first." : "") + (marked ? await changes(web) : ""))
     }
 
     func drag() async throws -> Reply {
@@ -893,12 +1187,17 @@ private struct Call {
         // The place where it lets go, asked for the same way.
         var end: [String: Any] = [:]
         if let ref = integer("to_ref") { end["ref"] = ref }
+        if let label = string("to_label") { end["label"] = label }
+        if let selector = string("to_selector") { end["selector"] = selector }
         if let x = number("to_x") { end["x"] = x }
         if let y = number("to_y") { end["y"] = y }
+        if let picture = integer("picture") { end["picture"] = picture }
         let to = try await Call(arguments: end, client: client).place(in: tab, web)
         guard hypot(to.point.x - from.point.x, to.point.y - from.point.y) >= 1 else { throw Refusal(message: "Both ends are the same place.") }
         let marked = await mark(web)
+        await arming(web, ["mouseup"], count: 1, limit: 3)
         await AgentInput.drag(web, from: from.point, to: to.point, modifiers: modifiers(string("modifiers")))
+        await landed(web, limit: 3)
         AgentRecorder.note(tab)
         return .text("Dragged from \(from.what) to \(to.what)." + (await after(tab, web, observing: marked)))
     }
@@ -907,10 +1206,9 @@ private struct Call {
         let (tab, web) = try await page(.act)
         let text = string("text") ?? ""
         let marked = await mark(web)
-        if integer("ref") != nil {
+        if hasTarget {
             let place = try await place(in: tab, web, typing: true)
-            AgentInput.click(web, at: place.point, right: false, count: 1, modifiers: [])
-            try? await Task.sleep(for: .milliseconds(60))
+            await delivered(web, ["mouseup"]) { AgentInput.click(web, at: place.point, right: false, count: 1, modifiers: []) }
         }
         let focus = try await keyboard(in: tab, web)
         guard focus["typable"] as? Bool == true || focus["frame"] as? Bool == true else {
@@ -919,11 +1217,10 @@ private struct Call {
         if !text.isEmpty {
             let done = try await script("return __agent.insert(text);", ["text": text], in: web) as? String
             if done == "refused" { throw Refusal(message: secretRefusal) }
-            if done != "typed" { AgentInput.insert(text, in: web) }
+            if done != "typed" { AgentInput.insert(text, in: web); await behind(web) }
         }
         if flag("submit") {
-            try? await Task.sleep(for: .milliseconds(40))
-            AgentInput.press("Enter", in: web)
+            await delivered(web, ["keyup"]) { AgentInput.press("Enter", in: web) }
         }
         AgentRecorder.note(tab)
         let now = (try? await script("return __agent.focus();", in: web) as? [String: Any])?["what"] as? String
@@ -940,8 +1237,9 @@ private struct Call {
             for key in keys {
                 // A character typed is typing, and not into a secret field.
                 if key.count == 1 { _ = try await keyboard(in: tab, web) }
-                guard AgentInput.press(key, in: web) else { throw Refusal(message: "BasicShell doesn't know the key \(key).") }
-                try? await Task.sleep(for: .milliseconds(20))
+                var known = true
+                await delivered(web, ["keyup"], limit: 0.2) { known = AgentInput.press(key, in: web) }
+                guard known else { throw Refusal(message: "BasicShell doesn't know the key \(key).") }
             }
         }
         AgentRecorder.note(tab)
@@ -950,11 +1248,11 @@ private struct Call {
 
     func scroll() async throws -> Reply {
         let (tab, web) = try await page(.read)
-        if let ref = integer("ref") {
-            guard try await script("return __agent.show(ref);", ["ref": ref], in: web) as? Bool == true else {
+        if let meant = try await meant(in: web) {
+            guard try await script("return __agent.show(ref);", ["ref": meant.ref], in: web) as? Bool == true else {
                 throw Refusal(message: "That ref is no longer on the page; read the page again.")
             }
-            return .text("Brought it into view.")
+            return .text("Brought it into view." + meant.note)
         }
         let zoom = web.pageZoom, scale = tab.agentScale
         let x = number("x").map { $0 * scale / zoom } ?? Double(web.bounds.width / zoom / 2)
@@ -967,8 +1265,9 @@ private struct Call {
         case "right": dx = amount * web.bounds.width / zoom
         default: dy = amount * web.bounds.height / zoom
         }
+        await beginAction(web)
         let result = try await script("return __agent.scroll(x, y, dx, dy);", ["x": x, "y": y, "dx": dx, "dy": dy], in: web) as? [String: Any]
-        await rest(web, idle: 50, atMost: 300)
+        await effectsOver(web, tab, cap: 500, pictures: true)
         let header = try await script("return __agent.header();", in: web) as? String ?? ""
         AgentRecorder.note(tab)
         return .text((result?["moved"] as? Bool == true ? "Scrolled." : "It didn't move: that is as far as it goes.") + "\n" + header)
@@ -976,12 +1275,13 @@ private struct Call {
 
     func fill() async throws -> Reply {
         let (tab, web) = try await page(.act)
-        guard let ref = integer("ref"), let value = arguments["value"] else { throw Refusal(message: "`fill` wants a ref and a value.") }
+        guard hasTarget, let value = arguments["value"] else { throw Refusal(message: "`fill` wants a field (a ref, a label or a selector) and a value.") }
         let marked = await mark(web)
-        let said = try await script("return __agent.fill(ref, value);", ["ref": ref, "value": value], in: web) as? String ?? ""
+        guard let meant = try await meant(in: web, fields: true) else { throw Refusal(message: "`fill` wants a field (a ref, a label or a selector).") }
+        let said = try await script("return __agent.fill(ref, value);", ["ref": meant.ref, "value": value], in: web) as? String ?? ""
         if said == "refused" { throw Refusal(message: secretRefusal) }
         AgentRecorder.note(tab)
-        return .text(said + (await after(tab, web, observing: marked)))
+        return .text(said + meant.note + (await after(tab, web, observing: marked)))
     }
 
     func fillForm() async throws -> Reply {
@@ -994,9 +1294,10 @@ private struct Call {
         var done: [String] = []
         var last = 0
         for (index, field) in fields.enumerated() {
-            guard let ref = (field["ref"] as? NSNumber)?.intValue ?? (field["ref"] as? String).flatMap(Int.init), let value = field["value"] else {
-                throw Refusal(message: "Field \(index + 1) wants a `ref` and a `value`." + (done.isEmpty ? "" : " Done before it: \(done.joined(separator: " "))"))
+            guard let value = field["value"], let meant = try await Call(arguments: field, client: client).meant(in: web, fields: true) else {
+                throw Refusal(message: "Field \(index + 1) wants a `ref`, a `label` or a `selector`, and a `value`." + (done.isEmpty ? "" : " Done before it: \(done.joined(separator: " "))"))
             }
+            let ref = meant.ref
             let said = try await script("return __agent.fill(ref, value);", ["ref": ref, "value": value], in: web) as? String ?? ""
             if said == "refused" {
                 throw Refusal(message: "Field \(index + 1) ([\(ref)]) is a password, card or one-time-code field, which BasicShell doesn't let the agent fill: ask the person to do it themselves, then carry on." + (done.isEmpty ? "" : " Filled before it: \(done.joined(separator: " "))"))
@@ -1004,15 +1305,17 @@ private struct Call {
             done.append("[\(ref)] \(said)")
             last = ref
         }
-        if let button = integer("submit_ref") {
-            let place = try await Call(arguments: ["ref": button], client: client).place(in: tab, web)
-            AgentInput.click(web, at: place.point, right: false, count: 1, modifiers: [])
+        if integer("submit_ref") != nil || !(string("submit_label") ?? "").isEmpty {
+            var end: [String: Any] = [:]
+            if let button = integer("submit_ref") { end["ref"] = button }
+            if let label = string("submit_label") { end["label"] = label; end["role"] = "button" }
+            let place = try await Call(arguments: end, client: client).place(in: tab, web)
+            await delivered(web, ["mouseup"]) { AgentInput.click(web, at: place.point, right: false, count: 1, modifiers: []) }
             done.append("Clicked \(place.what).")
         } else if flag("submit") {
             let place = try await Call(arguments: ["ref": last], client: client).place(in: tab, web, typing: true)
-            AgentInput.click(web, at: place.point, right: false, count: 1, modifiers: [])
-            try? await Task.sleep(for: .milliseconds(50))
-            AgentInput.press("Enter", in: web)
+            await delivered(web, ["mouseup"]) { AgentInput.click(web, at: place.point, right: false, count: 1, modifiers: []) }
+            await delivered(web, ["keyup"]) { AgentInput.press("Enter", in: web) }
             done.append("Pressed Return.")
         }
         AgentRecorder.note(tab)
@@ -1028,16 +1331,15 @@ private struct Call {
         // Only an icon: it opens the field.
         if found?["ref"] == nil, let icon = (found?["button"] as? NSNumber)?.intValue {
             let place = try await Call(arguments: ["ref": icon], client: client).place(in: tab, web)
-            AgentInput.click(web, at: place.point, right: false, count: 1, modifiers: [])
-            await rest(web, idle: 120, atMost: 800)
+            await delivered(web, ["mouseup"]) { AgentInput.click(web, at: place.point, right: false, count: 1, modifiers: []) }
+            await effectsOver(web, tab, cap: 600)
             found = try await script("return __agent.searchField();", in: web) as? [String: Any]
         }
         guard let ref = (found?["ref"] as? NSNumber)?.intValue else {
             throw Refusal(message: "There is no search field on this page that BasicShell can find. `find` \"search\" lists what is there; or `type` into the field you pick.")
         }
         let place = try await Call(arguments: ["ref": ref], client: client).place(in: tab, web, typing: true)
-        AgentInput.click(web, at: place.point, right: false, count: 1, modifiers: [])
-        try? await Task.sleep(for: .milliseconds(60))
+        await delivered(web, ["mouseup"]) { AgentInput.click(web, at: place.point, right: false, count: 1, modifiers: []) }
         let focus = try await keyboard(in: tab, web)
         guard focus["typable"] as? Bool == true || focus["frame"] as? Bool == true else {
             throw Refusal(message: "The keyboard didn't get into the search field (\(found?["what"] as? String ?? "it")). Click it, then `type`.")
@@ -1046,10 +1348,9 @@ private struct Call {
         _ = try await script("return __agent.fill(ref, \"\");", ["ref": ref], in: web)
         let done = try await script("return __agent.insert(text);", ["text": query], in: web) as? String
         if done == "refused" { throw Refusal(message: secretRefusal) }
-        if done != "typed" { AgentInput.insert(query, in: web) }
+        if done != "typed" { AgentInput.insert(query, in: web); await behind(web) }
         if choice("submit") != false {
-            try? await Task.sleep(for: .milliseconds(40))
-            AgentInput.press("Enter", in: web)
+            await delivered(web, ["keyup"]) { AgentInput.press("Enter", in: web) }
         }
         AgentRecorder.note(tab)
         return .text("Searched for \(JSON(query)) in \(found?["what"] as? String ?? "the search field")." + (await after(tab, web, observing: marked)))
@@ -1085,15 +1386,21 @@ private struct Call {
             }
         }
         let lean = await Develop.lean()
-        // Five at a time: a page is waited for in its own tab while the others load.
-        var waiting = jobs[...]
-        var active: [Task<(Int, String), Never>] = []
-        while !waiting.isEmpty || !active.isEmpty {
-            while active.count < 5, let job = waiting.popFirst() {
-                active.append(Task { await self.readOne(job.index, job.url, in: window, perPage: perPage, links: wantLinks, lean: lean) })
+        // A few at a time, as many as this Mac is good for just now: a page is waited for in its
+        // own tab while the others load. As one finishes the next begins (not when the first
+        // of them has: one slow page doesn't hold the rest up).
+        let width = AgentTools.pagesAtOnce()
+        await withTaskGroup(of: (Int, String).self) { group in
+            var waiting = jobs[...]
+            func begin() {
+                guard let job = waiting.popFirst() else { return }
+                group.addTask { await self.readOne(job.index, job.url, in: window, perPage: perPage, links: wantLinks, lean: lean) }
             }
-            let finished = await active.removeFirst().value
-            results[finished.0] = finished.1
+            for _ in 0..<width { begin() }
+            while let finished = await group.next() {
+                results[finished.0] = finished.1
+                begin()
+            }
         }
         return .text(results.joined(separator: "\n\n"))
     }
@@ -1114,8 +1421,7 @@ private struct Call {
             if Closed.tabs.last?.url == address { Closed.tabs.removeLast() }
             return (index, text)
         }
-        try? await Task.sleep(for: .milliseconds(50))
-        await settle(web, atMost: 15)
+        await tab.settled(atMost: 15)
         await rest(web, idle: 100, atMost: 800)
         // A question the page put up is answered no, so that it goes on.
         if let dialog = tab.dialog {
@@ -1124,7 +1430,7 @@ private struct Call {
             } else {
                 NSApp.stopModal(withCode: .alertSecondButtonReturn)
             }
-            try? await Task.sleep(for: .milliseconds(100))
+            await tab.dialogEnded.wait(atMost: 1)
         }
         do {
             // Where it has got to may be another site.
@@ -1175,7 +1481,8 @@ private struct Call {
         } else {
             AgentInput.click(web, at: place.point, right: false, count: 1, modifiers: [])
         }
-        for _ in 0..<40 where tab.offered != nil { try? await Task.sleep(for: .milliseconds(100)) }
+        // The page asks for its files when the click has been taken.
+        if tab.offered != nil { await tab.offerTaken.wait(atMost: 4) }
         guard tab.offered == nil else {
             tab.offered = nil
             throw Refusal(message: "Clicking \(place.what) didn't open a file chooser, so nothing was given. Find the file field (`find` \"file\") or the button that opens it.")
@@ -1195,28 +1502,50 @@ private struct Call {
         } else {
             NSApp.stopModal(withCode: code)
         }
-        try? await Task.sleep(for: .milliseconds(200))
+        // The page's question is over when its own answer handler has run.
+        if tab.dialog != nil { await tab.dialogEnded.wait(atMost: 1) }
         guard let web = tab.webView else { return .text("Answered.") }
         return .text("Answered the \(dialog.kind)." + (await after(tab, web)))
     }
 
     func wait() async throws -> Reply {
-        let text = string("text").flatMap { $0.isEmpty ? nil : $0 }
-        let gone = string("gone").flatMap { $0.isEmpty ? nil : $0 }
-        let selector = string("selector").flatMap { $0.isEmpty ? nil : $0 }
-        let address = string("url_contains").flatMap { $0.isEmpty ? nil : $0 }
-        let idle = flag("network_idle")
-        let conditional = text != nil || gone != nil || selector != nil || address != nil || idle
-        let seconds = min(max(number("seconds") ?? (conditional ? 10 : 1), 0), 10)
-        guard conditional else {
+        let condition = Condition(text: string("text"), gone: string("gone"), selector: string("selector"), address: string("url_contains"), idle: flag("network_idle"))
+        let seconds = min(max(number("seconds") ?? (condition.conditional ? 10 : 1), 0), 10)
+        guard condition.conditional else {
             try? await Task.sleep(for: .milliseconds(Int(seconds * 1000)))
             return .text("Waited \(seconds) seconds.")
         }
         let (tab, web) = try await page(.read, settled: false)
+        let result = try await hold(condition, for: seconds, in: tab, web)
+        if result.ok { return .text("Done: " + result.holding.joined(separator: ", ") + ".") }
+        let where_ = await after(tab, web)
+        return .text("Not yet after \(seconds) seconds" + (result.holding.isEmpty ? "." : "; so far: \(result.holding.joined(separator: ", ")).") + where_)
+    }
+
+    /// What a page is to be, for `wait` and for `expect`.
+    struct Condition {
+        var text: String?, gone: String?, selector: String?, address: String?
+        var idle = false
+
+        init(text: String?, gone: String?, selector: String?, address: String?, idle: Bool = false) {
+            self.text = text.flatMap { $0.isEmpty ? nil : $0 }
+            self.gone = gone.flatMap { $0.isEmpty ? nil : $0 }
+            self.selector = selector.flatMap { $0.isEmpty ? nil : $0 }
+            self.address = address.flatMap { $0.isEmpty ? nil : $0 }
+            self.idle = idle
+        }
+
+        var conditional: Bool { text != nil || gone != nil || selector != nil || address != nil || idle }
+    }
+
+    /// Waits until every condition holds, or `seconds` have gone; says which hold. The page is
+    /// looked at when something has changed in it (not every so often), and woken at the moment
+    /// a quiet network would be long enough.
+    private func hold(_ condition: Condition, for seconds: Double, in tab: Tab, _ web: WKWebView) async throws -> (ok: Bool, holding: [String], missing: [String]) {
         let until = Date().addingTimeInterval(seconds)
         var resources = -1
         var steady = Date()
-        var holding: [String] = []
+        var lastLook = Date.distantPast
         let check = """
         const t = (document.body && document.body.innerText || "").toLowerCase();
         let found = null;
@@ -1225,29 +1554,95 @@ private struct Call {
                  ready: document.readyState, resources: performance.getEntriesByType("resource").length };
         """
         while true {
+            // Not more than 25 looks a second: a page that changes all the time is not looked at all the time.
+            let gap = 0.04 - Date().timeIntervalSince(lastLook)
+            if gap > 0 { try? await Task.sleep(for: .milliseconds(Int(gap * 1000) + 1)) }
+            lastLook = Date()
             var said: [String: Any] = [:]
-            if let result = try? await script(check, ["text": text ?? "", "gone": gone ?? "", "selector": selector ?? ""], in: web, timeout: 5) as? [String: Any] { said = result }
-            holding = []
-            var ok = true
-            func note(_ label: String, _ holds: Bool) { if holds { holding.append(label) } else { ok = false } }
-            if let text { note("\"\(text)\" is on the page", said["text"] as? Bool == true) }
-            if let gone { note("\"\(gone)\" is gone", said["gone"] as? Bool == true) }
-            if let selector {
+            if let result = try? await script(check, ["text": condition.text ?? "", "gone": condition.gone ?? "", "selector": condition.selector ?? ""], in: web, timeout: 5) as? [String: Any] { said = result }
+            var holding: [String] = [], missing: [String] = []
+            func note(_ label: String, _ holds: Bool) { if holds { holding.append(label) } else { missing.append(label) } }
+            if let text = condition.text { note("\"\(text)\" is on the page", said["text"] as? Bool == true) }
+            if let gone = condition.gone { note("\"\(gone)\" is gone", said["gone"] as? Bool == true) }
+            if let selector = condition.selector {
                 if said["selector"] as? String == "bad" { throw Refusal(message: "\(selector) isn't a CSS selector.") }
                 note("\(selector) is on the page", said["selector"] as? Bool == true)
             }
-            if let address { note("the address has \"\(address)\"", tab.url?.absoluteString.localizedCaseInsensitiveContains(address) == true) }
-            if idle {
+            if let address = condition.address { note("the address has \"\(address)\"", tab.url?.absoluteString.localizedCaseInsensitiveContains(address) == true) }
+            if condition.idle {
                 let count = said["resources"] as? Int ?? -1
                 if count != resources { resources = count; steady = Date() }
                 note("the page is loaded and quiet", said["ready"] as? String == "complete" && !web.isLoading && Date().timeIntervalSince(steady) > 0.7)
             }
-            if ok { return .text("Done: " + holding.joined(separator: ", ") + ".") }
-            if Date() >= until { break }
-            try? await Task.sleep(for: .milliseconds(300))
+            if missing.isEmpty { return (true, holding, missing) }
+            let remaining = until.timeIntervalSinceNow
+            if remaining <= 0 { return (false, holding, missing) }
+            // A load under way ends when it ends.
+            if web.isLoading { await tab.settled(atMost: remaining); continue }
+            var wake = remaining
+            if condition.idle { wake = min(wake, max(0.05, 0.7 - Date().timeIntervalSince(steady))) }
+            do {
+                _ = try await script("return await __agent.changed(ms);", ["ms": wake * 1000], in: web, timeout: wake + 5)
+            } catch {
+                // The document went (a navigation): look again in the next one, once it is there.
+                await tab.settled(atMost: min(remaining, 10))
+            }
         }
-        let where_ = await after(tab, web)
-        return .text("Not yet after \(seconds) seconds" + (holding.isEmpty ? "." : "; so far: \(holding.joined(separator: ", ")).") + where_)
+    }
+
+    /// What the call itself says it is waiting for (`expect`), and for how long.
+    private func expectation() -> (Condition, Double)? {
+        guard let expect = arguments["expect"] as? [String: Any], !expect.isEmpty else { return nil }
+        func word(_ key: String) -> String? { expect[key] as? String }
+        let condition = Condition(text: word("text"), gone: word("gone"), selector: word("selector"), address: word("url_contains"))
+        guard condition.conditional else { return nil }
+        return (condition, min(max((expect["seconds"] as? NSNumber)?.doubleValue ?? 3, 0), 10))
+    }
+
+    // MARK: input that has been taken
+
+    /// Sets the page to say when it has taken input events (the first `types` event, `count` times).
+    private func arming(_ web: WKWebView, _ types: [String], count: Int, limit: Double) async {
+        _ = try? await script("return __agent.arm(types, count, ms);", ["types": types, "count": count, "ms": limit * 1000], in: web, timeout: 3)
+    }
+
+    /// Until the page has said so; `limit` is for an event that never comes (a click into another site's frame).
+    private func landed(_ web: WKWebView, limit: Double) async {
+        _ = try? await script("return await __agent.armed();", in: web, timeout: limit + 2)
+    }
+
+    /// Gives the page input (`send`) and goes on once the page has handled it: the page says so itself, so
+    /// the next step doesn't guess how long that takes. The events are queued one at a time, so a
+    /// message sent after them could pass them: this is what is waited for instead.
+    private func delivered(_ web: WKWebView, _ types: [String], count: Int = 1, limit: Double = 0.4, _ send: () -> Void) async {
+        await arming(web, types, count: count, limit: limit)
+        send()
+        await landed(web, limit: limit)
+    }
+
+    /// After something that is told to the page from outside (text put in by the input method): a
+    /// message after it, which is not passed by it.
+    private func behind(_ web: WKWebView) async {
+        _ = try? await script("return 0;", in: web, timeout: 2)
+    }
+
+    /// `expect`: after an action that went through, whether the page came to be as the call said.
+    func expecting(_ expect: [String: Any], after reply: Reply) async -> Reply {
+        guard let (condition, seconds) = expectation() else { return reply }
+        do {
+            let (tab, web) = try await page(.read, settled: false)
+            let result = try await hold(condition, for: seconds, in: tab, web)
+            if result.ok {
+                return Reply(parts: reply.parts + [["type": "text", "text": "Expected, and so: " + result.holding.joined(separator: ", ") + "."]])
+            }
+            let said = "It was done, but the page did not come to be as expected within \(Int(seconds)) seconds. Not so: \(result.missing.joined(separator: ", "))."
+                + (result.holding.isEmpty ? "" : " So: \(result.holding.joined(separator: ", ")).")
+            return Reply(parts: reply.parts + [["type": "text", "text": said]], failed: true)
+        } catch let refusal as Refusal {
+            return Reply(parts: reply.parts + [["type": "text", "text": "Done, but it couldn't be checked: \(refusal.message)"]], failed: true)
+        } catch {
+            return reply
+        }
     }
 
     // MARK: the rest of the person's browser
@@ -1410,7 +1805,7 @@ private struct Call {
         }
         Downloads.shared.adopt(started)
         let item = Downloads.shared.items.first { $0.download === started }
-        for _ in 0..<150 where item?.state == .running { try? await Task.sleep(for: .milliseconds(200)) }
+        if let item, item.state == .running { await item.ended.wait(atMost: 30) }
         guard let item else { return .text("The download started.") }
         switch item.state {
         case .finished: return .text("Saved \(item.file?.path ?? item.name).")
@@ -1524,10 +1919,64 @@ private struct Call {
         return text
     }
 
+    /// Fetch and XHR calls the page made: `Tab.logged` lines like "GET https://… → 200 (123 ms)".
+    private static let calling = try! NSRegularExpression(pattern: #"^([A-Z]+) (\S+) → (\S+) \((\d+) ms\)$"#)
+
+    func api() async throws -> Reply {
+        try developer()
+        let (tab, web) = try await page(.act)
+        struct Made { let id: Int; let method: String; let url: String; let status: String; let ms: String }
+        var made: [Made] = []
+        for entry in tab.logged where entry.kind == "network" {
+            let text = entry.text as NSString
+            guard let m = Call.calling.firstMatch(in: entry.text, range: NSRange(location: 0, length: text.length)) else { continue }
+            made.append(Made(id: entry.id, method: text.substring(with: m.range(at: 1)), url: text.substring(with: m.range(at: 2)),
+                             status: text.substring(with: m.range(at: 3)), ms: text.substring(with: m.range(at: 4))))
+        }
+        var wanted = string("url")
+        if let number = integer("request") {
+            guard let call = made.first(where: { $0.id == number }) else { throw Refusal(message: "There is no call \(number) in the list; `api` with nothing else lists them.") }
+            guard call.method == "GET" else { throw Refusal(message: "Call \(number) is a \(call.method): only GET is repeated. `network` with `show: \(number)` has its body, if the person turned bodies on.") }
+            wanted = call.url
+        }
+        guard let wanted, !wanted.isEmpty else {
+            let pattern = (string("pattern") ?? "").lowercased()
+            var seen = Set<String>(), rows: [String] = []
+            for call in made.reversed() where pattern.isEmpty || call.url.lowercased().contains(pattern) {
+                let key = call.method + " " + call.url
+                guard seen.insert(key).inserted else { continue }
+                rows.append("[\(call.id)] \(call.method) \(call.url) → \(call.status) (\(call.ms) ms)" + (call.method == "GET" ? "" : " (not repeated)"))
+                if rows.count >= 40 { break }
+            }
+            if rows.isEmpty {
+                return .text(tab.logged.isEmpty ? "Nothing yet: the page made no fetch or XHR calls since the developer tools were on (a page opened before that has none: reload it)." : "No fetch or XHR call of the page matches.")
+            }
+            return .text("What \(tab.name) asked its own servers for, newest first (\(rows.count)). `api` with `request` N shows what one gives.\n" + rows.joined(separator: "\n"))
+        }
+        // The page's own site, or what the page itself called.
+        guard let base = tab.url, let url = URL(string: wanted, relativeTo: base)?.absoluteURL, ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+            throw Refusal(message: "\(wanted) isn't an address `api` can repeat.")
+        }
+        let host = url.host()?.lowercased(), mine = base.host()?.lowercased()
+        guard host == mine || made.contains(where: { $0.url == url.absoluteString }) else {
+            throw Refusal(message: "`api` repeats the page's own calls and addresses on its own site (\(mine ?? "this one")); \(host ?? wanted) is neither. `open` it, or `read_pages`.")
+        }
+        let values: [String: Any] = ["url": url.absoluteString, "limit": min(max(integer("limit") ?? 50, 1), 500), "max": min(max(integer("max_chars") ?? 8000, 500), 60000),
+                                     "path": string("path") ?? "", "fields": (arguments["fields"] as? [Any] ?? []).compactMap { $0 as? String }]
+        let said = try await script(AgentPage.api, values, in: web, world: .page, timeout: 40)
+        return .text(format(said))
+    }
+
     func evaluate() async throws -> Reply {
         try developer()
         let (tab, web) = try await page(.act)
-        let value = try await script(string("code") ?? "", in: web, world: .page, timeout: 20)
+        // Values come as `args`, a variable of their own, so they need no quoting inside the code.
+        var values: [String: Any] = [:]
+        if let args = arguments["args"] {
+            guard args is [String: Any] || args is [Any] else { throw Refusal(message: "`args` is an object (or a list) of the values the code uses, seen there as `args`.") }
+            values["args"] = args
+        }
+        let value = try await script(string("code") ?? "", values, in: web, world: .page, timeout: 20)
         return .text(format(value) + (tab.dialog.map { "\nThe page now asks (\($0.kind)): \"\($0.message)\"." } ?? ""))
     }
 
@@ -1615,7 +2064,7 @@ private struct Call {
         guard changed else { return .text("This tab: \(state).") }
         if choice("reload") != false {
             web.reload()
-            await settle(web)
+            await tab.settled()
             return .text("This tab: \(state). The page is loaded again; read it afresh (refs are gone). They are put back when you let the tab go.")
         }
         return .text("This tab: \(state). Reload the page to see it. They are put back when you let the tab go.")
@@ -1864,18 +2313,40 @@ private struct Call {
 
 // MARK: - pictures
 
+/// Where a picture the agent took lies, so that positions in it can be clicked.
+struct PictureFrame {
+    /// The picture's top left, in the web view's points.
+    var origin: CGPoint
+    /// The web view's points to one of the picture's pixels.
+    var scale: CGFloat
+    /// Where the page was scrolled to when it was taken (in the page's own pixels):
+    /// put back before a click in it. Nil for the whole view, which is clicked as it is.
+    var scroll: CGPoint?
+}
+
+/// Pictures of a page. WebKit is asked on the main thread (it must be); what comes after, the drawing
+/// and the JPEG, is the longest part and runs on another thread at utility priority, so the browser
+/// the person is using is not held up while an agent looks at a page (and on an M1, where utility
+/// work lands on the efficiency cores, nor are the fast ones).
 enum AgentPicture {
-    struct Taken {
+    nonisolated struct Taken {
         let jpeg: Data
         let width: Int
         let height: Int
         /// The web view's points to one of the picture's pixels.
         let scale: CGFloat
+        /// A tall page laid out side by side: how many columns, and how many points of the page each holds.
+        var columns = 1
+        var slice: CGFloat = 0
+        var pageHeight: CGFloat = 0
     }
+
+    /// What crosses to the other thread: a picture or a page, which nobody changes meanwhile.
+    private nonisolated struct Carried<T>: @unchecked Sendable { let value: T }
 
     /// The whole page, as it prints, as one JPEG no wider than `widest` and
     /// no taller than `tallest`.
-    static func wholePage(of web: WKWebView, widest: CGFloat, tallest: CGFloat = 16000) async -> Taken? {
+    static func wholePage(of web: WKWebView, widest: CGFloat, tallest: CGFloat = 16000, columns wanted: Bool = false) async -> Taken? {
         let data: Data? = await withCheckedContinuation { continuation in
             var answered = false
             web.createPDF(configuration: WKPDFConfiguration()) { result in
@@ -1889,25 +2360,96 @@ enum AgentPicture {
                 continuation.resume(returning: nil)
             }
         }
-        guard let data, let provider = CGDataProvider(data: data as CFData), let pdf = CGPDFDocument(provider), let page = pdf.page(at: 1) else { return nil }
+        guard let data else { return nil }
+        return await Task.detached(priority: .utility) { render(page: data, widest: widest, tallest: tallest, columns: wanted) }.value
+    }
+
+    nonisolated private static func render(page data: Data, widest: CGFloat, tallest: CGFloat, columns wanted: Bool) -> Taken? {
+        guard let provider = CGDataProvider(data: data as CFData), let pdf = CGPDFDocument(provider), let page = pdf.page(at: 1) else { return nil }
         let box = page.getBoxRect(.mediaBox)
         guard box.width >= 1, box.height >= 1 else { return nil }
+        // A page too tall for one column is cut into several, side by side: each is
+        // wider than the one narrow strip the whole page would be.
+        if wanted, box.height / box.width * widest > tallest {
+            let count = min(8, Int(ceil(sqrt(Double(box.height / box.width * widest / tallest)))))
+            if count > 1 { return columned(page, box, count: count, widest: widest, tallest: tallest) }
+        }
         let factor = min(1, widest / box.width, tallest / box.height)
-        let wide = Int((box.width * factor).rounded()), high = Int((box.height * factor).rounded())
-        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: wide, pixelsHigh: max(high, 1), bitsPerSample: 8,
-                                            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
-              let context = NSGraphicsContext(bitmapImageRep: bitmap)
-        else { return nil }
-        let cg = context.cgContext
-        cg.setFillColor(NSColor.white.cgColor)
-        cg.fill(CGRect(x: 0, y: 0, width: wide, height: high))
+        let wide = Int((box.width * factor).rounded()), high = max(Int((box.height * factor).rounded()), 1)
+        guard let cg = canvas(width: wide, height: high, fill: CGColor(gray: 1, alpha: 1)) else { return nil }
         cg.saveGState()
         cg.scaleBy(x: factor, y: factor)
         cg.translateBy(x: -box.minX, y: -box.minY)
         cg.drawPDFPage(page)
         cg.restoreGState()
-        guard let jpeg = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.72]) else { return nil }
-        return Taken(jpeg: jpeg, width: wide, height: max(high, 1), scale: 1 / factor)
+        guard let jpeg = jpeg(of: cg, quality: 0.72) else { return nil }
+        return Taken(jpeg: jpeg, width: wide, height: high, scale: 1 / factor)
+    }
+
+    /// An empty picture to draw into, of this many pixels and this colour.
+    nonisolated private static func canvas(width: Int, height: Int, fill: CGColor) -> CGContext? {
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let cg = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                 bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+        else { return nil }
+        cg.interpolationQuality = .high
+        cg.setFillColor(fill)
+        cg.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        return cg
+    }
+
+    nonisolated private static func jpeg(of cg: CGContext, quality: Double) -> Data? {
+        guard let image = cg.makeImage() else { return nil }
+        return jpeg(of: image, quality: quality)
+    }
+
+    nonisolated private static func jpeg(of image: CGImage, quality: Double) -> Data? {
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+        return CGImageDestinationFinalize(destination) ? data as Data : nil
+    }
+
+    /// The page in `count` columns, left to right, each taking up where the one before ended.
+    nonisolated private static func columned(_ page: CGPDFPage, _ box: CGRect, count: Int, widest: CGFloat, tallest: CGFloat) -> Taken? {
+        let gap: CGFloat = 8
+        let columnWidth = ((widest - gap * CGFloat(count - 1)) / CGFloat(count)).rounded(.down)
+        let slice = box.height / CGFloat(count)
+        let factor = min(1, columnWidth / box.width, tallest / slice)
+        let one = Int((box.width * factor).rounded()), high = Int((slice * factor).rounded(.up))
+        let wide = one * count + Int(gap) * (count - 1)
+        guard one >= 8, high >= 8, let cg = canvas(width: wide, height: high, fill: CGColor(gray: 0.62, alpha: 1)) else { return nil }
+        for index in 0..<count {
+            let left = CGFloat(index * (one + Int(gap)))
+            cg.saveGState()
+            cg.clip(to: CGRect(x: left, y: 0, width: CGFloat(one), height: CGFloat(high)))
+            cg.setFillColor(CGColor(gray: 1, alpha: 1))
+            cg.fill(CGRect(x: left, y: 0, width: CGFloat(one), height: CGFloat(high)))
+            // The page runs from its top: column 1 holds the top slice.
+            cg.translateBy(x: left, y: 0)
+            cg.scaleBy(x: factor, y: factor)
+            cg.translateBy(x: -box.minX, y: -(box.maxY - slice * CGFloat(index + 1)))
+            cg.drawPDFPage(page)
+            cg.restoreGState()
+        }
+        // The columns' numbers, so that reading order is not a guess.
+        let font = CTFontCreateWithName("Helvetica-Bold" as CFString, 13, nil)
+        for index in 0..<count {
+            let left = CGFloat(index * (one + Int(gap)))
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: "\(index + 1)", attributes: [
+                NSAttributedString.Key(kCTFontAttributeName as String): font,
+                NSAttributedString.Key(kCTForegroundColorAttributeName as String): CGColor(gray: 1, alpha: 1),
+            ]))
+            let size = CTLineGetBoundsWithOptions(line, [])
+            let tag = CGRect(x: left + 2, y: CGFloat(high) - size.height - 10, width: size.width + 10, height: size.height + 8)
+            cg.setFillColor(CGColor(red: 0.88, green: 0.11, blue: 0.28, alpha: 1))
+            cg.addPath(CGPath(roundedRect: tag, cornerWidth: 4, cornerHeight: 4, transform: nil))
+            cg.fillPath()
+            cg.textPosition = CGPoint(x: tag.minX + 5, y: tag.minY + 4 - size.minY)
+            CTLineDraw(line, cg)
+        }
+        guard let jpeg = jpeg(of: cg, quality: 0.72) else { return nil }
+        return Taken(jpeg: jpeg, width: wide, height: high, scale: 1 / factor, columns: count, slice: slice, pageHeight: box.height)
     }
 
     /// The view, or a part of it, as a JPEG no wider than `widest`, a pixel
@@ -1933,20 +2475,17 @@ enum AgentPicture {
                 continuation.resume(returning: nil)
             }
         }
-        guard let image else { return nil }
-        let pixels = (wide: Int(width.rounded()), high: Int((width * area.height / area.width).rounded()))
-        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels.wide, pixelsHigh: max(pixels.high, 1), bitsPerSample: 8,
-                                            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
-              let context = NSGraphicsContext(bitmapImageRep: bitmap)
-        else { return nil }
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = context
-        NSColor.white.setFill()
-        NSRect(x: 0, y: 0, width: pixels.wide, height: pixels.high).fill()
-        image.draw(in: NSRect(x: 0, y: 0, width: pixels.wide, height: pixels.high))
-        NSGraphicsContext.restoreGraphicsState()
-        guard let jpeg = bitmap.representation(using: .jpeg, properties: [.compressionFactor: quality]) else { return nil }
-        return Taken(jpeg: jpeg, width: pixels.wide, height: pixels.high, scale: area.width / width)
+        guard let image, let source = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let pixels = (wide: Int(width.rounded()), high: max(Int((width * area.height / area.width).rounded()), 1))
+        let carried = Carried(value: source)
+        let scale = area.width / width
+        return await Task.detached(priority: .utility) { () -> Taken? in
+            // One pixel to a point, on white (a page with no background of its own).
+            guard let cg = canvas(width: pixels.wide, height: pixels.high, fill: CGColor(gray: 1, alpha: 1)) else { return nil }
+            cg.draw(carried.value, in: CGRect(x: 0, y: 0, width: pixels.wide, height: pixels.high))
+            guard let jpeg = jpeg(of: cg, quality: quality) else { return nil }
+            return Taken(jpeg: jpeg, width: pixels.wide, height: pixels.high, scale: scale)
+        }.value
     }
 }
 

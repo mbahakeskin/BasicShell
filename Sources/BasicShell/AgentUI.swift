@@ -11,11 +11,20 @@ struct AgentMark: View {
     let size: CGFloat
 
     var body: some View {
-        if AgentAccess.shared.holds(tab) {
+        // Shown while the agent is at work in the tab, and for a moment after it has finished.
+        switch AgentAccess.shared.presence[tab.id] {
+        case .working:
             Image(systemName: "cursorarrow.rays")
                 .font(.system(size: size, weight: .semibold))
                 .foregroundStyle(Color(nsColor: AgentAccess.color))
-                .help("The agent is using this tab")
+                .help("Agent at work here")
+        case .finished:
+            Image(systemName: "checkmark.circle")
+                .font(.system(size: size, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .help("Agent finished here")
+        case nil:
+            EmptyView()
         }
     }
 }
@@ -25,30 +34,38 @@ struct AgentMark: View {
 /// that stops it.
 struct AgentFrame: View {
     var radius: CGFloat = 0
-    static let pill = CGSize(width: 270, height: 32)
+    /// The tab shown: what is said depends on what the agent is doing in it.
+    var tab: Tab?
+    static let pill = CGSize(width: 190, height: 32)
     static let lift: CGFloat = 14
 
     var body: some View {
         let color = Color(nsColor: AgentAccess.color)
+        let finished = tab.flatMap { AgentAccess.shared.presence[$0.id] } == .finished
         ZStack(alignment: .bottom) {
+            // The line goes quiet once the agent has.
             RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .strokeBorder(color, lineWidth: 2)
+                .strokeBorder(color.opacity(finished ? 0.3 : 1), lineWidth: finished ? 1 : 2)
             HStack(spacing: 8) {
-                Image(systemName: "cursorarrow.rays")
+                Image(systemName: finished ? "checkmark.circle" : "cursorarrow.rays")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(color)
-                Text(AgentAccess.bypass ? "The agent is using this tab, unasked" : "The agent is using this tab")
+                    .foregroundStyle(finished ? Color.secondary : color)
+                // Short enough to be read whole; "unasked" is the one thing worth the room (bypass).
+                Text(finished ? "Agent done" : (AgentAccess.bypass ? "Agent at work · unasked" : "Agent at work"))
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
+                    .fixedSize()
                 Spacer(minLength: 0)
-                Button("Stop") { AgentAccess.shared.stopNow() }
-                    .buttonStyle(.borderless)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(color)
-                    .help("Stops the agent here, and in every other tab, until you let it carry on")
+                if !finished {
+                    Button("Stop") { AgentAccess.shared.stopNow() }
+                        .buttonStyle(.borderless)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(color)
+                        .help("Stops the agent here, and in every other tab, until you let it carry on")
+                }
             }
             .padding(.horizontal, 12)
-            .frame(width: AgentFrame.pill.width, height: AgentFrame.pill.height)
+            .frame(width: AgentAccess.bypass && !finished ? 250 : AgentFrame.pill.width, height: AgentFrame.pill.height)
             .glassEffect(.regular, in: .capsule)
             .padding(.bottom, AgentFrame.lift)
         }

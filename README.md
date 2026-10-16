@@ -188,15 +188,102 @@ The tools:
   changed among the things that can be clicked or filled, or, on a new
   page, what is on it), `open` and `navigate` list what is on the page,
   `fill_form` fills a whole form and `search` uses the site's search in one
-  call, and `read_pages` reads up to 25 addresses in one call, five at a time
-  in tabs of their own (without pictures, video or fonts), then closes them.
-  A page is waited for until it has come to rest (nothing changed for
-  150 ms, 500 at most) instead of for fixed times: a click is about
-  0.2 s, it was 0.7.
+  call, and `read_pages` reads up to 25 addresses in one call, in tabs of
+  their own (without pictures, video or fonts), then closes them: as many at
+  once as the Mac is good for (half its cores, 5 at most, fewer when it is
+  hot or saving power), and the next begins as soon as any one has finished.
+- Nothing is waited for by guessing how long it takes. Input is given to the
+  page and the call goes on when the page has said it took it (a listener in
+  the page, since WebKit queues input events and a message sent after them
+  could pass them); a load by the load's own events (the tab says when it
+  begins and ends loading, also for a navigation a click decided on); `wait`
+  and `expect` by a `MutationObserver` that wakes them when the page changes,
+  not by looking every so often; a dialog, a file chooser and a download by
+  theirs. What is left is a watchdog (for the event that never comes) and the
+  one thing with no event of its own, whether a click's effects are over. That
+  was a window of 150 ms without a change in the page; it is now a tracker put
+  in the page (in its own world, the first time an agent acts in a document,
+  so a page nobody works in pays nothing: about 0.1 microsecond more per
+  timer). What was going on when the action began is background; what is
+  started after it, by it or by anything it started (a timer up to 0.6 s, a
+  frame, a request and its body, a transition, a picture), is waited for until
+  it has run, then two turns of the page's event loop and 30 ms of no change.
+  Tried against the window on 17 patterns of page reaction (a timer of 50 to
+  400 ms, a chain of two, a fetch, a chain of fetches, an XHR, a picture, a
+  transition, a debounce, a ticking clock): the window missed 31 of 85 runs
+  (everything that reacted later than 150 ms after its last change) and
+  waited 107 ms too long on average; the tracker missed none and waited 43.
+  A page that does nothing is quiet in 40 ms, not 150. A request is waited for
+  at most 0.4 s from when it began (a reaction fetches and renders within
+  that; a beacon goes on much longer), the whole wait at most 0.5 s. A wait
+  that went past the old 150 ms with something pending and then ended with no
+  change at all was wasted: after two of those in a document, or two caps in
+  a row with new work still starting, that document is noisy and gets the old
+  window from then on (so the old 150 ms is the fallback, reached by what the
+  page has shown rather than assumed up front: a cap of 150 from the start
+  missed 33 of 64 reactions in the lab). What was still pending at a cap is
+  background from then on.
+  Limits: the main frame's timers only (another site's frame is covered by the
+  30 ms), no sight of messages between tasks or of sockets, and the cap is paid
+  when something pending never ends. With `expect` the call waits for what it
+  names, not for this. It puts code in the pages an agent works in (timers,
+  frames, `fetch` and XHR wrapped by proxies, so a page that asks a function
+  for its source is told "[native code]", and found under a symbol, not a
+  named global; nothing in other pages, and not in a page that has a password
+  or card field, which are the ones that look hardest at what runs in them);
+  `defaults write <app id> agent.quietTracker -bool false` turns it off and
+  brings back the 150 ms window. A determined detector can still tell
+  (the proxy's source reads `function ProxyObject() { [native code] }`, and
+  one symbol is on `window`).
+  A click is 0.04 s (it was 0.23; 0.16 with events alone), a hover 0.04
+  (0.27), a `type` 0.04 (0.30), a read of a tab that was asleep 0.09 (0.35),
+  and the default report now sees what a page adds 400 ms after a click, or
+  after a fetch, where it did not.
+- The browser is not held up for the agent: pictures are drawn and encoded on
+  another thread at utility priority (a screenshot stalled the main thread for
+  95 ms, an overview for 250; now 0), answers are written to the socket from
+  another thread, and the socket's buffers are a megabyte, not a few
+  kilobytes.
+- The frame and the pill ("Agent at work", with Stop) show while the agent is
+  at work in the tab shown, say "Agent done" 10 seconds after its last call
+  (or at once when its program goes), and are gone 3 seconds later; the tab is
+  let go after 2 minutes, not 10, each by a timer set when a call ends.
 - A picture is the agent's to size: `screenshot` takes `max_width`
   and `quality`, `marks` (the refs drawn on what can be clicked, to answer
   with a number), and `full_page` with `tile` (one view of a long page at a
-  time, 77 on a long article) or `overview` (all of it, small).
+  time, 77 on a long article) or `overview` (all of it: a page too tall for
+  one strip is laid out in numbered columns side by side, so it can still be
+  read). A `region` or a `tile` is clickable too: its positions are in its own
+  pixels, with the `picture` number the answer gives. `marks` keeps its
+  numbers off each other and, with a `region`, draws only what is in it.
+- Naming a thing without a ref: `click`, `hover`, `drag`, `type`, `fill`,
+  `fill_form` and `scroll` take a `label` (what it says), or a CSS `selector`,
+  with `role` and `nth`, looked for when the call is made, so one `batch` can
+  go to a page, search and click. `expect` (`text`, `gone`, `selector`,
+  `url_contains`) on an acting tool waits for the page to be so and fails if it
+  is not. A number the page replaced by another of the same kind (a search box
+  rebuilt as you type) still leads to the new one. `hover` says what
+  appeared. `evaluate` takes `args`, values that need no quoting in the code.
+- Calls that arrive together run together: a tool call is written to the
+  socket as it comes and answered by its id, so an agent that sends three
+  calls in a turn waits for the slowest, not the sum (three 2 s waits: 2.4 s,
+  not 7.3). Calls that change or picture the same tab take turns (three
+  clicks sent at once all landed, one after another); another tab goes on at
+  once.
+- `api` (developer tools): the fetch and XHR calls the page made, and what one
+  gives, repeated as the tab's own session: its JSON as a shape and sample,
+  or, with `path` and `fields`, just the values, one row each
+  (`data.items[*]`, `[name, price.value]`). A site's own data instead of
+  scraping its page; only GET is repeated, only the page's own site or what
+  the page itself called, and a path that names a token or password is
+  refused. `read_page` with `since_last` says only what changed since the last
+  `read_page` of that page. `batch` actions may be `optional` (go on if they
+  fail) or `repeat` (until they fail: click Load more until it is gone).
+- Reading less: `tabs` takes `from_tab`/`to_tab`, `yours`, `query` and
+  `window`, and cuts long addresses; `read_text` takes `selector` or `main`,
+  and `structured` gives the products a page declares (name, price, stock;
+  JSON-LD, microdata, meta tags) or, failing that, a guess from the cards that
+  show a price. `open` and `navigate` list the first 15 controls.
 - `upload` (you are asked each time, with the files named), `dialog` (a
   page's alert, confirm or prompt, which Claude in Chrome can't get past), `wait`,
   `save_page` (PDF or web archive, into Downloads), `record` (a GIF of the
