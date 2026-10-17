@@ -54,6 +54,7 @@ extension AgentTools {
         "source": "The page's source as the site sent it. Developer tools.",
         "site_info": "Connection security, certificate, permissions, cookie count, zoom, how the tab is set.",
         "features": "List, set or reset WebKit features (not privacy or security). Switch: WebKit features.",
+        "settle": "How a click's effects are known to be over: tracker (script in the page), inspector (nothing in the page, ~130 MB a tab) or window. No mode: which is in use.",
         "storage": "Cookies, local or session storage, databases: read, delete, clear. Switch: storage.",
         "batch": "Run up to 20 {name, input, optional, repeat} tools in order; stops at the first that fails (unless optional). repeat: until it fails.",
         "help": "The whole description of a tool (what its parameters mean, limits, cases); no tool: the list.",

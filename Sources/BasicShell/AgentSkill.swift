@@ -32,6 +32,7 @@ enum AgentSkill {
     - `read_text` for articles and long text, `find` for one thing, `read_page` for the controls (`filter: all` adds text).
     - `screenshot` is the dearest thing to look at. `max_width: 800` shows a layout; `region` or `ref` shows detail; `marks: true` draws the refs on the picture so you answer with a number; on a long page `full_page` with `tile: 1, 2 …` goes a view at a time, `overview` shows the page in numbered columns. A `region` or `tile` picture can be clicked: give x and y in its pixels with its `picture` number.
     - `wait` with a condition (`text`, `selector`, `network_idle`) rather than a number of seconds.
+    - Acting tools wait for what an action started to be over before they answer. If one comes back too early (the page changes right after) or too late, or a page seems to mind the script BasicShell puts in it, try `settle` with `mode: "inspector"`: it puts nothing in the page (about 130 MB for each tab you work in while you work there). Tell the person you switched.
 
     ## Permission
 

@@ -276,6 +276,21 @@ struct AgentSettings: View {
                 }
 
                 Section {
+                    let quiet = AgentQuiet.shared
+                    Picker(selection: Binding(get: { quiet.mode }, set: { quiet.choose($0) })) {
+                        ForEach(QuietMode.allCases) { Text($0.title).tag($0) }
+                    } label: {
+                        Text("Knowing a click is done")
+                        Text(quiet.byAgent ? "An agent switched this for now; choosing here keeps your choice." : "How the tools tell that what a click or a key started is over.")
+                    }
+                } header: {
+                    Text("Waiting")
+                } footer: {
+                    Text("A script in the page is the quickest and costs no memory, but it is code in the page. The Web Inspector puts none there: it reads what WebKit knows of the page's timers, frames and requests, at about 130 MB for each tab the agent works in while it works there, which is given back a minute after. The agent can switch to it by itself if an action seems to come back too early or late.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+
+                Section {
                     PowerToggle(.developer)
                     PowerToggle(.bodies, indented: true, enabled: developer)
                     PowerToggle(.storage, indented: true, enabled: developer)

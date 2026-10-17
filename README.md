@@ -187,7 +187,7 @@ passes each call to the running browser over a socket in its folder that only
 your user can open.
 
 The agent is handed a short list: each tool's name, a line and its
-parameters (about 16,500 characters for 46 tools, where 29,000 were for 42).
+parameters (about 16,800 characters for 47 tools, where 29,000 were for 42).
 The whole description of any tool, what each parameter means and the limits,
 is one call away: `help` (with `tool`; without, the list). Settings › Agents ›
 Connect also writes a skill for Claude Code (`~/.claude/skills/basicshell`)
@@ -255,10 +255,26 @@ The tools:
   for its source is told "[native code]", and found under a symbol, not a
   named global; nothing in other pages, and not in a page that has a password
   or card field, which are the ones that look hardest at what runs in them);
-  `defaults write <app id> agent.quietTracker -bool false` turns it off and
-  brings back the 150 ms window. A determined detector can still tell
+  Settings › Agents › Waiting chooses another way (`settle` lets an agent
+  choose, until BasicShell quits: it is told it may switch when an action
+  comes back too early or late, or a page seems to mind the script):
+  the Web Inspector, which puts nothing in the page, or the old 150 ms
+  window. A determined detector can still tell the tracker
   (the proxy's source reads `function ProxyObject() { [native code] }`, and
   one symbol is on `window`).
+- The Web Inspector way: a hidden inspector is connected to the tab the agent
+  acts in (WebKit's `_inspector`), and what WebKit's own instruments say (timers
+  set and fired, frames asked for, requests, layout and paint) is read from the
+  inspector's page, BasicShell's own, whose connection is hooked so that the
+  frontend records nothing and BasicShell is told only when it has decided.
+  A finite CSS animation is asked for the way the inspector's console would
+  (read only). The debugger is off, so a `debugger;` statement stops nothing;
+  the page can tell it is being inspected, as with Safari's inspector open.
+  On the lab of 17 patterns, through the agent's own clicks: none returned
+  early, 47-86 ms after the page's own end (the tracker, 34-46 ms). It costs
+  about 130 MB for each tab worked in, and 0.2 s the first time in a tab;
+  the connection closes 8 s after the last action and WebKit gives the
+  process back within a minute.
   A click is 0.04 s (it was 0.23; 0.16 with events alone), a hover 0.04
   (0.27), a `type` 0.04 (0.30), a read of a tab that was asleep 0.09 (0.35),
   and the default report now sees what a page adds 400 ms after a click, or

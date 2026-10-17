@@ -34,7 +34,7 @@ enum AgentTools {
 
     private static func tool(_ name: String, _ description: String, _ properties: [String: [String: Any]] = [:], required: [String] = [], reads: Bool = false) -> [String: Any] {
         var all = properties
-        if all["tab"] == nil, !["tabs", "open", "batch", "history", "bookmarks", "downloads", "clipboard", "extensions", "features", "read_pages", "help"].contains(name) {
+        if all["tab"] == nil, !["tabs", "open", "batch", "history", "bookmarks", "downloads", "clipboard", "extensions", "features", "read_pages", "help", "settle"].contains(name) {
             all["tab"] = ["type": "integer", "description": "The tab's number from `tabs`. Left out: the tab shown in the front window."]
         }
         return [
@@ -292,6 +292,9 @@ enum AgentTools {
             "key": ["type": "string", "description": "For set: the feature's key, as list gives it."],
             "enabled": ["type": "boolean", "description": "For set: on (true) or off (false)."],
         ]),
+        tool("settle", "How BasicShell knows that what a click or a key started is over, which every acting tool waits for before it answers. With no `mode` it says which way is in use. \"tracker\" (the default) puts a small script in the pages you work in, which wraps their timers, frames and requests. \"inspector\" puts nothing in the page: BasicShell reads what WebKit's Web Inspector knows of it, hidden; it costs about 130 MB of memory for each tab you work in (given back about a minute after you leave it) and 0.2 s the first time you act in a tab. \"window\" is the oldest, 150 ms without a change. Switch to \"inspector\" when an action comes back too early or too late and you suspect the script (a page that runs its own timers in a loop, a site that fights scripts, one the script cannot go in), or when a page seems to behave differently once you work in it; say so to the person. The choice lasts until BasicShell quits or the person chooses in Settings › Agents.", [
+            "mode": ["type": "string", "enum": ["tracker", "inspector", "window"], "description": "Which way to use from now on. Left out: only say which is in use."],
+        ]),
         tool("storage", "A site's cookies, local storage, session storage or databases, and clearing them. Needs \"Cookies and site storage\" turned on in Settings › Agents. Only the tab's own site, and for storage only its main page.", [
             "kind": ["type": "string", "enum": ["cookies", "local", "session", "databases"], "description": "Which. Cookies unless said."],
             "action": ["type": "string", "enum": ["read", "delete", "clear"], "description": "read (the default); delete one item by `name`; or clear them all. The person is asked before either, unless nothing is asked."],
@@ -347,7 +350,7 @@ enum AgentTools {
     private static let alone: Set<String> = ["click", "hover", "drag", "type", "key", "scroll", "fill", "fill_form", "search", "navigate", "upload", "dialog",
                                              "close", "resize", "block", "render", "evaluate", "screenshot", "record", "arrange", "api", "save_page"]
     /// The tools that are not about one tab.
-    private static let tabless: Set<String> = ["tabs", "open", "batch", "history", "bookmarks", "downloads", "clipboard", "extensions", "features", "read_pages", "help"]
+    private static let tabless: Set<String> = ["tabs", "open", "batch", "history", "bookmarks", "downloads", "clipboard", "extensions", "features", "read_pages", "help", "settle"]
     private static var busy: Set<UUID> = []
     private static var queued: [UUID: [CheckedContinuation<Void, Never>]] = [:]
 
@@ -423,6 +426,7 @@ enum AgentTools {
             case "source": return try await call.source()
             case "site_info": return try await call.siteInfo()
             case "features": return try await call.features()
+            case "settle": return call.settle()
             case "storage": return try await call.storage()
             case "batch": return await batch(arguments, for: client)
             default: return .failure("BasicShell has no tool called \(name).")
@@ -608,7 +612,7 @@ private struct Call {
             if restoring { await tab.beginning(atMost: 0.5) }
             await tab.settled()
         }
-        if kind == .act { await beginAction(web) }
+        if kind == .act { await beginAction(tab, web) }
         if let dialog = tab.dialog {
             throw Refusal(message: "The page has a question up and does nothing until it is answered: \(dialog.kind) \"\(dialog.message)\". Answer it with `dialog`.")
         }
@@ -625,19 +629,39 @@ private struct Call {
     }
 
     /// The tracker (AgentPage.tracker) puts code in the pages an agent works in. For the person who wants none
-    /// there: `defaults write <this app's id> agent.quietTracker -bool false`, and the old window of no change
-    /// is used instead.
-    private static var trackerOn: Bool { UserDefaults.standard.object(forKey: "agent.quietTracker") as? Bool ?? true }
+    /// there, Settings › Agents has the Web Inspector (AgentQuiet.swift), which puts none, or the old window of no
+    /// change; `settle` lets an agent switch.
+    private static var mode: QuietMode { AgentQuiet.shared.mode }
 
     /// Whether the tracker may go into this page: not where the person is typing a password or a card number
     /// (a login or a payment page, which look hardest at what runs in them), and not if it is switched off.
     private func trackerAllowed(_ web: WKWebView) async -> Bool {
-        guard Call.trackerOn else { return false }
+        guard Call.mode != .window else { return false }
         return (try? await script("return __agent.guarded();", in: web, timeout: 3)) as? Bool != true
     }
 
-    /// Before an action: everything going on in the page now is background (see AgentPage.tracker).
-    private func beginAction(_ web: WKWebView) async {
+    /// `settle`: which way is in use, or the way to use from now on.
+    func settle() -> Reply {
+        let quiet = AgentQuiet.shared
+        let describe = { (mode: QuietMode) -> String in
+            switch mode {
+            case .tracker: "tracker: a small script in the pages you work in"
+            case .inspector: "inspector: nothing in the page; WebKit's Web Inspector is connected hidden (about 130 MB for each tab you work in, 0.2 s the first time in a tab)"
+            case .window: "window: 150 ms without a change"
+            }
+        }
+        guard let text = string("mode") else {
+            return .text("In use: \(describe(quiet.mode))\(quiet.byAgent ? ", chosen by an agent" : "").")
+        }
+        guard let mode = QuietMode(rawValue: text) else { return .failure("`mode` is tracker, inspector or window.") }
+        guard mode != quiet.mode else { return .text("Already in use: \(describe(mode)).") }
+        quiet.set(byAgent: mode)
+        return .text("Now in use: \(describe(mode)). It lasts until BasicShell quits or the person chooses in Settings › Agents.")
+    }
+
+    /// Before an action: everything going on in the page now is background (see AgentPage.tracker, InspectorWatch).
+    private func beginAction(_ tab: Tab, _ web: WKWebView) async {
+        if Call.mode == .inspector, let watch = await InspectorWatch.attach(to: tab, web) { return await watch.begin() }
         guard await trackerAllowed(web) else { return }
         _ = try? await script(AgentPage.tracker + "\nreturn window[Symbol.for('basicshell.quiet')].begin();", in: web, world: .page, timeout: 3)
     }
@@ -646,6 +670,7 @@ private struct Call {
     /// animations, images) and the page has not changed for `margin` ms. A page the tracker can't be put
     /// in, one that is never quiet, or a document that went meanwhile gets the old window of no change.
     private func effectsOver(_ web: WKWebView, _ tab: Tab, cap: Int = 500, margin: Int = 30, pictures: Bool = false) async {
+        if Call.mode == .inspector, let watch = InspectorWatch.existing(tab), await watch.settled(cap: cap, margin: margin) { return }
         guard await trackerAllowed(web) else { return await rest(web) }
         do {
             _ = try await script(AgentPage.tracker + "\nreturn await window[Symbol.for('basicshell.quiet')].settled({ cap, margin, window: 150, lazy, netBudget: 400 });",
@@ -1023,7 +1048,7 @@ private struct Call {
         let tiles = max(1, Int((height / view).rounded(.up)))
         let number = min(max(integer("tile") ?? 1, 1), tiles)
         let top = min(Double(number - 1) * view, max(0, height - view))
-        await beginAction(web)
+        await beginAction(tab, web)
         _ = try await script("window.scrollTo(0, y); return true;", ["y": top], in: web)
         // What the scroll brought into view (lazy pictures) is waited for.
         await effectsOver(web, tab, cap: 600, pictures: true)
@@ -1075,7 +1100,7 @@ private struct Call {
             scale = frame.scale
             // A tile or a part is of the page as it was scrolled then.
             if let scroll = frame.scroll {
-                await beginAction(web)
+                await beginAction(tab, web)
                 _ = try await script("window.scrollTo(x, y); return true;", ["x": scroll.x, "y": scroll.y], in: web)
                 await effectsOver(web, tab, cap: 400, pictures: true)
             }
@@ -1265,7 +1290,7 @@ private struct Call {
         case "right": dx = amount * web.bounds.width / zoom
         default: dy = amount * web.bounds.height / zoom
         }
-        await beginAction(web)
+        await beginAction(tab, web)
         let result = try await script("return __agent.scroll(x, y, dx, dy);", ["x": x, "y": y, "dx": dx, "dy": dy], in: web) as? [String: Any]
         await effectsOver(web, tab, cap: 500, pictures: true)
         let header = try await script("return __agent.header();", in: web) as? String ?? ""
