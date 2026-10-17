@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         #if AGENT
         AgentAccess.migrateSettings()
         AgentAccess.shared.start()
+        Updater.shared.start()
         #endif
         NSApp.mainMenu = Menus.build()
         // Pages open once the extensions are in (see Extensions.start).
@@ -42,6 +43,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if !waiting.isEmpty { open(waiting) }
         waiting = []
         NSApp.activate()
+        #if AGENT
+        Updater.shared.announceIfUpdated()
+        #endif
     }
 
     /// Back from the App Store with uBlock Origin Lite, perhaps.
@@ -103,6 +107,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc func showSettings(_ sender: Any?) { SettingsWindow.show() }
+    #if AGENT
+    @objc func checkForUpdates(_ sender: Any?) { Task { await Updater.shared.check(manually: true) } }
+    #endif
     @objc func showDebugLog(_ sender: Any?) { DebugWindow.show() }
 
     @objc func reopenTab(_ sender: Any?) {

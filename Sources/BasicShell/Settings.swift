@@ -92,6 +92,9 @@ private struct GeneralSettings: View {
                 }
                 Button("Open Debug Log") { DebugWindow.show() }
             }
+            #if AGENT
+            UpdateSection()
+            #endif
             Section {
                 Button("Make BasicShell the Default Browser") {
                     let app = Bundle.main.bundleURL
@@ -385,3 +388,29 @@ private struct ExtensionSettings: View {
         }
     }
 }
+
+#if AGENT
+/// Version, and looking for a newer one (see Update.swift).
+private struct UpdateSection: View {
+    var body: some View {
+        let updater = Updater.shared
+        Section {
+            Toggle(isOn: Binding(get: { updater.automatic }, set: { updater.automatic = $0 })) {
+                Text("Look for updates by itself")
+                Text("Once a day, BasicShell asks github.com for the latest release, which sends nothing of yours but the address of the request. A newer one is offered, never put in without your say.")
+            }
+            LabeledContent {
+                HStack {
+                    if case .available = updater.state {
+                        Button("Update…") { Task { await updater.check(manually: true) } }
+                    }
+                    Button("Check Now") { Task { await updater.check(manually: true) } }.disabled(updater.busy)
+                }
+            } label: {
+                Text("Version \(updater.current)")
+                if !updater.status.isEmpty { Text(updater.status) }
+            }
+        }
+    }
+}
+#endif
