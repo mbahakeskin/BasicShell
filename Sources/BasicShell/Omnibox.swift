@@ -203,6 +203,9 @@ struct ToastView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(still ? nil : .easeOut(duration: 0.18), value: shell.toast)
+        // The pill is measured in this space, the host's own (its top left is the host's), so that ToastHost can tell
+        // where a click is; `.global` is the window's, which is not where the host is.
+        .coordinateSpace(.named("toast"))
     }
 
     private func pill(_ toast: Toast) -> some View {
@@ -226,7 +229,7 @@ struct ToastView: View {
         .onHover { window.toastHovered($0) }
         // Where the pill is, so that only it takes clicks (ToastHost) and the
         // QR card can point at it.
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { shell.toastPill = $0 }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("toast")) } action: { shell.toastPill = $0 }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(toast.text)
     }

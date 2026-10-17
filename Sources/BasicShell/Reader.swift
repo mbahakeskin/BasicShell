@@ -262,14 +262,15 @@ enum Reader {
       return { html: inner, block: flow };
     };
     let html = children(top, true);
-    // Parsed in a document of its own that has no page and so loads nothing: its pictures are not fetched twice.
-    const kept = doc.implementation.createHTMLDocument("").createElement("div");
-    kept.innerHTML = html;
-    const words = (kept.textContent.match(/\S+/g) || []).length;
-    const keptLinks = kept.querySelectorAll("a").length;
-    const keptParagraphs = kept.querySelectorAll("p").length;
-    const keptText = kept.textContent.replace(/\s+/g, " ").trim().length;
-    const keptLinkLength = [...kept.querySelectorAll("a")].reduce((n, a) => n + a.textContent.length, 0);
+    // Counted in the text made, not by parsing it: a page that takes only trusted types for its innerHTML (YouTube,
+    // GitHub, Google) would refuse the parse, and parsing in a document of the page's own may fetch its pictures.
+    const plain = (h) => h.replace(/<[^>]*>/g, " ");
+    const flat = plain(html);
+    const words = (flat.match(/\S+/g) || []).length;
+    const keptParagraphs = (html.match(/<p>/g) || []).length;
+    const keptText = flat.replace(/\s+/g, " ").trim().length;
+    let keptLinks = 0, keptLinkLength = 0;
+    html.replace(/<a [^>]*>([\s\S]*?)<\/a>/g, (m, inner) => { keptLinks++; keptLinkLength += plain(inner).replace(/\s+/g, " ").trim().length; return m; });
     const meta = (n) => { const m = doc.querySelector('meta[property="' + n + '"], meta[name="' + n + '"]'); return m ? (m.getAttribute("content") || "").trim() : ""; };
     const ld = [...doc.querySelectorAll('script[type="application/ld+json"]')].some((s) => /"@type"\s*:\s*\[?\s*"(News|Blog|Tech|Scholarly)?Article"|"BlogPosting"|"Report"/.test(s.textContent || ""));
     const signal = /article/i.test(meta("og:type")) || ld || !!doc.querySelector("article, [itemprop=articleBody]");
@@ -288,8 +289,8 @@ enum Reader {
     if (!title) title = clean(meta("og:title") || meta("twitter:title") || doc.title || "").replace(/\s+[|–—-]\s+[^|–—-]{2,40}$/, "");
     // The first heading of the text is the title again.
     if (title) {
-      const first = kept.querySelector("h2");
-      if (first && clean(first.textContent) === title) { first.remove(); html = kept.innerHTML; }
+      const first = html.match(/<h2>([\s\S]*?)<\/h2>/);
+      if (first && clean(plain(first[1])) === title) html = html.replace(first[0], "");
     }
     let byline = clean(meta("author") || meta("article:author") || "");
     if (!byline || /^https?:/.test(byline)) {
@@ -301,7 +302,7 @@ enum Reader {
     const t = doc.querySelector("time[datetime]");
     const date = meta("article:published_time") || meta("date") || (t ? t.getAttribute("datetime") : "") || "";
     const dir = (doc.documentElement.dir || getComputedStyle(doc.body).direction || "ltr").toLowerCase();
-    return { title, byline, site, date, lang: doc.documentElement.lang || "", rtl: dir === "rtl", html: kept.innerHTML,
+    return { title, byline, site, date, lang: doc.documentElement.lang || "", rtl: dir === "rtl", html: html,
              words: words, paragraphs: keptParagraphs, images: images, links: keptLinks, ms: performance.now() - started, url: location.href,
              page: { elements: doc.getElementsByTagName("*").length, scripts: doc.scripts.length, frames: doc.querySelectorAll("iframe, frame, object, embed").length,
                      forms: doc.forms.length, chars: (doc.body.innerText || "").length } };
@@ -699,6 +700,8 @@ final class ReaderState {
     var available = false
     @ObservationIgnored var probed = false
     @ObservationIgnored var probing = false
+    /// A reader is being made (the page is being read): a second press waits for it.
+    @ObservationIgnored var opening = false
     @ObservationIgnored var view: ReaderView?
 }
 
@@ -710,22 +713,26 @@ extension BrowserWindow {
     }
 
     func openReader(of tab: Tab) {
-        guard tab.readerState.view == nil, let web = tab.webView else { return }
-        // A page that did not look like an article is tried all the same when the person asks, with less asked of it.
-        let force = !tab.hasArticle
+        // A press while the last one is still being answered is the same press.
+        guard tab.readerState.view == nil, !tab.readerState.opening, let web = tab.webView else { return }
+        tab.readerState.opening = true
         Task { [weak self, weak tab, weak web] in
-            guard let web, let article = await Reader.article(web, force: force), let self, let tab, tab.webView === web, tab.readerState.view == nil else {
-                Debug.log("reader", "no article when opened")
-                self?.say("There is no article to show here")
-                tab?.readerState.available = false
+            defer { tab?.readerState.opening = false }
+            // The decision that the page has an article is made by the probe; here the person asked, so the text is
+            // taken whatever the page looks like (the same text, with less asked of it).
+            guard let web else { return }
+            let found = await Reader.article(web, force: true)
+            // The tab went elsewhere, or another reader came meanwhile: nothing to say.
+            guard let self, let tab, tab.webView === web, tab.readerState.view == nil else { return }
+            guard let found else {
+                self.say("There is no text on this page to show")
                 return
             }
-            let view = ReaderView(article: article, tab: tab) { [weak self, weak tab] in
+            let view = ReaderView(article: found, tab: tab) { [weak self, weak tab] in
                 if let tab { self?.closeReader(of: tab) }
             }
             tab.readerState.view = view
-            tab.readerState.available = true
-            Debug.log("reader", "opened \(article.url.host() ?? ""): \(article.words) words, \(article.paragraphs) paragraphs, \(article.images) images; read in \(String(format: "%.1f", article.took)) ms")
+            Debug.log("reader", "opened \(found.url.host() ?? ""): \(found.words) words, \(found.paragraphs) paragraphs, \(found.images) images; read in \(String(format: "%.1f", found.took)) ms")
             if tab === self.shell.selected { self.showReader(of: tab) }
         }
     }
