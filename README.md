@@ -2,7 +2,8 @@
 
 A small, quiet web browser for macOS 27, written in Swift on the WebKit that
 ships with the Mac. No dependencies, no telemetry, nothing sent anywhere but
-the pages you open.
+the pages you open (and, in a release build, a once-a-day look at GitHub for a
+newer version, which Settings turns off).
 
 - The page takes the whole window. Tabs live in a sidebar that comes out when
   the pointer reaches the left edge; back, forward, reload and the address
@@ -66,6 +67,16 @@ the pages you open.
   one.
 - Find in the page (`⌘F`): a small field at the page's top right, every
   match marked and counted, `⌘G` and `⇧⌘G` for the next and the one before.
+- Updates (the build with the agent tools, which is what releases are):
+  BasicShell menu › Check for Updates…, and once a day by itself unless
+  Settings › General turns that off, it asks github.com for the latest release
+  and, if its version number is higher than the running one's (0.6.0 over 0.5.3;
+  the time anything was built plays no part), offers it with its notes. Update
+  and Restart downloads the zip, checks it against the SHA-256 GitHub gives for
+  the file, opens it, checks that the app in it has this app's identifier and
+  the release's version and that its signature holds together, then quits; a
+  script puts the old app in the Trash and the new one in its place, and opens
+  it. Nothing is installed without your say.
 - `⇧⌘C` copies the address, and the pill that says so holds two buttons for
   a moment: a QR code of the address (a card under the pill, "Copy Image" for
   the code as a picture) and AirDrop.
@@ -111,7 +122,7 @@ the pages you open.
   after; "Reset All WebKit Features to Defaults" takes it back. Safari's own
   Debug menu has more (iCloud, CloudKit, AutoFill); that is Safari's, not
   WebKit's.
-- In a build made with the agent tools (the second download of a release, or
+- In a build made with the agent tools (what a release is, or
   `./build.sh agent`), AI agents can use it when you turn that on: Claude Code,
   the Claude app, Antigravity or any other that speaks the Model Context
   Protocol get tools for the tabs and the pages in them. See
@@ -172,9 +183,9 @@ things itself, as tools over the Model Context Protocol, with no key and no
 account of its own: whichever agent you already use calls them (Claude Code,
 the Claude app, Antigravity, or any other MCP client).
 
-It is in the build only when asked for: `./build.sh agent`, or the download
-of a release named `…-agent.zip`. The plain build has no part of it, not
-the Settings page, not the code.
+It is in the build only when asked for: `./build.sh agent`, which is also what
+a release is (from 0.6.0 on, a release has this build alone). The plain build,
+`./build.sh`, has no part of it, not the Settings page, not the code.
 
 Turn it on in Settings › Agents, then connect from there: a button adds
 BasicShell to Claude Code (or copies the command, `claude mcp add --scope
@@ -187,7 +198,7 @@ passes each call to the running browser over a socket in its folder that only
 your user can open.
 
 The agent is handed a short list: each tool's name, a line and its
-parameters (about 16,800 characters for 47 tools, where 29,000 were for 42).
+parameters (about 17,000 characters for 48 tools, where 29,000 were for 42).
 The whole description of any tool, what each parameter means and the limits,
 is one call away: `help` (with `tool`; without, the list). Settings › Agents ›
 Connect also writes a skill for Claude Code (`~/.claude/skills/basicshell`)

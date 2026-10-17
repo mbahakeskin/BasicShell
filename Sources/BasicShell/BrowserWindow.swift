@@ -360,8 +360,9 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             dismissOmnibox()
             return true
         }
-        // Only from its own field: on the page Esc is the page's.
-        if typingInFind {
+        // From the field, and from the page too: Return or ⌘G in the field leaves the keyboard on the page (WebKit
+        // selects the match), and Esc then did nothing.
+        if shell.finding, typingInFind || keyboardOnPage {
             closeFind()
             return true
         }
@@ -377,6 +378,12 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             return true
         }
         return false
+    }
+
+    /// The keyboard is on the page shown (or the reader over it), not in some field of BasicShell's.
+    private var keyboardOnPage: Bool {
+        guard let web = shownWeb, let responder = window?.firstResponder as? NSView else { return false }
+        return responder === web || responder.isDescendant(of: web)
     }
 
     private var typingInFind: Bool {
