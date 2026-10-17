@@ -686,7 +686,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         let previous = shell.selected
         defer { if previous !== tab { Extensions.shared.activated(tab, previous: previous) } }
         if let current = shell.selected, current !== tab {
-            // The page under a reader is hidden, for VoiceOver's sake too; it is shown for its picture to be taken.
+            // The page under a reader is hidden; it is shown for its picture to be taken.
             if current.isReading { current.webView?.isHidden = false }
             // A video playing in it goes into Picture in Picture (PiP.swift).
             PiP.follow(current)
@@ -1056,11 +1056,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         if actions.isEmpty {
             toastTimer.fireDate = Date(timeIntervalSinceNow: 1.4)
         } else {
-            // Room to reach for it; VoiceOver takes longer to get there.
-            toastTimer.fireDate = Date(timeIntervalSinceNow: NSWorkspace.shared.isVoiceOverEnabled ? 12 : 4)
-            let titles = actions.map(\.title).joined(separator: " and ")
-            NSAccessibility.post(element: window as Any, notification: .announcementRequested,
-                                 userInfo: [.announcement: "\(message). \(titles) at the top of the window.", .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+            // Room to reach for it.
+            toastTimer.fireDate = Date(timeIntervalSinceNow: 4)
         }
     }
 

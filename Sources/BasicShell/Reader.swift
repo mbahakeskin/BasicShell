@@ -725,7 +725,7 @@ extension BrowserWindow {
         guard let view = tab.readerState.view, let web = tab.webView, web.superview != nil else { return }
         view.frame = web.superview?.bounds ?? .zero
         web.superview?.addSubview(view, positioned: .above, relativeTo: nil)
-        // Hidden under the article: VoiceOver would otherwise read both, and a hidden page costs nothing to draw.
+        // Hidden under the article: a hidden page costs nothing to draw, and nothing of it is read twice.
         web.isHidden = true
         view.needsLayout = true
         view.apply()
