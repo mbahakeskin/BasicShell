@@ -79,11 +79,32 @@ extension Tab {
     func stopWatchingAudio() {
         audioWatch?.stop()
         audioWatch = nil
+        audioQuiet?.cancel()
         isPlayingAudio = false
     }
 
+    /// What WebKit says now, for a page that was already making sound when it was looked at (a load finished, the tab
+    /// shown). Only once the page has a process: before that there is nothing to ask.
+    func refreshAudio() {
+        guard let web = webView, audioWatch != nil, web.url != nil else { return }
+        let key = "_isPlayingAudio"
+        guard web.responds(to: NSSelectorFromString(key)), let playing = web.value(forKey: key) as? Bool else { return }
+        audioChanged(playing)
+    }
+
     fileprivate func audioChanged(_ playing: Bool) {
-        if isPlayingAudio != playing { isPlayingAudio = playing }
+        Debug.log("mute", "audio \(playing ? "on" : "off") in \(title)")
+        audioQuiet?.cancel()
+        if playing {
+            if !isPlayingAudio { isPlayingAudio = true }
+        } else if isPlayingAudio {
+            // A lease on the speaker, not a wait for anything: it goes two seconds after the sound did.
+            audioQuiet = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+                self?.isPlayingAudio = false
+            }
+        }
     }
 }
 

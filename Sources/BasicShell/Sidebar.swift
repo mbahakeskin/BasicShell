@@ -209,7 +209,7 @@ struct PinnedTile: View {
                 }
             }
             .overlay(alignment: .bottomTrailing) {
-                if tab.isPlayingAudio || tab.muteSaid == true { SpeakerButton(tab: tab, size: 10).padding(3) }
+                if tab.isPlayingAudio || tab.muteSaid == true { SpeakerButton(tab: tab, size: 12).padding(2) }
             }
             #if AGENT
             .overlay(alignment: .topTrailing) { AgentMark(tab: tab, size: 8).padding(4) }

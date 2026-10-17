@@ -38,6 +38,8 @@ final class Tab: NSObject, Identifiable {
     var isPlayingAudio = false
     var muteSaid: Bool?
     @ObservationIgnored var audioWatch: AudioWatch?
+    /// The speaker stays for a moment after the sound stops (a gap between songs, a video ending into the next).
+    @ObservationIgnored var audioQuiet: Task<Void, Never>?
     /// Whether its page has an article, and the reader over it (Reader.swift).
     let readerState = ReaderState()
     /// Its page was let go to give the memory back (see Sleep.swift); it
@@ -439,6 +441,7 @@ extension Tab: WKNavigationDelegate {
             }
         }
         host?.painted(self)
+        refreshAudio()
         if (host as? BrowserWindow)?.shell.selected === self { probeReader() }
         // Not BasicShell's own page saying it couldn't be opened.
         if let shown = errorShown, webView.url == shown { errorShown = nil; return }

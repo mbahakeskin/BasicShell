@@ -758,6 +758,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         tab.lastSeen = Date()
         Session.touch()
         window.title = tab.name
+        tab.refreshAudio()
         let reading = tab.readerState.view
         if let reading {
             reading.frame = page.bounds
@@ -1417,7 +1418,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             return tab?.isPrivate == false && tab?.url?.host() != nil
         case #selector(toggleReader(_:)):
             item.title = tab?.isReading == true ? "Hide Reader" : "Show Reader"
-            return tab?.isReading == true || tab?.hasArticle == true
+            // Any page may be tried; the ones that look like an article are the ones offered in the top bar.
+            return tab?.isReading == true || (tab?.webView != nil && ["http", "https"].contains(tab?.url?.scheme ?? ""))
         case #selector(copyPageScreenshot(_:)): return tab?.webView != nil && tab?.url != nil && !shooting
         case #selector(toggleAwake(_:)):
             item.title = Awake.shared.contains(tab?.url) ? "Let This Site Sleep" : "Keep This Site Awake"

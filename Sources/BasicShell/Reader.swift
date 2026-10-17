@@ -99,13 +99,14 @@ enum Reader {
       bump(d, pts);
       bump(d.parentElement, pts / 2);
     }
-    if (paragraphs < 2) return null;
+    if (paragraphs < 2 && !force) return null;
     let top = null, best = -1;
     for (const [e, s] of score) {
       const adjusted = s * (1 - Math.min(0.9, density(e)));
       if (adjusted > best) { best = adjusted; top = e; }
     }
-    if (!top) return null;
+    // Asked for by the person on a page that does not look like an article: whatever text the page has.
+    if (!top) { if (!force) return null; top = doc.querySelector("article, main, [role=main]") || doc.body; }
     // A page whose text is split into many boxes (sections of a document): the box that holds most of it, not the best of the parts.
     const total = items.reduce((n, i) => n + i.pts, 0);
     const share = (a) => items.reduce((n, i) => n + (a.contains(i.el) ? i.pts : 0), 0);
@@ -273,7 +274,8 @@ enum Reader {
     const ld = [...doc.querySelectorAll('script[type="application/ld+json"]')].some((s) => /"@type"\s*:\s*\[?\s*"(News|Blog|Tech|Scholarly)?Article"|"BlogPosting"|"Report"/.test(s.textContent || ""));
     const signal = /article/i.test(meta("og:type")) || ld || !!doc.querySelector("article, [itemprop=articleBody]");
     const home = location.pathname === "/" || location.pathname === "";
-    const readable = words >= 120 && keptParagraphs >= 3 && keptText > 0 && keptLinkLength / keptText < 0.35 && !(home && !signal);
+    const readable = force ? words >= 15 && keptText > 0 && keptLinkLength / keptText < 0.8
+      : words >= 120 && keptParagraphs >= 3 && keptText > 0 && keptLinkLength / keptText < 0.35 && !(home && !signal);
     if (probe) return { ok: readable, words: words, ms: performance.now() - started,
       why: top.tagName.toLowerCase() + (top.id ? "#" + top.id : "") + " p" + keptParagraphs + " links " + Math.round(100 * keptLinkLength / Math.max(1, keptText)) + "% home " + home + " signal " + signal };
     if (!readable) return null;
@@ -314,9 +316,9 @@ enum Reader {
     }
 
     /// Asks the page's own process: the article, or nil if it has none.
-    static func read(_ web: WKWebView, probe: Bool) async -> [String: Any]? {
+    static func read(_ web: WKWebView, probe: Bool, force: Bool = false) async -> [String: Any]? {
         do {
-            let result = try await web.callAsyncJavaScript(script, arguments: ["probe": probe], in: nil, contentWorld: world)
+            let result = try await web.callAsyncJavaScript(script, arguments: ["probe": probe, "force": force], in: nil, contentWorld: world)
             if !(result is [String: Any]) { Debug.log("reader", "the script answered \(String(describing: result).prefix(200))") }
             return result as? [String: Any]
         } catch {
@@ -325,8 +327,8 @@ enum Reader {
         }
     }
 
-    static func article(_ web: WKWebView) async -> Article? {
-        guard let found = await read(web, probe: false) else {
+    static func article(_ web: WKWebView, force: Bool = false) async -> Article? {
+        guard let found = await read(web, probe: false, force: force) else {
             Debug.log("reader", "the page gave no article")
             return nil
         }
@@ -369,14 +371,21 @@ final class ReaderPrefs {
     var theme: Theme { didSet { save("reader.theme", theme.rawValue) } }
     var face: Face { didSet { save("reader.face", face.rawValue) } }
     var measure: Measure { didSet { save("reader.measure", measure.rawValue) } }
-    var size: Int { didSet { size = min(max(size, 0), ReaderPrefs.sizes.count - 1); save("reader.size", size) } }
+    /// An index into `sizes`; changed by `step`, which keeps it in range (a property that sets itself in its own
+    /// observer is called again, without end).
+    var size: Int { didSet { save("reader.size", size) } }
+
+    func step(_ by: Int) {
+        let next = min(max(size + by, 0), ReaderPrefs.sizes.count - 1)
+        if next != size { size = next }
+    }
 
     private init() {
         let defaults = UserDefaults.standard
         theme = Theme(rawValue: defaults.string(forKey: "reader.theme") ?? "") ?? .auto
         face = Face(rawValue: defaults.string(forKey: "reader.face") ?? "") ?? .serif
         measure = Measure(rawValue: defaults.string(forKey: "reader.measure") ?? "") ?? .medium
-        size = defaults.object(forKey: "reader.size") as? Int ?? 2
+        size = min(max(defaults.object(forKey: "reader.size") as? Int ?? 2, 0), ReaderPrefs.sizes.count - 1)
     }
 
     private func save(_ key: String, _ value: Any) {
@@ -619,10 +628,10 @@ struct ReaderOptions: View {
         @Bindable var prefs = prefs
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
-                Button { prefs.size -= 1 } label: { Text("A").font(.system(size: 12, weight: .medium)).frame(maxWidth: .infinity) }
+                Button { prefs.step(-1) } label: { Text("A").font(.system(size: 12, weight: .medium)).frame(maxWidth: .infinity) }
                     .disabled(prefs.size == 0)
                     .accessibilityLabel("Smaller text")
-                Button { prefs.size += 1 } label: { Text("A").font(.system(size: 20, weight: .medium)).frame(maxWidth: .infinity) }
+                Button { prefs.step(1) } label: { Text("A").font(.system(size: 20, weight: .medium)).frame(maxWidth: .infinity) }
                     .disabled(prefs.size == ReaderPrefs.sizes.count - 1)
                     .accessibilityLabel("Larger text")
             }
@@ -697,14 +706,15 @@ extension BrowserWindow {
     @objc func toggleReader(_ sender: Any?) {
         guard let tab = shell.selected else { return }
         if tab.isReading { return closeReader(of: tab) }
-        guard tab.hasArticle || !tab.readerState.probed else { return say("There is no article to show here") }
         openReader(of: tab)
     }
 
     func openReader(of tab: Tab) {
         guard tab.readerState.view == nil, let web = tab.webView else { return }
+        // A page that did not look like an article is tried all the same when the person asks, with less asked of it.
+        let force = !tab.hasArticle
         Task { [weak self, weak tab, weak web] in
-            guard let web, let article = await Reader.article(web), let self, let tab, tab.webView === web, tab.readerState.view == nil else {
+            guard let web, let article = await Reader.article(web, force: force), let self, let tab, tab.webView === web, tab.readerState.view == nil else {
                 Debug.log("reader", "no article when opened")
                 self?.say("There is no article to show here")
                 tab?.readerState.available = false
