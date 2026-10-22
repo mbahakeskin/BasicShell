@@ -9,11 +9,20 @@ pub use self::back_forward_list::BackForwardList;
 mod back_forward_list_item;
 pub use self::back_forward_list_item::BackForwardListItem;
 
+mod context_menu;
+pub use self::context_menu::ContextMenu;
+
+mod context_menu_item;
+pub use self::context_menu_item::ContextMenuItem;
+
 mod favicon_database;
 pub use self::favicon_database::FaviconDatabase;
 
 mod find_controller;
 pub use self::find_controller::FindController;
+
+mod hit_test_result;
+pub use self::hit_test_result::HitTestResult;
 
 mod image;
 pub use self::image::Image;
@@ -80,6 +89,7 @@ pub use self::web_view_session_state::WebViewSessionState;
 
 mod enums;
 pub use self::enums::CacheModel;
+pub use self::enums::ContextMenuAction;
 #[allow(deprecated)]
 pub use self::enums::InsecureContentEvent;
 pub use self::enums::LoadEvent;
@@ -96,6 +106,7 @@ pub use self::enums::WebProcessTerminationReason;
 
 mod flags;
 pub use self::flags::FindOptions;
+pub use self::flags::HitTestResultContext;
 
 pub(crate) mod traits {
     pub use super::permission_request::PermissionRequestExt;

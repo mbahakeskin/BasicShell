@@ -165,7 +165,9 @@ generator) from the `.gir` files WebKit's build writes (`rust/gir-files`):
   tabs, three tiles to a row, then the tabs, each set in under the tab it
   was opened from. Tabs are dragged to another place in their group,
   closed with the middle button, and have a menu on the right one: Copy
-  Address, Pin Tab (Unpin Tab), Close Tab. The field in the middle
+  Address, Pin Tab (Unpin Tab), Close Tab. The page's own right-click menu
+  is WebKit's (open a link, in a new tab, copy it, download it; back,
+  forward, reload; copy and paste), drawn the same way. The field in the middle
   of the window takes an address or words to search for (Google, in the
   system's language and region, as on macOS: `address.rs`), for a new tab
   or the tab's own address, and offers the open tabs that match.
@@ -182,7 +184,7 @@ generator) from the `.gir` files WebKit's build writes (`rust/gir-files`):
   only once it is shown. Each tab has the page's icon, from WebKit's favicon
   database (`icon.rs`; turned on, as it is off unless asked for), kept in
   the session so it shows before the page loads. Still to come: history
-  and bookmarks, downloads, the page's own right-click menu.
+  and bookmarks, downloads shown, the Web Inspector.
 
 `rust/regenerate.sh` makes the bindings again after WebKit is updated. They
 are built in the Package workflow, against the WebKit build it packs.

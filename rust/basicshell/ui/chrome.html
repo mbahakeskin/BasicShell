@@ -457,36 +457,49 @@ function endDrag(event) {
   post({ type: "reorder", id: was.tab.id, before: target ? +target.dataset.id : null });
 }
 
-// MARK: - a tab's menu
+// MARK: - menus: a tab's, and the page's own
 
 function openMenu(tab, x, y) {
-  menuFor = tab;
-  const menu = $("menu");
   const item = (label, type, enabled = true) => `<div data-type="${type}" class="${enabled ? "" : "off"}">${label}</div>`;
-  menu.innerHTML =
+  showMenu(tab,
     item("Copy Address", "copy-address", !!tab.uri) +
     item(tab.pinned ? "Unpin Tab" : "Pin Tab", "pin-tab") +
     "<hr>" +
-    item("Close Tab", "close");
+    item("Close Tab", "close"), x, y);
+}
+
+// WebKit's menu for where the page was right-clicked; BasicShell has its actions.
+function openPageMenu(x, y, items) {
+  showMenu({ page: true }, items.map(i => i.separator ? "<hr>" :
+    `<div data-type="page-menu" data-index="${i.index}" class="${i.enabled ? "" : "off"}">${escape(i.title)}</div>`).join(""), x, y);
+}
+
+function showMenu(owner, html, x, y) {
+  menuFor = owner;
+  const menu = $("menu");
+  menu.innerHTML = html;
   render();
   // Where it was opened, inside the window.
   const r = menu.getBoundingClientRect();
-  menu.style.left = Math.min(x, innerWidth - r.width - 6) + "px";
-  menu.style.top = Math.min(y, innerHeight - r.height - 6) + "px";
+  menu.style.left = Math.max(6, Math.min(x, innerWidth - r.width - 6)) + "px";
+  menu.style.top = Math.max(6, Math.min(y, innerHeight - r.height - 6)) + "px";
 }
 
-function closeMenu() {
+function closeMenu(chosen = false) {
   if (!menuFor) return;
+  const owner = menuFor;
   menuFor = null;
   render();
+  if (owner.page && !chosen) post({ type: "page-menu-closed" });
 }
 
 $("menu").addEventListener("click", event => {
   const item = event.target.closest("[data-type]");
   if (!item || item.classList.contains("off")) return;
-  const id = menuFor.id;
-  closeMenu();
-  post({ type: item.dataset.type, id });
+  const owner = menuFor;
+  closeMenu(true);
+  if (owner.page) post({ type: "page-menu", index: +item.dataset.index });
+  else post({ type: item.dataset.type, id: owner.id });
 });
 // A press outside the menu puts it away.
 document.addEventListener("mousedown", event => { if (menuFor && !event.target.closest("#menu")) closeMenu(); }, true);
@@ -653,6 +666,7 @@ addEventListener("resize", render);
 window.BasicShell = {
   update(next) { state = next; render(); if (asking) suggest(); },
   ask(what) { ask(what); },
+  pageMenu(x, y, items) { openPageMenu(x, y, items); },
   // A tab's icon: straight RGBA pixels, base64, drawn to a data: URL here.
   icon(id, width, height, rgba) {
     if (!rgba) tabIcons.delete(id);

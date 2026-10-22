@@ -104,6 +104,250 @@ impl From<CacheModel> for glib::Value {
     }
 }
 
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Clone, Copy)]
+#[non_exhaustive]
+#[doc(alias = "WebKitContextMenuAction")]
+pub enum ContextMenuAction {
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_NO_ACTION")]
+    NoAction,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_OPEN_LINK")]
+    OpenLink,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_OPEN_LINK_IN_NEW_WINDOW")]
+    OpenLinkInNewWindow,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_DOWNLOAD_LINK_TO_DISK")]
+    DownloadLinkToDisk,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_COPY_LINK_TO_CLIPBOARD")]
+    CopyLinkToClipboard,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_OPEN_IMAGE_IN_NEW_WINDOW")]
+    OpenImageInNewWindow,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_DOWNLOAD_IMAGE_TO_DISK")]
+    DownloadImageToDisk,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_COPY_IMAGE_TO_CLIPBOARD")]
+    CopyImageToClipboard,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_OPEN_FRAME_IN_NEW_WINDOW")]
+    OpenFrameInNewWindow,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_GO_BACK")]
+    GoBack,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_GO_FORWARD")]
+    GoForward,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_STOP")]
+    Stop,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_RELOAD")]
+    Reload,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_COPY")]
+    Copy,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_CUT")]
+    Cut,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_PASTE")]
+    Paste,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_SPELLING_GUESS")]
+    SpellingGuess,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_NO_GUESSES_FOUND")]
+    NoGuessesFound,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_IGNORE_SPELLING")]
+    IgnoreSpelling,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_LEARN_SPELLING")]
+    LearnSpelling,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_IGNORE_GRAMMAR")]
+    IgnoreGrammar,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_FONT_MENU")]
+    FontMenu,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_BOLD")]
+    Bold,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_ITALIC")]
+    Italic,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_UNDERLINE")]
+    Underline,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_OUTLINE")]
+    Outline,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_INSPECT_ELEMENT")]
+    InspectElement,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_OPEN_VIDEO_IN_NEW_WINDOW")]
+    OpenVideoInNewWindow,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_OPEN_AUDIO_IN_NEW_WINDOW")]
+    OpenAudioInNewWindow,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_COPY_VIDEO_LINK_TO_CLIPBOARD")]
+    CopyVideoLinkToClipboard,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_COPY_AUDIO_LINK_TO_CLIPBOARD")]
+    CopyAudioLinkToClipboard,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_TOGGLE_MEDIA_CONTROLS")]
+    ToggleMediaControls,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_TOGGLE_MEDIA_LOOP")]
+    ToggleMediaLoop,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_ENTER_VIDEO_FULLSCREEN")]
+    EnterVideoFullscreen,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_MEDIA_PLAY")]
+    MediaPlay,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_MEDIA_PAUSE")]
+    MediaPause,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_MEDIA_MUTE")]
+    MediaMute,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_DOWNLOAD_VIDEO_TO_DISK")]
+    DownloadVideoToDisk,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_DOWNLOAD_AUDIO_TO_DISK")]
+    DownloadAudioToDisk,
+    #[doc(alias = "WEBKIT_CONTEXT_MENU_ACTION_CUSTOM")]
+    Custom,
+#[doc(hidden)]
+    __Unknown(i32),
+}
+
+#[doc(hidden)]
+impl IntoGlib for ContextMenuAction {
+    type GlibType = ffi::WebKitContextMenuAction;
+
+    fn into_glib(self) -> ffi::WebKitContextMenuAction {
+match self {
+            Self::NoAction => ffi::WEBKIT_CONTEXT_MENU_ACTION_NO_ACTION,
+            Self::OpenLink => ffi::WEBKIT_CONTEXT_MENU_ACTION_OPEN_LINK,
+            Self::OpenLinkInNewWindow => ffi::WEBKIT_CONTEXT_MENU_ACTION_OPEN_LINK_IN_NEW_WINDOW,
+            Self::DownloadLinkToDisk => ffi::WEBKIT_CONTEXT_MENU_ACTION_DOWNLOAD_LINK_TO_DISK,
+            Self::CopyLinkToClipboard => ffi::WEBKIT_CONTEXT_MENU_ACTION_COPY_LINK_TO_CLIPBOARD,
+            Self::OpenImageInNewWindow => ffi::WEBKIT_CONTEXT_MENU_ACTION_OPEN_IMAGE_IN_NEW_WINDOW,
+            Self::DownloadImageToDisk => ffi::WEBKIT_CONTEXT_MENU_ACTION_DOWNLOAD_IMAGE_TO_DISK,
+            Self::CopyImageToClipboard => ffi::WEBKIT_CONTEXT_MENU_ACTION_COPY_IMAGE_TO_CLIPBOARD,
+            Self::OpenFrameInNewWindow => ffi::WEBKIT_CONTEXT_MENU_ACTION_OPEN_FRAME_IN_NEW_WINDOW,
+            Self::GoBack => ffi::WEBKIT_CONTEXT_MENU_ACTION_GO_BACK,
+            Self::GoForward => ffi::WEBKIT_CONTEXT_MENU_ACTION_GO_FORWARD,
+            Self::Stop => ffi::WEBKIT_CONTEXT_MENU_ACTION_STOP,
+            Self::Reload => ffi::WEBKIT_CONTEXT_MENU_ACTION_RELOAD,
+            Self::Copy => ffi::WEBKIT_CONTEXT_MENU_ACTION_COPY,
+            Self::Cut => ffi::WEBKIT_CONTEXT_MENU_ACTION_CUT,
+            Self::Paste => ffi::WEBKIT_CONTEXT_MENU_ACTION_PASTE,
+            Self::SpellingGuess => ffi::WEBKIT_CONTEXT_MENU_ACTION_SPELLING_GUESS,
+            Self::NoGuessesFound => ffi::WEBKIT_CONTEXT_MENU_ACTION_NO_GUESSES_FOUND,
+            Self::IgnoreSpelling => ffi::WEBKIT_CONTEXT_MENU_ACTION_IGNORE_SPELLING,
+            Self::LearnSpelling => ffi::WEBKIT_CONTEXT_MENU_ACTION_LEARN_SPELLING,
+            Self::IgnoreGrammar => ffi::WEBKIT_CONTEXT_MENU_ACTION_IGNORE_GRAMMAR,
+            Self::FontMenu => ffi::WEBKIT_CONTEXT_MENU_ACTION_FONT_MENU,
+            Self::Bold => ffi::WEBKIT_CONTEXT_MENU_ACTION_BOLD,
+            Self::Italic => ffi::WEBKIT_CONTEXT_MENU_ACTION_ITALIC,
+            Self::Underline => ffi::WEBKIT_CONTEXT_MENU_ACTION_UNDERLINE,
+            Self::Outline => ffi::WEBKIT_CONTEXT_MENU_ACTION_OUTLINE,
+            Self::InspectElement => ffi::WEBKIT_CONTEXT_MENU_ACTION_INSPECT_ELEMENT,
+            Self::OpenVideoInNewWindow => ffi::WEBKIT_CONTEXT_MENU_ACTION_OPEN_VIDEO_IN_NEW_WINDOW,
+            Self::OpenAudioInNewWindow => ffi::WEBKIT_CONTEXT_MENU_ACTION_OPEN_AUDIO_IN_NEW_WINDOW,
+            Self::CopyVideoLinkToClipboard => ffi::WEBKIT_CONTEXT_MENU_ACTION_COPY_VIDEO_LINK_TO_CLIPBOARD,
+            Self::CopyAudioLinkToClipboard => ffi::WEBKIT_CONTEXT_MENU_ACTION_COPY_AUDIO_LINK_TO_CLIPBOARD,
+            Self::ToggleMediaControls => ffi::WEBKIT_CONTEXT_MENU_ACTION_TOGGLE_MEDIA_CONTROLS,
+            Self::ToggleMediaLoop => ffi::WEBKIT_CONTEXT_MENU_ACTION_TOGGLE_MEDIA_LOOP,
+            Self::EnterVideoFullscreen => ffi::WEBKIT_CONTEXT_MENU_ACTION_ENTER_VIDEO_FULLSCREEN,
+            Self::MediaPlay => ffi::WEBKIT_CONTEXT_MENU_ACTION_MEDIA_PLAY,
+            Self::MediaPause => ffi::WEBKIT_CONTEXT_MENU_ACTION_MEDIA_PAUSE,
+            Self::MediaMute => ffi::WEBKIT_CONTEXT_MENU_ACTION_MEDIA_MUTE,
+            Self::DownloadVideoToDisk => ffi::WEBKIT_CONTEXT_MENU_ACTION_DOWNLOAD_VIDEO_TO_DISK,
+            Self::DownloadAudioToDisk => ffi::WEBKIT_CONTEXT_MENU_ACTION_DOWNLOAD_AUDIO_TO_DISK,
+            Self::Custom => ffi::WEBKIT_CONTEXT_MENU_ACTION_CUSTOM,
+            Self::__Unknown(value) => value,
+}
+}
+}
+
+#[doc(hidden)]
+impl FromGlib<ffi::WebKitContextMenuAction> for ContextMenuAction {
+    unsafe fn from_glib(value: ffi::WebKitContextMenuAction) -> Self {
+        
+match value {
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_NO_ACTION => Self::NoAction,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_OPEN_LINK => Self::OpenLink,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_OPEN_LINK_IN_NEW_WINDOW => Self::OpenLinkInNewWindow,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_DOWNLOAD_LINK_TO_DISK => Self::DownloadLinkToDisk,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_COPY_LINK_TO_CLIPBOARD => Self::CopyLinkToClipboard,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_OPEN_IMAGE_IN_NEW_WINDOW => Self::OpenImageInNewWindow,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_DOWNLOAD_IMAGE_TO_DISK => Self::DownloadImageToDisk,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_COPY_IMAGE_TO_CLIPBOARD => Self::CopyImageToClipboard,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_OPEN_FRAME_IN_NEW_WINDOW => Self::OpenFrameInNewWindow,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_GO_BACK => Self::GoBack,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_GO_FORWARD => Self::GoForward,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_STOP => Self::Stop,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_RELOAD => Self::Reload,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_COPY => Self::Copy,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_CUT => Self::Cut,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_PASTE => Self::Paste,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_SPELLING_GUESS => Self::SpellingGuess,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_NO_GUESSES_FOUND => Self::NoGuessesFound,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_IGNORE_SPELLING => Self::IgnoreSpelling,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_LEARN_SPELLING => Self::LearnSpelling,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_IGNORE_GRAMMAR => Self::IgnoreGrammar,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_FONT_MENU => Self::FontMenu,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_BOLD => Self::Bold,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_ITALIC => Self::Italic,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_UNDERLINE => Self::Underline,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_OUTLINE => Self::Outline,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_INSPECT_ELEMENT => Self::InspectElement,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_OPEN_VIDEO_IN_NEW_WINDOW => Self::OpenVideoInNewWindow,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_OPEN_AUDIO_IN_NEW_WINDOW => Self::OpenAudioInNewWindow,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_COPY_VIDEO_LINK_TO_CLIPBOARD => Self::CopyVideoLinkToClipboard,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_COPY_AUDIO_LINK_TO_CLIPBOARD => Self::CopyAudioLinkToClipboard,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_TOGGLE_MEDIA_CONTROLS => Self::ToggleMediaControls,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_TOGGLE_MEDIA_LOOP => Self::ToggleMediaLoop,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_ENTER_VIDEO_FULLSCREEN => Self::EnterVideoFullscreen,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_MEDIA_PLAY => Self::MediaPlay,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_MEDIA_PAUSE => Self::MediaPause,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_MEDIA_MUTE => Self::MediaMute,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_DOWNLOAD_VIDEO_TO_DISK => Self::DownloadVideoToDisk,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_DOWNLOAD_AUDIO_TO_DISK => Self::DownloadAudioToDisk,
+            ffi::WEBKIT_CONTEXT_MENU_ACTION_CUSTOM => Self::Custom,
+            value => Self::__Unknown(value),
+}
+}
+}
+
+impl StaticType for ContextMenuAction {
+                #[inline]
+    #[doc(alias = "webkit_context_menu_action_get_type")]
+   fn static_type() -> glib::Type {
+                    unsafe { from_glib(ffi::webkit_context_menu_action_get_type()) }
+                }
+            }
+
+impl glib::HasParamSpec for ContextMenuAction {
+                type ParamSpec = glib::ParamSpecEnum;
+                type SetValue = Self;
+                type BuilderFn = fn(&str, Self) -> glib::ParamSpecEnumBuilder<Self>;
+
+                fn param_spec_builder() -> Self::BuilderFn {
+                    Self::ParamSpec::builder_with_default
+                }
+}
+
+impl glib::value::ValueType for ContextMenuAction {
+    type Type = Self;
+}
+
+unsafe impl<'a> glib::value::FromValue<'a> for ContextMenuAction {
+    type Checker = glib::value::GenericValueTypeChecker<Self>;
+
+    #[inline]
+    unsafe fn from_value(value: &'a glib::Value) -> Self {
+        unsafe { from_glib(glib::gobject_ffi::g_value_get_enum(value.to_glib_none().0)) }
+    }
+}
+
+impl ToValue for ContextMenuAction {
+    #[inline]
+    fn to_value(&self) -> glib::Value {
+        let mut value = glib::Value::for_value_type::<Self>();
+        unsafe {
+            glib::gobject_ffi::g_value_set_enum(value.to_glib_none_mut().0, self.into_glib());
+        }
+        value
+    }
+
+    #[inline]
+    fn value_type(&self) -> glib::Type {
+        Self::static_type()
+    }
+}
+
+impl From<ContextMenuAction> for glib::Value {
+    #[inline]
+    fn from(v: ContextMenuAction) -> Self {
+        ToValue::to_value(&v)
+    }
+}
+
 #[deprecated = "Since 2.46"]
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[derive(Clone, Copy)]

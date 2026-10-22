@@ -3,7 +3,7 @@
 // from ../gir-files
 // DO NOT EDIT
 
-use crate::{ffi,BackForwardList,BackForwardListItem,Color,FindController,Image,ImageList,LoadEvent,NavigationAction,NetworkSession,PermissionRequest,PolicyDecision,PolicyDecisionType,Settings,URIRequest,UserContentManager,WebContext,WebProcessTerminationReason,WebViewSessionState};
+use crate::{ffi,BackForwardList,BackForwardListItem,Color,ContextMenu,FindController,HitTestResult,Image,ImageList,LoadEvent,NavigationAction,NetworkSession,PermissionRequest,PolicyDecision,PolicyDecisionType,Settings,URIRequest,UserContentManager,WebContext,WebProcessTerminationReason,WebViewSessionState};
 use glib::{object::ObjectType as _,prelude::*,signal::{connect_raw, SignalHandlerId},translate::*};
 use std::{boxed::Box as Box_,pin::Pin};
 
@@ -837,11 +837,18 @@ pub trait WebViewExt: IsA<WebView> + 'static {
         }
     }
 
-    //#[doc(alias = "context-menu")]
-    //fn connect_context_menu<Unsupported or ignored types>(&self, f: F) -> SignalHandlerId {
-    //    Ignored object: WPEWebKit.ContextMenu
-    //    Ignored p0: WPEWebKit.HitTestResult
-    //}
+    #[doc(alias = "context-menu")]
+    fn connect_context_menu<F: Fn(&Self, &ContextMenu, &HitTestResult) -> bool + 'static>(&self, f: F) -> SignalHandlerId {
+        unsafe extern "C" fn context_menu_trampoline<P: IsA<WebView>, F: Fn(&P, &ContextMenu, &HitTestResult) -> bool + 'static>(this: *mut ffi::WebKitWebView, object: *mut ffi::WebKitContextMenu, p0: *mut ffi::WebKitHitTestResult, f: glib::ffi::gpointer) -> glib::ffi::gboolean { unsafe {
+            let f: &F = &*(f as *const F);
+            f(WebView::from_glib_borrow(this).unsafe_cast_ref(), &from_glib_borrow(object), &from_glib_borrow(p0)).into_glib()
+        }}
+        unsafe {
+            let f: Box_<F> = Box_::new(f);
+            connect_raw(self.as_ptr() as *mut _, c"context-menu".as_ptr(),
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(context_menu_trampoline::<Self, F> as *const ())), Box_::into_raw(f))
+        }
+    }
 
     #[doc(alias = "context-menu-dismissed")]
     fn connect_context_menu_dismissed<F: Fn(&Self) + 'static>(&self, f: F) -> SignalHandlerId {
@@ -947,10 +954,18 @@ pub trait WebViewExt: IsA<WebView> + 'static {
         }
     }
 
-    //#[doc(alias = "mouse-target-changed")]
-    //fn connect_mouse_target_changed<Unsupported or ignored types>(&self, f: F) -> SignalHandlerId {
-    //    Ignored hit_test_result: WPEWebKit.HitTestResult
-    //}
+    #[doc(alias = "mouse-target-changed")]
+    fn connect_mouse_target_changed<F: Fn(&Self, &HitTestResult, u32) + 'static>(&self, f: F) -> SignalHandlerId {
+        unsafe extern "C" fn mouse_target_changed_trampoline<P: IsA<WebView>, F: Fn(&P, &HitTestResult, u32) + 'static>(this: *mut ffi::WebKitWebView, hit_test_result: *mut ffi::WebKitHitTestResult, modifiers: std::ffi::c_uint, f: glib::ffi::gpointer) { unsafe {
+            let f: &F = &*(f as *const F);
+            f(WebView::from_glib_borrow(this).unsafe_cast_ref(), &from_glib_borrow(hit_test_result), modifiers)
+        }}
+        unsafe {
+            let f: Box_<F> = Box_::new(f);
+            connect_raw(self.as_ptr() as *mut _, c"mouse-target-changed".as_ptr(),
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(mouse_target_changed_trampoline::<Self, F> as *const ())), Box_::into_raw(f))
+        }
+    }
 
     #[doc(alias = "permission-request")]
     fn connect_permission_request<F: Fn(&Self, &PermissionRequest) -> bool + 'static>(&self, f: F) -> SignalHandlerId {

@@ -145,6 +145,8 @@ pub struct Browser {
     pending_ask: RefCell<Option<String>>,
     /// The session is written down this long after a change.
     saving: RefCell<Option<glib::SourceId>>,
+    /// The page's right-click menu on show: what each of its items does.
+    page_menu: RefCell<Vec<(wpe_webkit::gio::Action, Option<glib::Variant>)>>,
     quit: Box<dyn Fn()>,
 }
 
@@ -173,6 +175,7 @@ impl Browser {
             update_queued: Cell::new(false),
             pending_ask: RefCell::default(),
             saving: RefCell::default(),
+            page_menu: RefCell::default(),
             quit: Box::new(quit),
         });
 
@@ -411,8 +414,8 @@ impl Browser {
         // A link opened in a new tab or window: a tab after this one.
         let (me, id, private) = (self.me.clone(), tab.id, tab.private);
         view.connect_create(move |view, _| {
+            // Its display, session and process are the related view's.
             let new: wpe_webkit::WebView = glib::Object::builder()
-                .property("display", view.display().as_ref())
                 .property("related-view", view)
                 .property("settings", view.settings().as_ref())
                 .build();
@@ -421,6 +424,9 @@ impl Browser {
             }
             new
         });
+        // The page's right-click menu, drawn by the interface.
+        let (me, id) = (self.me.clone(), tab.id);
+        view.connect_context_menu(move |_, menu, _| me.upgrade().is_some_and(|b| b.show_page_menu(id, menu)));
         // The page closed itself (window.close()).
         let (me, id) = (self.me.clone(), tab.id);
         view.connect_close(move |_| {
@@ -428,6 +434,53 @@ impl Browser {
                 browser.close(id);
             }
         });
+    }
+
+    /// WebKit's menu for where the page was right-clicked, shown by the
+    /// interface; true: it is shown, and WebKit does what an item chosen
+    /// says once its action is activated.
+    fn show_page_menu(&self, id: u64, menu: &wpe_webkit::ContextMenu) -> bool {
+        use wpe_webkit::gio::prelude::*;
+        let mut actions = Vec::new();
+        let mut items: Vec<Value> = Vec::new();
+        for item in menu.items() {
+            if item.is_separator() {
+                if items.last().is_some_and(|i| i["separator"] != true) {
+                    items.push(json!({ "separator": true }));
+                }
+                continue;
+            }
+            // Submenus (input methods, Unicode) are left out.
+            if item.submenu().is_some() {
+                continue;
+            }
+            let Some(action) = item.gaction() else { continue };
+            let title = match item.stock_action() {
+                // The Web Inspector has nowhere to show yet.
+                wpe_webkit::ContextMenuAction::InspectElement => continue,
+                // A new window here is a new tab.
+                wpe_webkit::ContextMenuAction::OpenLinkInNewWindow => "Open Link in New Tab".to_owned(),
+                // WebKit's titles carry GTK's mnemonic marks.
+                _ => item.title().map(|t| t.replace('_', "")).unwrap_or_default(),
+            };
+            if title.is_empty() {
+                continue;
+            }
+            items.push(json!({ "title": title, "enabled": action.is_enabled(), "index": actions.len() }));
+            actions.push((action, item.gaction_target()));
+        }
+        if items.last().is_some_and(|i| i["separator"] == true) {
+            items.pop();
+        }
+        if items.is_empty() || self.selected.borrow().as_ref().is_none_or(|t| t.id != id) {
+            return false;
+        }
+        // Where it was asked for, in the window.
+        let (x, y) = menu.position().unwrap_or((0, 0));
+        let (left, top) = self.page_place().map_or((0, 0), |(l, t, ..)| (l, t));
+        *self.page_menu.borrow_mut() = actions;
+        self.chrome().run(&format!("BasicShell.pageMenu({}, {}, {})", x + left, y + top, Value::Array(items)));
+        true
     }
 
     fn fetch_icon(&self, id: u64) {
@@ -729,6 +782,19 @@ impl Browser {
                 if let Some(tab) = id.and_then(|id| self.tab(id)) {
                     self.set_tab_pinned(tab.id, !tab.pinned.get());
                 }
+            }
+            "page-menu" => {
+                use wpe_webkit::gio::prelude::*;
+                let chosen = message["index"].as_u64().and_then(|i| self.page_menu.borrow().get(i as usize).cloned());
+                self.page_menu.borrow_mut().clear();
+                self.focus_page();
+                if let Some((action, target)) = chosen {
+                    action.activate(target.as_ref());
+                }
+            }
+            "page-menu-closed" => {
+                self.page_menu.borrow_mut().clear();
+                self.focus_page();
             }
             "copy-address" => {
                 if let Some(id) = id {
