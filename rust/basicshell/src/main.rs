@@ -6,6 +6,7 @@ mod browser;
 mod chrome;
 mod downloads;
 mod folder;
+mod history;
 mod icon;
 mod platform;
 mod proxy;

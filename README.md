@@ -175,7 +175,9 @@ generator) from the `.gir` files WebKit's build writes (`rust/gir-files`):
   forward, reload; copy and paste), drawn the same way. The field in the middle
   of the window takes an address or words to search for (Google, in the
   system's language and region, as on macOS: `address.rs`), for a new tab
-  or the tab's own address, and offers the open tabs that match.
+  or the tab's own address, and offers the open tabs that match, then the
+  pages visited (`history.rs`: `history.json`, 90 days, never a private
+  tab's).
 
   Keys, with Control where the Mac has Command: Ctrl+T new tab,
   Ctrl+Shift+N new private tab, Ctrl+L (Alt+D, F6) the address, Ctrl+W
@@ -188,8 +190,8 @@ generator) from the `.gir` files WebKit's build writes (`rust/gir-files`):
   seconds after a change and on quitting; private tabs never), each loaded
   only once it is shown. Each tab has the page's icon, from WebKit's favicon
   database (`icon.rs`; turned on, as it is off unless asked for), kept in
-  the session so it shows before the page loads. Still to come: history
-  and bookmarks, the Web Inspector.
+  the session so it shows before the page loads. Still to come: bookmarks,
+  the Web Inspector.
 
   Downloads (`downloads.rs`) go to the Downloads folder under the name the
   site gave, never over a file already there ("name 2.ext"), as on macOS.

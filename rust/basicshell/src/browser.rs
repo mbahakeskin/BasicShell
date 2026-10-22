@@ -13,6 +13,7 @@ use wpe_webkit::prelude::*;
 use crate::address;
 use crate::chrome::Chrome;
 use crate::downloads::Downloads;
+use crate::history::History;
 use crate::icon::{self, Icon};
 use crate::platform::{Display, Rect, Toplevel};
 use crate::state;
@@ -149,6 +150,7 @@ pub struct Browser {
     /// The session is written down this long after a change.
     saving: RefCell<Option<glib::SourceId>>,
     downloads: OnceCell<Rc<Downloads>>,
+    history: Rc<History>,
     /// The page's right-click menu on show: what each of its items does.
     page_menu: RefCell<Vec<(wpe_webkit::gio::Action, Option<glib::Variant>)>>,
     quit: Box<dyn Fn()>,
@@ -190,6 +192,7 @@ impl Browser {
             saving: RefCell::default(),
             page_menu: RefCell::default(),
             downloads: OnceCell::new(),
+            history: History::load(),
             quit: Box::new(quit),
         });
 
@@ -422,7 +425,15 @@ impl Browser {
         view.connect_title_notify(update.clone());
         view.connect_estimated_load_progress_notify(update.clone());
         view.connect_is_loading_notify(update.clone());
-        let (me, id) = (self.me.clone(), tab.id);
+        let me_title = self.me.clone();
+        if !tab.private {
+            view.connect_title_notify(move |view| {
+                if let (Some(browser), Some(uri), Some(title)) = (me_title.upgrade(), view.uri(), view.title()) {
+                    browser.history.retitle(&uri, &title);
+                }
+            });
+        }
+        let (me, id, private) = (self.me.clone(), tab.id, tab.private);
         view.connect_load_changed(move |view, event| {
             update(view);
             // The page's icon, once it has loaded, and again a little later
@@ -430,6 +441,11 @@ impl Browser {
             if event == wpe_webkit::LoadEvent::Finished {
                 if let Some(browser) = me.upgrade() {
                     browser.fetch_icon(id);
+                    if !private {
+                        if let Some(uri) = view.uri() {
+                            browser.history.record(&uri, view.title().as_deref().unwrap_or(""));
+                        }
+                    }
                 }
                 let me = me.clone();
                 glib::timeout_add_seconds_local_once(2, move || {
@@ -704,8 +720,10 @@ impl Browser {
         *self.saving.borrow_mut() = Some(source);
     }
 
-    /// Writes the session down now: every tab but the private ones.
+    /// Writes the session down now: every tab but the private ones (and
+    /// the history with it).
     pub fn save(&self) {
+        self.history.save();
         let tabs = self.tabs.borrow();
         let kept: Vec<&Rc<Tab>> = tabs.iter().filter(|t| !t.private && !t.uri().is_empty()).collect();
         let position = |id: u64| kept.iter().position(|t| t.id == id);
@@ -846,6 +864,16 @@ impl Browser {
             "download-open" => id.into_iter().for_each(|id| self.downloads().open(id)),
             "download-show" => id.into_iter().for_each(|id| self.downloads().show(id)),
             "downloads-clear" => self.downloads().clear(),
+            "suggest" => {
+                // Pages visited, for the field in the middle; none for a private tab's.
+                let text = message["text"].as_str().unwrap_or_default();
+                let visits: Vec<Value> = if message["private"].as_bool() == Some(true) {
+                    Vec::new()
+                } else {
+                    self.history.suggestions(text, 6).into_iter().map(|v| json!({ "uri": v.uri, "title": v.title })).collect()
+                };
+                self.chrome().run(&format!("BasicShell.suggestions({}, {})", json!(text), Value::Array(visits)));
+            }
             "copy-address" => {
                 if let Some(id) = id {
                     self.copy_address(id);
