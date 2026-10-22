@@ -34,6 +34,14 @@ pub fn point_at_folder() {
             env::set_var("GST_REGISTRY_1_0", registry);
         }
     }
+    // Pages drawn on the CPU: the platform shows frames in shared memory
+    // only so far (no DMA-BUF), and drawn on the GPU they are read back to
+    // it, or, where the GPU can't be reached from WebKit's sandbox, not drawn
+    // at all (seen on Ubuntu 26.04 without a GPU). Set to 0 to try the GPU.
+    if env::var_os("WEBKIT_SKIA_ENABLE_CPU_RENDERING").is_none() {
+        // SAFETY: as above.
+        unsafe { env::set_var("WEBKIT_SKIA_ENABLE_CPU_RENDERING", "1") };
+    }
 }
 
 fn xdg(variable: &str, fallback: &str) -> PathBuf {

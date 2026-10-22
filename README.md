@@ -146,8 +146,11 @@ generator) from the `.gir` files WebKit's build writes (`rust/gir-files`):
   held keys repeat at the rate and after the delay the compositor gives.
   Copy and paste go through the system's clipboard (wl_data_device), with
   WPEPlatform's clipboard subclassed for it.
-  Still to come: a screen's scale, and frames passed without a copy
-  (DMA-BUF). It points WebKit, GStreamer and GIO at
+  Pages are drawn on the CPU (`WEBKIT_SKIA_ENABLE_CPU_RENDERING=1`, unless
+  set otherwise): the platform takes frames in shared memory only so far,
+  and on Ubuntu 26.04 without a GPU WebKit drew nothing at all on it. Still
+  to come: frames from the GPU passed without a copy (DMA-BUF, with the
+  display naming its DRM device), and a screen's scale. It points WebKit, GStreamer and GIO at
   the folder it is in, and hands WebKit the proxy from the environment
   (`https_proxy` and the rest).
 - Its interface (`ui/chrome.html`) is a page too, in a view over the tabs:

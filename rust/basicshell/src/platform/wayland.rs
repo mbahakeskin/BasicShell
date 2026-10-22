@@ -503,7 +503,7 @@ impl Shared {
         let failed = |message: &str| glib::Error::new(wpe_platform::ViewError::Failed, message);
         let shm = buffer
             .downcast_ref::<wpe_platform::BufferSHM>()
-            .ok_or_else(|| failed("only shared-memory buffers for now"))?;
+.ok_or_else(|| failed("only shared-memory buffers for now"))?;
         let (width, height) = (buffer.width(), buffer.height());
         let stride = shm.stride() as usize;
         let data = shm.data().ok_or_else(|| failed("a buffer without its pixels"))?;
