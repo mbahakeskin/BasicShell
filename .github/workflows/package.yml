@@ -27,8 +27,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install what FFmpeg is built with, and what the folder takes from Ubuntu
+      # WebKit's own build packages too: they bring every library WebKit was
+      # linked against, which the folder takes from here.
+      - name: Install what WebKit and FFmpeg are built with, and what the folder takes from Ubuntu
         run: |
+          sudo webkit/ci/install-deps.sh
           sudo media/ci/install-deps.sh
           sudo package/install-runtime.sh
 

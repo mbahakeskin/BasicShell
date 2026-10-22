@@ -27,7 +27,7 @@ stage="$work/stage"
 jobs=$(nproc)
 
 fetch() { # url sha256 file
-  if ! echo "$2  $3" | sha256sum -c --quiet - 2>/dev/null; then
+  if ! echo "$2  $3" | sha256sum -c --quiet - > /dev/null 2>&1; then
     curl -sSfL -o "$3" "$1"
     echo "$2  $3" | sha256sum -c -
   fi
