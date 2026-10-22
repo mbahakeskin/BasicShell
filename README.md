@@ -12,7 +12,8 @@ newer. There are no releases: builds are the Actions runs' artifacts.
 
 So far: the engine and what it plays media with, put together into a folder
 that runs, Rust bindings for WebKit, and the first of BasicShell itself, a
-window with a page in it and a bar over the page.
+window of tabs with the sidebar over them (the macOS app's sidebar-only
+layout).
 
 ## Trying it
 
@@ -131,26 +132,43 @@ generator) from the `.gir` files WebKit's build writes (`rust/gir-files`):
   View and Toplevel from Rust (`subclass/`): a platform of one's own.
 - `basicshell`: the program, on a platform of its own (`platform/`): its
   own Wayland connection (smithay-client-toolkit, read on GLib's main loop),
-  one window whose surface the first view draws into and where every other
-  view gets a subsurface over it, placed where BasicShell says (WebKit's
-  own Wayland platform can't place its views, and the browser's interface
-  is to sit over the page). WebKit's frames come as shared memory and are
-  copied into the compositor's; pointer, wheel, touchpad and keyboard go to
-  WebKit as its own events. So far one window with one page; tried in the
-  headless compositor: a page, clicking, typing and scrolling. Still to
-  come: the pointer's cursor shapes, key repeat, a screen's scale, and
-  frames passed without a copy (DMA-BUF). It points WebKit, GStreamer and
-  GIO at the folder it is in, and hands WebKit the proxy from the
-  environment (`https_proxy` and the rest).
-- Its interface (`ui/chrome.html`, `chrome.rs`) is a page too, in a second
-  view over the first: transparent, and taking the pointer only where
-  something of it is shown (the page says where, and BasicShell sets the
-  subsurface's input region to that). The bar is hidden until the pointer
-  touches the top edge, or Ctrl+L (also Alt+D, F6); back, forward, reload
-  and the address, which takes an address or words to search for (Google,
-  in the system's language and region, as on macOS: `address.rs`).
-  Alt+Left and Alt+Right go back and forward, Ctrl+R and F5 reload. They
-  talk through a script message handler one way and JavaScript the other.
+  one window in which every view (each tab's page, and the browser's own
+  interface over them) has a subsurface, placed, stacked, shown and hidden
+  as BasicShell says (WebKit's own Wayland platform can't place its views).
+  WebKit's frames come as shared memory and are copied into the
+  compositor's; pointer, wheel, touchpad and keyboard go to WebKit as its
+  own events. Where the compositor draws no frame round the window
+  (GNOME's doesn't; `BASICSHELL_CLIENT_DECORATIONS=1` asks for none
+  anywhere), a press within 5 pixels of its edge resizes it. Still to come:
+  the pointer's cursor shapes, key repeat, a screen's scale, and frames
+  passed without a copy (DMA-BUF). It points WebKit, GStreamer and GIO at
+  the folder it is in, and hands WebKit the proxy from the environment
+  (`https_proxy` and the rest).
+- Its interface (`ui/chrome.html`) is a page too, in a view over the tabs:
+  transparent, and taking the pointer only where something of it is shown
+  (the page says where, and BasicShell sets the subsurface's input region
+  to that). It talks to BasicShell (`browser.rs`) through a script message
+  handler one way and JavaScript the other. It is the macOS app's
+  sidebar-only layout, its sizes and timings: the sidebar, 250 pixels wide,
+  comes out when the pointer rests against the left edge and goes once the
+  pointer is well past it, or stays out, the page beside it (its pin
+  button, Ctrl+Shift+S; kept in `state.json` in the data folder). At its
+  top, the window's buttons where the Mac's traffic lights are (the window
+  is moved from that row, and zoomed by a double click), back and forward,
+  the site with reload, new tab and new private tab; under them, the tabs,
+  each set in under the tab it was opened from. The field in the middle
+  of the window takes an address or words to search for (Google, in the
+  system's language and region, as on macOS: `address.rs`), for a new tab
+  or the tab's own address, and offers the open tabs that match.
+
+  Keys, with Control where the Mac has Command: Ctrl+T new tab,
+  Ctrl+Shift+N new private tab, Ctrl+L (Alt+D, F6) the address, Ctrl+W
+  close the tab, Ctrl+Shift+T open the last one closed again, Ctrl+Tab and
+  Ctrl+Shift+Tab the next and previous tab, Ctrl+1 to Ctrl+9 a tab,
+  Alt+Left and Alt+Right (Ctrl+[ and Ctrl+]) back and forward, Ctrl+R (F5)
+  reload, Ctrl+. stop, Ctrl+0, Ctrl++ and Ctrl+- the zoom, Ctrl+Q quit.
+  Still to come: tabs kept between runs, pinned tabs, icons, history and
+  bookmarks, downloads.
 
 `rust/regenerate.sh` makes the bindings again after WebKit is updated. They
 are built in the Package workflow, against the WebKit build it packs.

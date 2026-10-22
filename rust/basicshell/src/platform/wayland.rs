@@ -1,7 +1,8 @@
 //! The Wayland side of BasicShell's platform: the connection, read on GLib's
-//! main loop; the window and a surface for each view in it; the frames WebKit
-//! renders, put on those surfaces; and the pointer and keyboard, turned into
-//! WebKit's events for the view under the pointer or with the focus.
+//! main loop; the window, and a subsurface in it for each view, placed,
+//! stacked and shown as BasicShell says; the frames WebKit renders, put on
+//! those surfaces; and the pointer and keyboard, turned into WebKit's events
+//! for the view under the pointer or with the focus.
 //!
 //! Wayland's events are handled with the state borrowed, and what WebKit is to
 //! be told is kept (`Tell`) until the borrow is over: WebKit can call back into
@@ -14,6 +15,7 @@ use std::rc::Rc;
 use glib::prelude::*;
 use glib::translate::*;
 use smithay_client_toolkit::reexports::csd_frame::WindowState;
+use smithay_client_toolkit::reexports::protocols::xdg::shell::client::xdg_toplevel::ResizeEdge;
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState, FrameCallbackData, Region},
     delegate_registry,
@@ -27,7 +29,7 @@ use smithay_client_toolkit::{
     },
     shell::{
         xdg::{
-            window::{Window, WindowConfigure, WindowDecorations, WindowHandler},
+            window::{DecorationMode, Window, WindowConfigure, WindowDecorations, WindowHandler},
             XdgShell,
         },
         WaylandSurface,
@@ -47,16 +49,39 @@ use super::toplevel::Toplevel;
 
 const APP_ID: &str = "org.basicshell.BasicShell";
 
-/// One view's place in the window.
+/// The window's own colour, behind and around the views: macOS's window
+/// background, in its light appearance (bytes of ARGB8888, little-endian).
+const BACKGROUND: [u8; 4] = [0xec, 0xec, 0xec, 0xff];
+
+/// How near the window's edge a press resizes it, where the compositor
+/// draws no frame for it (GNOME's doesn't).
+const RESIZE_BORDER: f64 = 5.0;
+
+/// A rectangle in the window: x, y, width, height.
+pub type Rect = (i32, i32, i32, i32);
+
+/// One view's place in the window: a subsurface of the window's surface.
 struct Slot {
     view: glib::WeakRef<wpe_platform::View>,
     surface: wl_surface::WlSurface,
-    /// None for the first view, which is the window's own surface.
-    subsurface: Option<wl_subsurface::WlSubsurface>,
+    subsurface: wl_subsurface::WlSubsurface,
+    /// Where it is; None: the whole window.
+    place: Option<Rect>,
+    visible: bool,
+    /// The size WebKit was last told.
+    told: (i32, i32),
     /// The frame attached and waiting for the compositor's frame callback.
     shown: Option<wpe_platform::Buffer>,
-    /// What it was copied into; kept until the next, so the pool doesn't reuse it.
+    /// What it was copied into; kept until the next, so the pool doesn't
+    /// reuse it, and put back when a hidden view is shown again, until WebKit
+    /// draws it anew.
     attached: Option<smithay_client_toolkit::shm::slot::Buffer>,
+}
+
+impl Slot {
+    fn rect(&self, window: (i32, i32)) -> Rect {
+        self.place.unwrap_or((0, 0, window.0, window.1))
+    }
 }
 
 /// What WebKit is told once the state isn't borrowed.
@@ -66,26 +91,31 @@ enum Tell {
     ToplevelResized(Toplevel, i32, i32),
     ToplevelState(Toplevel, wpe_platform::ToplevelState),
     Map(wpe_platform::View),
+    Unmap(wpe_platform::View),
     Rendered(wpe_platform::View, wpe_platform::Buffer),
     Released(wpe_platform::View, wpe_platform::Buffer),
     FocusIn(wpe_platform::View),
     FocusOut(wpe_platform::View),
     Close(Toplevel),
-    /// The pointer over the page (the window's first view), or gone from
-    /// it, for BasicShell.
-    PagePointer(Option<(f64, f64)>),
+    /// For BasicShell: the pointer over a view, in the window's coordinates,
+    /// or gone from it.
+    Pointer(wpe_platform::View, Option<(f64, f64)>),
+    /// For BasicShell: the window's new size.
+    WindowResized(i32, i32),
     /// A key, first for BasicShell's shortcuts, then for the view if not taken.
     Key { view: wpe_platform::View, event: wpe_platform::Event, keysym: u32, modifiers: WpeModifiers, pressed: bool },
 }
 
-type PagePointerHook = Box<dyn Fn(Option<(f64, f64)>)>;
+type PointerHook = Box<dyn Fn(&wpe_platform::View, Option<(f64, f64)>)>;
 type KeyHook = Box<dyn Fn(u32, WpeModifiers, bool) -> bool>;
+type ResizedHook = Box<dyn Fn(i32, i32)>;
 
 /// What BasicShell itself wants to hear about.
 #[derive(Default)]
 struct Hooks {
-    page_pointer: Option<PagePointerHook>,
+    pointer: Option<PointerHook>,
     key: Option<KeyHook>,
+    resized: Option<ResizedHook>,
 }
 
 pub struct Shared {
@@ -97,7 +127,7 @@ pub struct Shared {
 
 pub struct State {
     registry: RegistryState,
-    seat: SeatState,
+    seat_state: SeatState,
     output: OutputState,
     compositor: CompositorState,
     subcompositor: SubcompositorState,
@@ -111,15 +141,30 @@ pub struct State {
     size: (i32, i32),
     requested: (i32, i32),
     configured: bool,
+    /// The window's own surface's buffer, its colour.
+    background: Option<smithay_client_toolkit::shm::slot::Buffer>,
+    /// No frame from the compositor: BasicShell's to move and resize.
+    client_side: bool,
+    /// Maximized, full screen or tiled: no resizing from the edges.
+    fixed: bool,
+    maximized: bool,
+    /// In stacking order, the bottom one first.
     slots: Vec<Slot>,
 
+    seat: Option<wl_seat::WlSeat>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
     pointer: Option<wl_pointer::WlPointer>,
-    /// Which slot has the keyboard: the page, until BasicShell says otherwise.
-    focused: usize,
+    /// The view with the keyboard.
+    focused: Option<wpe_platform::View>,
     keys: WpeModifiers,
     buttons: WpeModifiers,
     press_count: u32,
+    /// The last press's serial, for moving the window from it.
+    press_serial: u32,
+    /// A press went to resizing the window: its release goes nowhere.
+    grabbed: bool,
+    /// The view under the pointer, and where in it.
+    under: Option<(wpe_platform::View, (f64, f64))>,
 
     tell: Vec<Tell>,
 }
@@ -137,7 +182,7 @@ impl Shared {
         let pool = SlotPool::new(1280 * 800 * 4, &shm).map_err(|e| e.to_string())?;
         let mut state = State {
             registry: RegistryState::new(&globals),
-            seat: SeatState::new(&globals, &qh),
+            seat_state: SeatState::new(&globals, &qh),
             output: OutputState::new(&globals, &qh),
             compositor,
             subcompositor,
@@ -150,13 +195,21 @@ impl Shared {
             size: (0, 0),
             requested: (1280, 800),
             configured: false,
+            background: None,
+            client_side: true,
+            fixed: false,
+            maximized: false,
             slots: Vec::new(),
+            seat: None,
             keyboard: None,
             pointer: None,
-            focused: 0,
+            focused: None,
             keys: WpeModifiers::empty(),
             buttons: WpeModifiers::empty(),
             press_count: 0,
+            press_serial: 0,
+            grabbed: false,
+            under: None,
             tell: Vec::new(),
         };
         queue.roundtrip(&mut state).map_err(|e| e.to_string())?;
@@ -209,14 +262,20 @@ impl Shared {
                     Tell::ToplevelResized(toplevel, w, h) => toplevel.resized(w, h),
                     Tell::ToplevelState(toplevel, state) => toplevel.state_changed(state),
                     Tell::Map(view) => view.map(),
+                    Tell::Unmap(view) => view.unmap(),
                     Tell::Rendered(view, buffer) => view.buffer_rendered(&buffer),
                     Tell::Released(view, buffer) => view.buffer_released(&buffer),
                     Tell::FocusIn(view) => view.focus_in(),
                     Tell::FocusOut(view) => view.focus_out(),
                     Tell::Close(toplevel) => toplevel.close_requested(),
-                    Tell::PagePointer(at) => {
-                        if let Some(hook) = &self.hooks.borrow().page_pointer {
-                            hook(at);
+                    Tell::Pointer(view, at) => {
+                        if let Some(hook) = &self.hooks.borrow().pointer {
+                            hook(&view, at);
+                        }
+                    }
+                    Tell::WindowResized(w, h) => {
+                        if let Some(hook) = &self.hooks.borrow().resized {
+                            hook(w, h);
                         }
                     }
                     Tell::Key { view, event, keysym, modifiers, pressed } => {
@@ -230,50 +289,58 @@ impl Shared {
         }
     }
 
-    pub fn create_window(&self, toplevel: &Toplevel) {
+    /// Runs `f` on the state, then tells WebKit what it gave rise to and
+    /// sends what it asked of the compositor.
+    fn with_state(&self, f: impl FnOnce(&mut State)) {
         {
             let mut st = self.state.borrow_mut();
-            let surface = st.compositor.create_surface(&st.qh);
-            let window = st.xdg.create_window(surface, WindowDecorations::RequestServer, &st.qh);
-            window.set_app_id(APP_ID);
-            window.set_title("BasicShell");
-            window.set_min_size(Some((360, 240)));
-            window.commit();
-            st.window = Some(window);
-            st.toplevel = toplevel.downgrade();
-        }
-        self.flush();
-    }
-
-    pub fn attach_view(&self, view: &wpe_platform::View, _toplevel: &Toplevel) {
-        {
-            let mut st = self.state.borrow_mut();
-            let st = &mut *st;
-            if st.slots.iter().any(|s| s.view.upgrade().as_ref() == Some(view)) {
-                return;
-            }
-            let Some(window) = &st.window else { return };
-            let window_surface = window.wl_surface().clone();
-            let (surface, subsurface) = if st.slots.is_empty() {
-                (window_surface, None)
-            } else {
-                let (subsurface, surface) = st.subcompositor.create_subsurface(window_surface, &st.qh);
-                subsurface.set_desync();
-                subsurface.set_position(0, 0);
-                // Nothing of it takes input until BasicShell says where it does.
-                if let Ok(region) = Region::new(&st.compositor) {
-                    surface.set_input_region(Some(region.wl_region()));
-                }
-                (surface, Some(subsurface))
-            };
-            st.slots.push(Slot { view: view.downgrade(), surface, subsurface, shown: None, attached: None });
-            if st.configured {
-                st.tell.push(Tell::ViewResized(view.clone(), st.size.0, st.size.1));
-                st.tell.push(Tell::Map(view.clone()));
-            }
+            f(&mut st);
         }
         self.tell_webkit();
         self.flush();
+    }
+
+    pub fn create_window(&self, toplevel: &Toplevel) {
+        self.with_state(|st| {
+            let surface = st.compositor.create_surface(&st.qh);
+            // The compositor's frame where it has one; GNOME's has none, and
+            // BASICSHELL_CLIENT_DECORATIONS=1 asks for none anywhere (BasicShell
+            // then moves and resizes the window itself, as there).
+            let decorations = if std::env::var_os("BASICSHELL_CLIENT_DECORATIONS").is_some_and(|v| v == "1") {
+                WindowDecorations::RequestClient
+            } else {
+                WindowDecorations::RequestServer
+            };
+            let window = st.xdg.create_window(surface, decorations, &st.qh);
+            window.set_app_id(APP_ID);
+            window.set_title("BasicShell");
+            window.set_min_size(Some((480, 320)));
+            window.commit();
+            st.window = Some(window);
+            st.toplevel = toplevel.downgrade();
+        });
+    }
+
+    pub fn attach_view(&self, view: &wpe_platform::View, _toplevel: &Toplevel) {
+        self.with_state(|st| {
+            if st.index(view).is_some() {
+                return;
+            }
+            let Some(window) = &st.window else { return };
+            let (subsurface, surface) = st.subcompositor.create_subsurface(window.wl_surface().clone(), &st.qh);
+            subsurface.set_desync();
+            // A new subsurface goes on top of the others.
+            st.slots.push(Slot { view: view.downgrade(), surface, subsurface, place: None, visible: true, told: (0, 0), shown: None, attached: None });
+            if st.focused.is_none() {
+                st.focused = Some(view.clone());
+            }
+            let index = st.slots.len() - 1;
+            st.relayout(index);
+            if st.configured {
+                st.tell.push(Tell::Map(view.clone()));
+            }
+            st.commit_window();
+        });
     }
 
     pub fn detach_view(&self, view: &wpe_platform::View) {
@@ -281,13 +348,16 @@ impl Shared {
         st.slots.retain(|slot| {
             let gone = slot.view.upgrade().is_none_or(|v| &v == view);
             if gone {
-                if let Some(subsurface) = &slot.subsurface {
-                    subsurface.destroy();
-                    slot.surface.destroy();
-                }
+                slot.subsurface.destroy();
+                slot.surface.destroy();
             }
             !gone
         });
+        if st.focused.as_ref() == Some(view) {
+            st.focused = None;
+        }
+        drop(st);
+        self.flush();
     }
 
     /// A frame from WebKit: copied into shared memory the compositor reads,
@@ -303,31 +373,33 @@ impl Shared {
         {
             let mut st = self.state.borrow_mut();
             let st = &mut *st;
-            let index = st
-                .slots
-                .iter()
-                .position(|s| s.view.upgrade().as_ref() == Some(view))
-                .ok_or_else(|| failed("a view not in the window"))?;
-            let row = width as usize * 4;
-            let (wl_buffer, canvas) = st
-                .pool
-                .create_buffer(width, height, row as i32, wl_shm::Format::Argb8888)
-                .map_err(|e| failed(&e.to_string()))?;
-            for (y, out) in canvas.chunks_exact_mut(row).enumerate().take(height as usize) {
-                let start = y * stride;
-                out.copy_from_slice(&data[start..start + row]);
-            }
-            let qh = st.qh.clone();
-            let slot = &mut st.slots[index];
-            wl_buffer.attach_to(&slot.surface).map_err(|e| failed(&e.to_string()))?;
-            slot.surface.damage_buffer(0, 0, width, height);
-            slot.surface.frame(&qh, FrameCallbackData(slot.surface.clone()));
-            slot.surface.commit();
-            slot.attached = Some(wl_buffer);
-            if let Some(previous) = slot.shown.replace(buffer.clone()) {
-                // Replaced before the compositor showed it: done with it all the same.
-                st.tell.push(Tell::Rendered(view.clone(), previous.clone()));
-                st.tell.push(Tell::Released(view.clone(), previous));
+            let index = st.index(view).ok_or_else(|| failed("a view not in the window"))?;
+            if !st.slots[index].visible {
+                // Not on show: done with at once.
+                st.tell.push(Tell::Rendered(view.clone(), buffer.clone()));
+                st.tell.push(Tell::Released(view.clone(), buffer.clone()));
+            } else {
+                let row = width as usize * 4;
+                let (wl_buffer, canvas) = st
+                    .pool
+                    .create_buffer(width, height, row as i32, wl_shm::Format::Argb8888)
+                    .map_err(|e| failed(&e.to_string()))?;
+                for (y, out) in canvas.chunks_exact_mut(row).enumerate().take(height as usize) {
+                    let start = y * stride;
+                    out.copy_from_slice(&data[start..start + row]);
+                }
+                let qh = st.qh.clone();
+                let slot = &mut st.slots[index];
+                wl_buffer.attach_to(&slot.surface).map_err(|e| failed(&e.to_string()))?;
+                slot.surface.damage_buffer(0, 0, width, height);
+                slot.surface.frame(&qh, FrameCallbackData(slot.surface.clone()));
+                slot.surface.commit();
+                slot.attached = Some(wl_buffer);
+                if let Some(previous) = slot.shown.replace(buffer.clone()) {
+                    // Replaced before the compositor showed it: done with it all the same.
+                    st.tell.push(Tell::Rendered(view.clone(), previous.clone()));
+                    st.tell.push(Tell::Released(view.clone(), previous));
+                }
             }
         }
         self.tell_webkit();
@@ -337,37 +409,129 @@ impl Shared {
 
     /// Where a view takes the pointer (rectangles in its own coordinates):
     /// elsewhere it goes to what is under it.
-    pub fn set_input_region(&self, view: &wpe_platform::View, rects: &[(i32, i32, i32, i32)]) {
-        {
-            let st = self.state.borrow();
-            let Some(slot) = st.slots.iter().find(|s| s.view.upgrade().as_ref() == Some(view)) else { return };
+    pub fn set_input_region(&self, view: &wpe_platform::View, rects: &[Rect]) {
+        self.with_state(|st| {
+            let Some(index) = st.index(view) else { return };
             let Ok(region) = Region::new(&st.compositor) else { return };
             for &(x, y, w, h) in rects {
                 region.add(x, y, w, h);
             }
+            let slot = &st.slots[index];
             slot.surface.set_input_region(Some(region.wl_region()));
             slot.surface.commit();
-        }
-        self.flush();
+        });
+    }
+
+    /// Puts a view at `place` in the window (None: all of it).
+    pub fn place(&self, view: &wpe_platform::View, place: Option<Rect>) {
+        self.with_state(|st| {
+            let Some(index) = st.index(view) else { return };
+            st.slots[index].place = place;
+            st.relayout(index);
+            st.commit_window();
+        });
+    }
+
+    /// Shows or hides a view; WebKit is told, and stops drawing a hidden one.
+    pub fn set_visible(&self, view: &wpe_platform::View, visible: bool) {
+        self.with_state(|st| {
+            let Some(index) = st.index(view) else { return };
+            let configured = st.configured;
+            let slot = &mut st.slots[index];
+            if slot.visible == visible {
+                return;
+            }
+            slot.visible = visible;
+            if visible {
+                if let Some(buffer) = &slot.attached {
+                    if buffer.attach_to(&slot.surface).is_ok() {
+                        slot.surface.damage_buffer(0, 0, i32::MAX, i32::MAX);
+                        slot.surface.commit();
+                    }
+                }
+            } else {
+                slot.surface.attach(None, 0, 0);
+                slot.surface.commit();
+                if let Some(previous) = slot.shown.take() {
+                    st.tell.push(Tell::Rendered(view.clone(), previous.clone()));
+                    st.tell.push(Tell::Released(view.clone(), previous));
+                }
+            }
+            if configured {
+                st.tell.push(if visible { Tell::Map(view.clone()) } else { Tell::Unmap(view.clone()) });
+            }
+        });
+    }
+
+    /// Puts a view over every other.
+    pub fn raise(&self, view: &wpe_platform::View) {
+        self.with_state(|st| {
+            let Some(index) = st.index(view) else { return };
+            if index + 1 == st.slots.len() {
+                return;
+            }
+            let slot = st.slots.remove(index);
+            if let Some(top) = st.slots.last() {
+                slot.subsurface.place_above(&top.surface);
+            }
+            st.slots.push(slot);
+            st.commit_window();
+        });
     }
 
     /// Gives a view the keyboard.
     pub fn focus(&self, view: &wpe_platform::View) {
-        {
-            let mut st = self.state.borrow_mut();
-            if let Some(index) = st.slots.iter().position(|s| s.view.upgrade().as_ref() == Some(view)) {
-                st.move_focus(index);
-            }
-        }
-        self.tell_webkit();
+        self.with_state(|st| st.move_focus(view));
     }
 
-    pub fn connect_page_pointer(&self, f: impl Fn(Option<(f64, f64)>) + 'static) {
-        self.hooks.borrow_mut().page_pointer = Some(Box::new(f));
+    /// The window follows the pointer, from the press just made. The
+    /// compositor has the button's release now: the view is told it was let go.
+    pub fn start_move(&self) {
+        self.with_state(|st| {
+            let (Some(window), Some(seat)) = (&st.window, &st.seat) else { return };
+            window.move_(seat, st.press_serial);
+            if let Some((view, (x, y))) = st.under.clone() {
+                if st.buttons.contains(WpeModifiers::POINTER_BUTTON1) {
+                    st.buttons.remove(WpeModifiers::POINTER_BUTTON1);
+                    let ptr = unsafe {
+                        wpe_platform::ffi::wpe_event_pointer_button_new(
+                            EventType::PointerUp.into_glib(),
+                            view.to_glib_none().0,
+                            InputSource::Mouse.into_glib(),
+                            0,
+                            st.modifiers().into_glib(),
+                            wpe_platform::ffi::WPE_BUTTON_PRIMARY as u32,
+                            x,
+                            y,
+                            0,
+                        )
+                    };
+                    if let Some(event) = unsafe { wpe_event(ptr) } {
+                        st.tell.push(Tell::Event(view, event));
+                    }
+                }
+            }
+        });
+    }
+
+    pub fn size(&self) -> (i32, i32) {
+        self.state.borrow().size
+    }
+
+    pub fn is_maximized(&self) -> bool {
+        self.state.borrow().maximized
+    }
+
+    pub fn connect_pointer(&self, f: impl Fn(&wpe_platform::View, Option<(f64, f64)>) + 'static) {
+        self.hooks.borrow_mut().pointer = Some(Box::new(f));
     }
 
     pub fn connect_key(&self, f: impl Fn(u32, WpeModifiers, bool) -> bool + 'static) {
         self.hooks.borrow_mut().key = Some(Box::new(f));
+    }
+
+    pub fn connect_resized(&self, f: impl Fn(i32, i32) + 'static) {
+        self.hooks.borrow_mut().resized = Some(Box::new(f));
     }
 
     pub fn set_cursor(&self, _name: &str) {
@@ -375,10 +539,11 @@ impl Shared {
     }
 
     pub fn set_title(&self, title: &str) {
-        if let Some(window) = &self.state.borrow().window {
-            window.set_title(title);
-        }
-        self.flush();
+        self.with_state(|st| {
+            if let Some(window) = &st.window {
+                window.set_title(title);
+            }
+        });
     }
 
     pub fn request_size(&self, width: i32, height: i32) {
@@ -386,47 +551,108 @@ impl Shared {
     }
 
     pub fn set_fullscreen(&self, fullscreen: bool) {
-        if let Some(window) = &self.state.borrow().window {
-            if fullscreen { window.set_fullscreen(None) } else { window.unset_fullscreen() }
-        }
-        self.flush();
+        self.with_state(|st| {
+            if let Some(window) = &st.window {
+                if fullscreen { window.set_fullscreen(None) } else { window.unset_fullscreen() }
+            }
+        });
     }
 
     pub fn set_maximized(&self, maximized: bool) {
-        if let Some(window) = &self.state.borrow().window {
-            if maximized { window.set_maximized() } else { window.unset_maximized() }
-        }
-        self.flush();
+        self.with_state(|st| {
+            if let Some(window) = &st.window {
+                if maximized { window.set_maximized() } else { window.unset_maximized() }
+            }
+        });
     }
 
     pub fn set_minimized(&self) {
-        if let Some(window) = &self.state.borrow().window {
-            window.set_minimized();
-        }
-        self.flush();
+        self.with_state(|st| {
+            if let Some(window) = &st.window {
+                window.set_minimized();
+            }
+        });
     }
 }
 
 impl State {
-    fn focused_view(&self) -> Option<wpe_platform::View> {
-        self.slots.get(self.focused).and_then(|s| s.view.upgrade())
+    fn index(&self, view: &wpe_platform::View) -> Option<usize> {
+        self.slots.iter().position(|s| s.view.upgrade().as_ref() == Some(view))
+    }
+
+    /// Puts a slot where it goes, and tells WebKit its size if that changed.
+    fn relayout(&mut self, index: usize) {
+        let (x, y, w, h) = self.slots[index].rect(self.size);
+        let slot = &mut self.slots[index];
+        slot.subsurface.set_position(x, y);
+        if w > 0 && h > 0 && slot.told != (w, h) {
+            slot.told = (w, h);
+            if let Some(view) = slot.view.upgrade() {
+                self.tell.push(Tell::ViewResized(view, w, h));
+            }
+        }
+    }
+
+    /// Where subsurfaces are and how they are stacked takes effect with the
+    /// window surface's next commit.
+    fn commit_window(&self) {
+        if let Some(window) = &self.window {
+            window.wl_surface().commit();
+        }
+    }
+
+    /// The window's own surface, in its colour, at its size.
+    fn paint_background(&mut self) {
+        let (width, height) = self.size;
+        let Some(window) = &self.window else { return };
+        let Ok((buffer, canvas)) = self.pool.create_buffer(width, height, width * 4, wl_shm::Format::Argb8888) else { return };
+        for pixel in canvas.chunks_exact_mut(4) {
+            pixel.copy_from_slice(&BACKGROUND);
+        }
+        let surface = window.wl_surface();
+        if buffer.attach_to(surface).is_ok() {
+            surface.damage_buffer(0, 0, width, height);
+            surface.commit();
+            self.background = Some(buffer);
+        }
     }
 
     fn modifiers(&self) -> WpeModifiers {
         self.keys | self.buttons
     }
 
-    fn move_focus(&mut self, index: usize) {
-        if index == self.focused {
+    fn move_focus(&mut self, view: &wpe_platform::View) {
+        if self.focused.as_ref() == Some(view) {
             return;
         }
-        if let Some(old) = self.focused_view() {
+        if let Some(old) = self.focused.take() {
             self.tell.push(Tell::FocusOut(old));
         }
-        self.focused = index;
-        if let Some(new) = self.focused_view() {
-            self.tell.push(Tell::FocusIn(new));
+        self.focused = Some(view.clone());
+        self.tell.push(Tell::FocusIn(view.clone()));
+    }
+
+    /// Which edges of the window a point is on, for resizing from there.
+    fn resize_edge(&self, (x, y): (f64, f64)) -> Option<ResizeEdge> {
+        if !self.client_side || self.fixed {
+            return None;
         }
+        let (w, h) = (self.size.0 as f64, self.size.1 as f64);
+        let left = x <= RESIZE_BORDER;
+        let right = x >= w - RESIZE_BORDER;
+        let top = y <= RESIZE_BORDER;
+        let bottom = y >= h - RESIZE_BORDER;
+        Some(match (left, right, top, bottom) {
+            (true, _, true, _) => ResizeEdge::TopLeft,
+            (true, _, _, true) => ResizeEdge::BottomLeft,
+            (_, true, true, _) => ResizeEdge::TopRight,
+            (_, true, _, true) => ResizeEdge::BottomRight,
+            (true, ..) => ResizeEdge::Left,
+            (_, true, ..) => ResizeEdge::Right,
+            (_, _, true, _) => ResizeEdge::Top,
+            (.., true) => ResizeEdge::Bottom,
+            _ => return None,
+        })
     }
 }
 
@@ -474,15 +700,23 @@ impl WindowHandler for State {
         let width = configure.new_size.0.map_or(self.requested.0, |v| v.get() as i32);
         let height = configure.new_size.1.map_or(self.requested.1, |v| v.get() as i32);
         let Some(toplevel) = self.toplevel.upgrade() else { return };
+        self.client_side = configure.decoration_mode == DecorationMode::Client;
+        self.maximized = configure.state.contains(WindowState::MAXIMIZED);
+        self.fixed = configure.state.intersects(
+            WindowState::MAXIMIZED | WindowState::FULLSCREEN | WindowState::TILED_LEFT | WindowState::TILED_RIGHT | WindowState::TILED_TOP | WindowState::TILED_BOTTOM,
+        );
         if (width, height) != self.size {
             self.size = (width, height);
             self.tell.push(Tell::ToplevelResized(toplevel.clone(), width, height));
-            for view in self.slots.iter().filter_map(|s| s.view.upgrade()) {
-                self.tell.push(Tell::ViewResized(view, width, height));
+            for index in 0..self.slots.len() {
+                self.relayout(index);
             }
+            self.tell.push(Tell::WindowResized(width, height));
         }
+        // Painted on every configure: a commit answers it.
+        self.paint_background();
         let mut state = wpe_platform::ToplevelState::empty();
-        if configure.state.contains(WindowState::MAXIMIZED) {
+        if self.maximized {
             state |= wpe_platform::ToplevelState::MAXIMIZED;
         }
         if configure.state.contains(WindowState::FULLSCREEN) {
@@ -494,7 +728,7 @@ impl WindowHandler for State {
         self.tell.push(Tell::ToplevelState(toplevel, state));
         if !self.configured {
             self.configured = true;
-            for view in self.slots.iter().filter_map(|s| s.view.upgrade()) {
+            for view in self.slots.iter().filter(|s| s.visible).filter_map(|s| s.view.upgrade()) {
                 self.tell.push(Tell::Map(view));
             }
         }
@@ -503,18 +737,19 @@ impl WindowHandler for State {
 
 impl SeatHandler for State {
     fn seat_state(&mut self) -> &mut SeatState {
-        &mut self.seat
+        &mut self.seat_state
     }
 
     fn new_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
 
     fn new_capability(&mut self, _: &Connection, qh: &QueueHandle<Self>, seat: wl_seat::WlSeat, capability: Capability) {
         if capability == Capability::Keyboard && self.keyboard.is_none() {
-            self.keyboard = self.seat.get_keyboard(qh, &seat, None).ok();
+            self.keyboard = self.seat_state.get_keyboard(qh, &seat, None).ok();
         }
         if capability == Capability::Pointer && self.pointer.is_none() {
-            self.pointer = self.seat.get_pointer(qh, &seat).ok();
+            self.pointer = self.seat_state.get_pointer(qh, &seat).ok();
         }
+        self.seat = Some(seat);
     }
 
     fn remove_capability(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat, capability: Capability) {
@@ -535,7 +770,7 @@ impl SeatHandler for State {
 
 impl State {
     fn key(&mut self, kind: EventType, key: &KeyEvent) {
-        let Some(view) = self.focused_view() else { return };
+        let Some(view) = self.focused.clone() else { return };
         let keysym = key.keysym.raw();
         let ptr = unsafe {
             wpe_platform::ffi::wpe_event_keyboard_new(
@@ -557,13 +792,13 @@ impl State {
 
 impl KeyboardHandler for State {
     fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, _: u32, _: &[u32], _: &[Keysym]) {
-        if let Some(view) = self.focused_view() {
+        if let Some(view) = self.focused.clone() {
             self.tell.push(Tell::FocusIn(view));
         }
     }
 
     fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, _: u32) {
-        if let Some(view) = self.focused_view() {
+        if let Some(view) = self.focused.clone() {
             self.tell.push(Tell::FocusOut(view));
         }
     }
@@ -604,19 +839,50 @@ impl KeyboardHandler for State {
 impl PointerHandler for State {
     fn pointer_frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_pointer::WlPointer, events: &[PointerEvent]) {
         for e in events {
+            // Between the views, on the window's own surface: only resizing from its edges.
+            if self.window.as_ref().is_some_and(|w| w.wl_surface() == &e.surface) {
+                if let PointerEventKind::Press { serial, .. } = e.kind {
+                    if let (Some(edge), Some(window), Some(seat)) = (self.resize_edge(e.position), &self.window, &self.seat) {
+                        window.resize(seat, serial, edge);
+                    }
+                }
+                continue;
+            }
             let Some(index) = self.slots.iter().position(|s| s.surface == e.surface) else { continue };
             let Some(view) = self.slots[index].view.upgrade() else { continue };
-            // The page tells BasicShell where the pointer is (its bars come out at the edges).
-            if index == 0 {
-                match e.kind {
-                    PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => self.tell.push(Tell::PagePointer(Some(e.position))),
-                    PointerEventKind::Leave { .. } => self.tell.push(Tell::PagePointer(None)),
-                    _ => {}
+            let (left, top, ..) = self.slots[index].rect(self.size);
+            let in_window = (e.position.0 + left as f64, e.position.1 + top as f64);
+            // BasicShell hears where the pointer is (its panels come out at the edges).
+            match e.kind {
+                PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                    self.under = Some((view.clone(), e.position));
+                    self.tell.push(Tell::Pointer(view.clone(), Some(in_window)));
                 }
+                PointerEventKind::Leave { .. } => {
+                    self.under = None;
+                    self.tell.push(Tell::Pointer(view.clone(), None));
+                }
+                _ => {}
             }
-            // A click gives the view it lands in the keyboard.
-            if matches!(e.kind, PointerEventKind::Press { .. }) {
-                self.move_focus(index);
+            match e.kind {
+                PointerEventKind::Press { serial, .. } => {
+                    self.press_serial = serial;
+                    // At the window's edge, where there is no frame: resizing it.
+                    if let Some(edge) = self.resize_edge(in_window) {
+                        if let (Some(window), Some(seat)) = (&self.window, &self.seat) {
+                            window.resize(seat, serial, edge);
+                            self.grabbed = true;
+                            continue;
+                        }
+                    }
+                    // A click gives the view it lands in the keyboard.
+                    self.move_focus(&view);
+                }
+                PointerEventKind::Release { .. } if self.grabbed => {
+                    self.grabbed = false;
+                    continue;
+                }
+                _ => {}
             }
             // WebKit keeps what was under the pointer hovered after a leave;
             // a move to outside the view first ends that.

@@ -1,11 +1,16 @@
 <!doctype html>
 <!--
   BasicShell's own interface, drawn by WebKit in a view of its own over the
-  page: a transparent window-sized layer that takes the pointer only where
+  tabs: a transparent window-sized layer that takes the pointer only where
   something of it is shown (it tells BasicShell where, "regions"). It loads
   nothing: no network, no other file (the content security policy below).
   BasicShell talks to it through window.BasicShell; it answers through the
   "basicshell" script message handler.
+
+  The macOS app's sidebar-only layout: the tabs down the left, with what the
+  top bar would have at the top (the window's buttons, back and forward,
+  the site, new tabs), out from the left edge or kept out; and the field in
+  the middle of the window for a new tab or the tab's own address.
 -->
 <html>
 <head>
@@ -13,170 +18,501 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
 <style>
 :root {
-  --bar: rgba(246, 246, 247, 0.96);
+  --glass: rgba(246, 246, 247, 0.97);
   --text: #1d1d1f;
   --muted: #6e6e73;
-  --field: rgba(0, 0, 0, 0.06);
-  --field-focus: #fff;
+  --faint: rgba(0, 0, 0, 0.3);
+  --fill: rgba(0, 0, 0, 0.06);
+  --hover: rgba(0, 0, 0, 0.06);
+  --selected: rgba(0, 0, 0, 0.13);
   --line: rgba(0, 0, 0, 0.1);
   --accent: #0a84ff;
+  --shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 8px 28px rgba(0, 0, 0, 0.16);
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bar: rgba(40, 40, 42, 0.96);
+    --glass: rgba(44, 44, 46, 0.97);
     --text: #f5f5f7;
     --muted: #a1a1a6;
-    --field: rgba(255, 255, 255, 0.1);
-    --field-focus: #1c1c1e;
+    --faint: rgba(255, 255, 255, 0.3);
+    --fill: rgba(255, 255, 255, 0.08);
+    --hover: rgba(255, 255, 255, 0.07);
+    --selected: rgba(255, 255, 255, 0.14);
     --line: rgba(255, 255, 255, 0.12);
+    --shadow: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 8px 28px rgba(0, 0, 0, 0.4);
   }
 }
+* { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
-body { font: 13px/1.2 system-ui, "Noto Sans", sans-serif; color: var(--text); user-select: none; }
+body { font: 13px/1.25 system-ui, "Noto Sans", sans-serif; color: var(--text); user-select: none; cursor: default; }
+svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
-#bar {
-  position: fixed; left: 0; right: 0; top: 0; height: 44px;
-  display: flex; align-items: center; gap: 4px; padding: 0 10px;
-  background: var(--bar); border-bottom: 1px solid var(--line);
-  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.08);
-  transform: translateY(-46px); transition: transform 160ms ease-out;
+/* The sidebar: 250 wide, 6 from the window's edges, out from the left. */
+#sidebar {
+  position: fixed; left: 6px; top: 6px; bottom: 6px; width: 250px;
+  display: flex; flex-direction: column; gap: 4px; padding: 6px 8px 8px;
+  background: var(--glass); border-radius: 14px; box-shadow: var(--shadow);
+  transform: translateX(-262px); opacity: 0;
+  transition: transform 180ms ease-out, opacity 180ms ease-out;
 }
-body.revealed #bar { transform: translateY(0); }
+body.out #sidebar { transform: none; opacity: 1; }
+/* Kept out, the page beside it: no shadow over a page it doesn't cover. */
+body.pinned #sidebar { box-shadow: none; }
 
+.row { display: flex; align-items: center; gap: 2px; padding: 0 4px; min-height: 30px; }
+.spacer { flex: 1; align-self: stretch; }
 button {
-  width: 30px; height: 30px; border: 0; border-radius: 7px; padding: 0;
-  background: transparent; color: var(--text); display: grid; place-items: center;
+  width: 28px; height: 28px; border: 0; border-radius: 7px; padding: 0; flex: none;
+  background: transparent; color: var(--text); display: grid; place-items: center; font: inherit;
 }
-button:hover:not(:disabled) { background: var(--field); }
-button:disabled { color: var(--muted); opacity: 0.45; }
-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+button:hover:not(:disabled) { background: var(--hover); }
+button:disabled { color: var(--faint); }
 
-#address {
-  flex: 1; max-width: 680px; margin: 0 auto; height: 30px; box-sizing: border-box;
-  border: 1px solid transparent; border-radius: 8px; padding: 0 10px;
-  background: var(--field); color: var(--text); font: inherit; text-align: center; outline: none;
-}
-#address:focus { background: var(--field-focus); border-color: var(--accent); text-align: left; user-select: text; }
+/* The window's buttons, where the macOS app's traffic lights are. */
+#lights { display: flex; gap: 8px; width: 64px; padding-left: 4px; }
+#lights button { width: 12px; height: 12px; border-radius: 50%; }
+#lights button svg { width: 8px; height: 8px; stroke: rgba(0, 0, 0, 0.6); stroke-width: 2.2; opacity: 0; }
+#lights:hover button svg { opacity: 1; }
+#close { background: #ff5f57 !important; }
+#minimize { background: #febc2e !important; }
+#maximize { background: #28c840 !important; }
 
-#progress {
-  position: fixed; left: 0; top: 0; height: 2px; width: 0; background: var(--accent);
-  opacity: 0; transition: width 200ms ease-out, opacity 300ms; pointer-events: none;
+/* The site, and reload in it. */
+#site {
+  display: flex; align-items: center; height: 28px; margin: 2px 0;
+  background: var(--fill); border-radius: 14px;
 }
-body.loading #progress { opacity: 1; }
-body.revealed #progress { top: 43px; }
+#site-name {
+  flex: 1; min-width: 0; height: 28px; padding: 0 0 0 28px; width: auto;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; text-align: center;
+  border-radius: 14px; line-height: 28px;
+}
+#site-name:hover { background: transparent !important; }
+#site-name.none { color: var(--muted); }
+#site button:last-child { border-radius: 14px; }
+
+#list { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 2px; margin: 0 -2px; padding: 0 2px; }
+#list::-webkit-scrollbar { width: 0; }
+.tab, .new {
+  position: relative; display: flex; align-items: center; gap: 8px; flex: none;
+  height: 32px; padding: 0 8px; border-radius: 9px;
+}
+.tab:hover, .new:hover { background: var(--hover); }
+.tab.selected { background: var(--selected); }
+.tab .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab .close { width: 18px; height: 18px; border-radius: 5px; display: none; }
+.tab .close svg { width: 10px; height: 10px; stroke-width: 2.4; }
+.tab:hover .close { display: grid; }
+.tab .private { color: var(--muted); }
+.tab .private svg { width: 14px; height: 14px; }
+.tab .line { position: absolute; top: 5px; width: 2px; height: 22px; border-radius: 1px; background: var(--faint); opacity: 0.6; }
+.new { color: var(--muted); }
+.new svg { width: 14px; height: 14px; margin: 0 1px; }
+.icon {
+  width: 16px; height: 16px; border-radius: 50%; flex: none; display: grid; place-items: center;
+  font-size: 10px; font-weight: 600; background: var(--fill);
+}
+
+/* The field in the middle of the window, over the page. */
+#ask { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.12); display: none; }
+body.asking #ask { display: block; }
+#panel {
+  position: absolute; left: 50%; top: 150px; width: min(640px, calc(100vw - 32px)); transform: translateX(-50%);
+  background: var(--glass); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden;
+}
+#field { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 18px; }
+#field svg { width: 19px; height: 19px; color: var(--muted); }
+#text { flex: 1; border: 0; outline: none; background: transparent; color: var(--text); font: 20px system-ui, "Noto Sans", sans-serif; user-select: text; }
+#suggestions { display: none; padding: 6px; border-top: 1px solid var(--line); }
+#suggestions.some { display: block; }
+.suggestion { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; border-radius: 8px; font-size: 14px; }
+.suggestion.chosen { background: var(--hover); }
+.suggestion svg { color: var(--muted); }
+.suggestion .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.suggestion .detail { color: var(--muted); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.suggestion .enter { color: var(--muted); }
+
+/* No tab: a button for one, in the middle of where the page would be. */
+#empty {
+  position: fixed; display: none; align-items: center; gap: 6px; height: 36px; padding: 0 16px;
+  border: 0; border-radius: 18px; background: var(--glass); box-shadow: var(--shadow); color: var(--text); font: 14px system-ui, "Noto Sans", sans-serif;
+  width: auto; transform: translate(-50%, -50%);
+}
+body.empty:not(.asking) #empty { display: flex; }
+
+/* The page loading: a line at the top of the window. */
+#loading {
+  position: fixed; top: 6px; width: 160px; height: 3px; border-radius: 2px; overflow: hidden;
+  background: var(--fill); opacity: 0; transition: opacity 300ms; transform: translateX(-50%);
+}
+#loading div { height: 100%; width: 0; background: var(--accent); transition: width 200ms ease-out; }
+body.loading #loading { opacity: 1; }
 </style>
 </head>
 <body>
-<div id="bar">
-  <button id="back" title="Back" disabled><svg viewBox="0 0 16 16"><path d="M10 3 5 8l5 5"/></svg></button>
-  <button id="forward" title="Forward" disabled><svg viewBox="0 0 16 16"><path d="m6 3 5 5-5 5"/></svg></button>
-  <button id="reload" title="Reload"><svg viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3"/></svg></button>
-  <input id="address" spellcheck="false" autocomplete="off" placeholder="Search or enter an address">
-  <span style="width: 98px"></span>
+<div id="sidebar">
+  <div class="row" id="controls">
+    <div id="lights">
+      <button id="close" title="Close Window"><svg viewBox="0 0 8 8"><path d="m1.5 1.5 5 5m0-5-5 5"/></svg></button>
+      <button id="minimize" title="Minimize"><svg viewBox="0 0 8 8"><path d="M1.2 4h5.6"/></svg></button>
+      <button id="maximize" title="Zoom"><svg viewBox="0 0 8 8"><path d="M2 6V2.6L5.4 6zM6 2v3.4L2.6 2z" fill="rgba(0,0,0,.6)" stroke="none"/></svg></button>
+    </div>
+    <button id="back" title="Back" disabled><svg viewBox="0 0 16 16"><path d="M10 3 5 8l5 5"/></svg></button>
+    <button id="forward" title="Forward" disabled><svg viewBox="0 0 16 16"><path d="m6 3 5 5-5 5"/></svg></button>
+    <div class="spacer"></div>
+    <button id="pin" title="Keep Sidebar Open"></button>
+  </div>
+  <div id="site">
+    <button id="site-name" class="none">Search or enter address</button>
+    <button id="reload" title="Reload This Page" disabled></button>
+  </div>
+  <div class="row">
+    <button id="new" title="New Tab"><svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></svg></button>
+    <button id="new-private" title="New Private Tab"><svg viewBox="0 0 16 16"><circle cx="4.3" cy="9.5" r="2.6"/><circle cx="11.7" cy="9.5" r="2.6"/><path d="M6.9 9.3c.7-.5 1.5-.5 2.2 0M1.7 9 3 5m11.3 4L13 5"/></svg></button>
+    <div class="spacer"></div>
+  </div>
+  <div id="list"></div>
 </div>
-<div id="progress"></div>
+<button id="empty"><svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></svg>New Tab</button>
+<div id="loading"><div></div></div>
+<div id="ask">
+  <div id="panel">
+    <div id="field"><span id="field-icon"></span><input id="text" spellcheck="false" autocomplete="off"></div>
+    <div id="suggestions"></div>
+  </div>
+</div>
 <script>
 "use strict";
 const post = message => window.webkit.messageHandlers.basicshell.postMessage(JSON.stringify(message));
 const $ = id => document.getElementById(id);
-const bar = $("bar"), address = $("address");
+const icons = {
+  pin: '<svg viewBox="0 0 16 16"><path d="M10.5 2.5 13.5 5.5M11.6 3.6 8.2 7 5 6.6 9.4 11l-.4-3.2 3.4-3.4M7.2 8.8 2.8 13.2"/></svg>',
+  sidebar: '<svg viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="2"/><path d="M6.5 3v10"/></svg>',
+  reload: '<svg viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3"/></svg>',
+  stop: '<svg viewBox="0 0 16 16"><path d="m4 4 8 8m0-8-8 8"/></svg>',
+  close: '<svg viewBox="0 0 10 10"><path d="m2 2 6 6m0-6-6 6"/></svg>',
+  plus: '<svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></svg>',
+  search: '<svg viewBox="0 0 20 20"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m12.6 12.6 4.4 4.4"/></svg>',
+  glasses: '<svg viewBox="0 0 16 16"><circle cx="4.3" cy="9.5" r="2.6"/><circle cx="11.7" cy="9.5" r="2.6"/><path d="M6.9 9.3c.7-.5 1.5-.5 2.2 0M1.7 9 3 5m11.3 4L13 5"/></svg>',
+  go: '<svg viewBox="0 0 16 16"><path d="M5 11 11 5M6 5h5v5"/></svg>',
+  tabs: '<svg viewBox="0 0 16 16"><rect x="2" y="5" width="9" height="9" rx="2"/><path d="M5 2.5h6.5A2 2 0 0 1 13.5 4.5V11"/></svg>',
+};
+const escape = text => String(text).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
-let page = { uri: "", title: "", progress: 1, loading: false, back: false, forward: false };
-// Whether the pointer is on the bar, kept here: WebKit doesn't say when the
-// pointer leaves the view, so :hover and mouseleave can't be trusted to.
-let revealed = false, editing = false, onBar = false, hideTimer = 0;
+let state = { tabs: [], page: null, pinned: false };
+// Out because the pointer brought it.
+let shown = false;
+// What the field in the middle is up for: "new", "private", "address", or nothing.
+let asking = null, atTop = false, chosen = 0;
+let dwell = 0, linger = 0;
 
-// Where this layer takes the pointer: the bar while it is out, nowhere else.
+// MARK: - where this layer takes the pointer
+
+let lastRegions = "";
 function regions() {
   const rects = [];
-  if (revealed) rects.push([0, 0, window.innerWidth, 45]);
-  post({ type: "regions", rects });
+  if (asking) rects.push([0, 0, innerWidth, innerHeight]);
+  else {
+    if (out()) rects.push([0, 0, 262, innerHeight]);
+    // The left edge, to bring the sidebar out from.
+    else rects.push([0, 0, 6, innerHeight]);
+    if (!state.tabs.length) {
+      const r = $("empty").getBoundingClientRect();
+      rects.push([r.left, r.top, r.width, r.height].map(Math.round));
+    }
+  }
+  const json = JSON.stringify(rects);
+  if (json !== lastRegions) {
+    lastRegions = json;
+    post({ type: "regions", rects });
+  }
 }
 
-function shown(uri) {
+// MARK: - the sidebar coming and going (the macOS app's Motion)
+
+const out = () => state.pinned || shown;
+
+function show() {
+  clearTimeout(linger);
+  if (shown) return;
+  shown = true;
+  render();
+}
+
+function hide() {
+  clearTimeout(dwell);
+  clearTimeout(linger);
+  if (!shown) return;
+  shown = false;
+  render();
+}
+
+// The pointer resting against the left edge, so crossing it on the way in
+// doesn't bring the sidebar out.
+function edge() {
+  if (out()) return;
+  clearTimeout(dwell);
+  dwell = setTimeout(show, 120);
+}
+
+function away() {
+  clearTimeout(dwell);
+  if (!shown || state.pinned) return;
+  clearTimeout(linger);
+  linger = setTimeout(hide, 120);
+}
+
+document.addEventListener("mousemove", event => {
+  if (asking) return;
+  if (event.clientX <= 6 && !out()) edge();
+  else if (event.clientX > 6) clearTimeout(dwell);
+  if (shown && event.clientX <= 262) clearTimeout(linger);
+});
+
+// MARK: - drawing
+
+function site(uri) {
   try {
     const url = new URL(uri);
-    if (url.protocol === "http:" || url.protocol === "https:") {
-      const host = url.host.replace(/^www\./, "");
-      return url.pathname === "/" ? host : host + decodeURI(url.pathname);
-    }
+    if (url.protocol === "http:" || url.protocol === "https:") return url.host.replace(/^www\./, "");
   } catch (e) {}
   return uri;
 }
 
+let lastList = "";
 function render() {
-  $("back").disabled = !page.back;
-  $("forward").disabled = !page.forward;
-  if (!editing) address.value = shown(page.uri);
-  document.body.classList.toggle("loading", page.loading);
-  $("progress").style.width = (page.loading ? Math.max(5, page.progress * 100) : 100) + "%";
-}
+  const page = state.page;
+  document.body.classList.toggle("out", out());
+  document.body.classList.toggle("pinned", state.pinned);
+  document.body.classList.toggle("asking", !!asking);
+  document.body.classList.toggle("empty", !state.tabs.length);
+  document.body.classList.toggle("loading", !!(page && page.loading));
 
-function reveal() {
-  clearTimeout(hideTimer);
-  if (!revealed) {
-    revealed = true;
-    document.body.classList.add("revealed");
-    regions();
+  $("back").disabled = !(page && page.back);
+  $("forward").disabled = !(page && page.forward);
+  $("pin").innerHTML = state.pinned ? icons.sidebar : icons.pin;
+  $("pin").title = state.pinned ? "Hide Sidebar When Not in Use" : "Keep Sidebar Open";
+  const name = $("site-name");
+  if (page && page.uri) {
+    name.textContent = site(page.uri);
+    name.classList.remove("none");
+  } else {
+    name.textContent = "Search or enter address";
+    name.classList.add("none");
   }
-}
+  $("reload").innerHTML = page && page.loading ? icons.stop : icons.reload;
+  $("reload").title = page && page.loading ? "Stop Loading" : "Reload This Page";
+  $("reload").disabled = !(page && page.uri);
 
-function conceal() {
-  if (editing || !revealed) return;
-  revealed = false;
-  document.body.classList.remove("revealed");
+  // Where the page is: the line and the button go in its middle.
+  const left = state.pinned ? 262 : 0;
+  const middle = left + (innerWidth - left) / 2;
+  $("loading").style.left = middle + "px";
+  $("loading").firstElementChild.style.width = (page && page.loading ? Math.max(5, page.progress * 100) : 100) + "%";
+  $("empty").style.left = middle + "px";
+  $("empty").style.top = innerHeight / 2 + "px";
+
+  // The list again only when what it shows changed: a row replaced under the
+  // pointer loses its click.
+  const list = JSON.stringify([state.tabs.map(t => [t.id, t.name, t.private, t.depth]), page && page.id]);
+  if (list !== lastList) {
+    lastList = list;
+    drawList();
+  }
   regions();
 }
 
-function concealSoon(delay = 450) {
-  clearTimeout(hideTimer);
-  hideTimer = setTimeout(() => { if (!onBar) conceal(); }, delay);
+function drawList() {
+  const list = $("list");
+  list.textContent = "";
+  list.append(newRow(true));
+  const selected = state.page && state.page.id;
+  for (const tab of state.tabs) {
+    const row = document.createElement("div");
+    row.className = "tab" + (tab.id === selected ? " selected" : "");
+    row.title = tab.name;
+    // Opened from the tab above: set in, with a line back to it.
+    if (tab.depth > 0) {
+      row.style.marginLeft = tab.depth * 14 + "px";
+      const line = document.createElement("div");
+      line.className = "line";
+      line.style.left = "-7px";
+      row.append(line);
+    }
+    const letter = (tab.name.trim()[0] || "·").toUpperCase();
+    row.insertAdjacentHTML("beforeend",
+      `<span class="icon">${escape(letter)}</span><span class="name">${escape(tab.name)}</span>` +
+      (tab.private ? `<span class="private">${icons.glasses}</span>` : "") +
+      `<button class="close" title="Close Tab">${icons.close}</button>`);
+    row.addEventListener("click", event => {
+      if (event.target.closest(".close")) post({ type: "close", id: tab.id });
+      else post({ type: "select", id: tab.id });
+    });
+    // The middle button closes it, as tabs do on Linux.
+    row.addEventListener("auxclick", event => { if (event.button === 1) post({ type: "close", id: tab.id }); });
+    list.append(row);
+  }
+  if (state.tabs.length) list.append(newRow(false));
 }
 
-bar.addEventListener("mousemove", () => { onBar = true; clearTimeout(hideTimer); });
+// A New Tab button shaped like a row, above the tabs and below them.
+function newRow(top) {
+  const row = document.createElement("div");
+  row.className = "new";
+  row.title = "New Tab (Ctrl+T)";
+  row.innerHTML = icons.plus + "<span>New Tab</span>";
+  row.addEventListener("click", () => ask("new", top));
+  return row;
+}
+
+// MARK: - the field in the middle of the window
+
+function ask(what, top = false) {
+  asking = what;
+  atTop = top;
+  chosen = 0;
+  const text = $("text");
+  text.value = what === "address" && state.page ? state.page.uri : "";
+  const privately = what === "private" || (what === "address" && state.page && state.page.private);
+  $("field-icon").innerHTML = privately ? icons.glasses : icons.search;
+  text.placeholder = privately ? "Private tab: search or enter address" : "Search or enter address";
+  post({ type: "focus-interface" });
+  render();
+  suggest();
+  text.focus();
+  text.select();
+}
+
+function dismiss() {
+  if (!asking) return;
+  asking = null;
+  $("text").blur();
+  render();
+  post({ type: "focus-page" });
+}
+
+// The macOS app's Address.url, enough to say which it will be.
+function looksLikeAddress(text) {
+  if (/\s/.test(text)) return false;
+  const scheme = text.match(/^([a-z][a-z0-9+.-]*):\/\//i);
+  if (scheme) return ["http", "https", "file", "about", "data"].includes(scheme[1].toLowerCase());
+  if (/^(about|data):/i.test(text)) return true;
+  const head = text.split(/[/?#]/)[0];
+  if (head.includes("@")) return false;
+  const host = head.split(":")[0];
+  if (host === "localhost") return true;
+  const labels = host.split(".");
+  if (labels.length === 4 && labels.every(l => /^\d{1,3}$/.test(l) && +l < 256)) return true;
+  if (labels.length < 2 || !labels.every(l => l && !l.startsWith("-") && !l.endsWith("-") && /^[\p{L}\p{N}-]+$/u.test(l))) return false;
+  const tld = labels[labels.length - 1];
+  return tld.length >= 2 && /^\p{L}+$/u.test(tld);
+}
+
+let suggestions = [];
+function suggest() {
+  const typed = $("text").value.trim();
+  suggestions = [];
+  if (typed) {
+    suggestions.push({ kind: "typed", text: typed });
+    const privately = asking === "private" || (asking === "address" && state.page && state.page.private);
+    const editing = asking === "address" && state.page ? state.page.id : null;
+    const lower = typed.toLowerCase();
+    for (const tab of state.tabs) {
+      if (suggestions.length >= 4) break;
+      if (tab.id === editing || tab.private !== !!privately || !tab.uri) continue;
+      if (tab.name.toLowerCase().includes(lower) || tab.uri.toLowerCase().includes(lower)) suggestions.push({ kind: "tab", tab });
+    }
+  }
+  chosen = Math.min(chosen, Math.max(0, suggestions.length - 1));
+  const box = $("suggestions");
+  box.classList.toggle("some", suggestions.length > 0);
+  box.innerHTML = suggestions.map((s, i) => {
+    let icon, title, detail = "";
+    if (s.kind === "typed") {
+      const address = looksLikeAddress(s.text);
+      icon = address ? icons.go : icons.search;
+      title = address ? `Go to ${s.text}` : `Search Google for “${s.text}”`;
+    } else {
+      icon = icons.tabs;
+      title = s.tab.name;
+      detail = "Switch to Tab";
+    }
+    return `<div class="suggestion${i === chosen ? " chosen" : ""}" data-index="${i}">${icon}<span class="title">${escape(title)}</span>` +
+      (detail ? `<span class="detail">${escape(detail)}</span>` : "") + (i === chosen ? `<span class="enter">↩</span>` : "") + `</div>`;
+  }).join("");
+}
+
+function pick(index) {
+  const s = suggestions[index];
+  const what = asking, top = atTop;
+  if (s && s.kind === "tab") {
+    dismiss();
+    post({ type: "select", id: s.tab.id });
+    return;
+  }
+  const text = s ? s.text : $("text").value.trim();
+  if (!text) return;
+  asking = null;
+  $("text").blur();
+  render();
+  post({ type: "commit", text, ask: what, atTop: top });
+}
+
+$("text").addEventListener("input", () => { chosen = 0; suggest(); });
+$("text").addEventListener("keydown", event => {
+  if (event.key === "Enter") pick(chosen);
+  else if (event.key === "Escape") dismiss();
+  else if (event.key === "ArrowDown") { chosen = Math.min(chosen + 1, Math.max(0, suggestions.length - 1)); suggest(); }
+  else if (event.key === "ArrowUp") { chosen = Math.max(chosen - 1, 0); suggest(); }
+  else return;
+  event.preventDefault();
+});
+$("suggestions").addEventListener("click", event => {
+  const row = event.target.closest(".suggestion");
+  if (row) pick(+row.dataset.index);
+});
+// A click outside the field puts it away.
+$("ask").addEventListener("mousedown", event => { if (event.target === $("ask")) dismiss(); });
+
+// MARK: - the buttons
+
+$("close").addEventListener("click", () => post({ type: "quit" }));
+$("minimize").addEventListener("click", () => post({ type: "minimize" }));
+$("maximize").addEventListener("click", () => post({ type: "maximize" }));
 $("back").addEventListener("click", () => post({ type: "back" }));
 $("forward").addEventListener("click", () => post({ type: "forward" }));
-$("reload").addEventListener("click", () => post({ type: page.loading ? "stop" : "reload" }));
+$("pin").addEventListener("click", () => post({ type: "pin" }));
+$("reload").addEventListener("click", () => post({ type: state.page && state.page.loading ? "stop" : "reload" }));
+$("site-name").addEventListener("click", () => ask("address"));
+$("new").addEventListener("click", () => ask("new"));
+$("new-private").addEventListener("click", () => ask("private"));
+$("empty").addEventListener("click", () => ask("new"));
 
-function stopEditing() {
-  if (!editing) return;
-  editing = false;
-  address.blur();
-  render();
-  concealSoon();
-}
-
-address.addEventListener("focus", () => {
-  reveal();
-  if (editing) return;  // back from another window: as it was left
-  editing = true;
-  address.value = page.uri;
-  address.select();
+// The window is moved from the sidebar's first row (as from a title bar)
+// once the pointer moves with the button down, and zoomed by a double click.
+let pressed = null;
+$("controls").addEventListener("mousedown", event => {
+  if (event.button === 0 && !event.target.closest("button")) pressed = [event.clientX, event.clientY];
 });
-// The window losing the keyboard blurs it too; that leaves it as it is.
-address.addEventListener("blur", () => { if (document.hasFocus()) stopEditing(); });
-address.addEventListener("keydown", event => {
-  if (event.key === "Enter" && address.value.trim()) {
-    post({ type: "navigate", text: address.value.trim() });
-    stopEditing();
-    post({ type: "focus-page" });
-  } else if (event.key === "Escape") {
-    stopEditing();
-    post({ type: "focus-page" });
+document.addEventListener("mousemove", event => {
+  if (!pressed || !(event.buttons & 1)) { pressed = null; return; }
+  if (Math.abs(event.clientX - pressed[0]) + Math.abs(event.clientY - pressed[1]) > 3) {
+    pressed = null;
+    post({ type: "move" });
   }
 });
+document.addEventListener("mouseup", () => { pressed = null; });
+$("controls").addEventListener("dblclick", event => { if (!event.target.closest("button")) post({ type: "maximize" }); });
+
+addEventListener("resize", render);
 
 window.BasicShell = {
-  update(state) { Object.assign(page, state); render(); },
-  reveal() { reveal(); concealSoon(1500); },
-  editAddress() { reveal(); address.focus(); },
-  // The page has the keyboard: whatever was being typed here is left.
-  pageFocused() { stopEditing(); },
-  // The pointer went from here to the page.
-  pointerOnPage() { onBar = false; concealSoon(300); },
+  update(next) { state = next; render(); if (asking) suggest(); },
+  ask(what) { ask(what); },
+  // Where the pointer is over the page: "edge", "near" or "far".
+  pointer(zone) { if (zone === "edge") edge(); else if (zone === "far") away(); else clearTimeout(dwell); },
 };
 
-regions();
 render();
 post({ type: "ready" });
 </script>

@@ -69,6 +69,18 @@ fn looks_like_host(host: &str) -> bool {
     tld.chars().count() >= 2 && tld.chars().all(char::is_alphabetic)
 }
 
+/// The address as a person reads it: no scheme, no "www.", the path if
+/// there is more than "/" (http and https; anything else as it is).
+pub fn pretty(uri: &str) -> String {
+    let Some(rest) = uri.strip_prefix("https://").or_else(|| uri.strip_prefix("http://")) else { return uri.to_owned() };
+    let end = rest.find(['?', '#']).unwrap_or(rest.len());
+    let rest = &rest[..end];
+    let (host, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+    let host = host.rsplit('@').next().unwrap_or(host);
+    let host = host.strip_prefix("www.").unwrap_or(host);
+    if path.is_empty() || path == "/" { host.to_owned() } else { format!("{host}{path}") }
+}
+
 /// A Google search, in the system's language and region: Google picks them
 /// from the address the search comes from otherwise, another country
 /// entirely behind a VPN. Google is the macOS app's default engine too.
@@ -139,5 +151,13 @@ mod tests {
         }
         assert!(resolve("ç ğ").unwrap().starts_with("https://www.google.com/search?q=%C3%A7%20%C4%9F"));
         assert_eq!(resolve("  "), None);
+    }
+
+    #[test]
+    fn pretty_addresses() {
+        assert_eq!(pretty("https://www.example.com/"), "example.com");
+        assert_eq!(pretty("https://en.wikipedia.org/wiki/Rust?x=1#y"), "en.wikipedia.org/wiki/Rust");
+        assert_eq!(pretty("http://127.0.0.1:8765/a.html"), "127.0.0.1:8765/a.html");
+        assert_eq!(pretty("about:blank"), "about:blank");
     }
 }
