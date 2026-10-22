@@ -4,6 +4,7 @@
 //! hidden as BasicShell says: its tabs, and its own interface over them
 //! (WebKit's Wayland platform can't place its views).
 
+mod clipboard;
 mod display;
 mod toplevel;
 mod view;

@@ -11,6 +11,8 @@ external_libraries = ["GLib", "GObject", "Gio"]
 
 generate = [
     "WPEPlatform.Toplevel",
+    "WPEPlatform.Clipboard",
+    "WPEPlatform.ClipboardContent",
     "WPEPlatform.Screen",
     "WPEPlatform.Keymap",
     "WPEPlatform.ToplevelState",

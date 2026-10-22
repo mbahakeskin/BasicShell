@@ -12,6 +12,9 @@ pub use self::buffer_dma_buf::BufferDMABuf;
 mod buffer_shm;
 pub use self::buffer_shm::BufferSHM;
 
+mod clipboard;
+pub use self::clipboard::Clipboard;
+
 mod display;
 pub use self::display::Display;
 
@@ -30,6 +33,9 @@ pub use self::toplevel::Toplevel;
 mod view;
 pub use self::view::View;
 
+mod clipboard_content;
+pub use self::clipboard_content::ClipboardContent;
+
 mod enums;
 pub use self::enums::BufferError;
 pub use self::enums::DisplayError;
@@ -44,6 +50,7 @@ pub use self::flags::ToplevelState;
 
 pub(crate) mod traits {
     pub use super::buffer::BufferExt;
+    pub use super::clipboard::ClipboardExt;
     pub use super::display::DisplayExt;
     pub use super::keymap::KeymapExt;
     pub use super::screen::ScreenExt;

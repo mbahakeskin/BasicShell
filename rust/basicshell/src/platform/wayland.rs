@@ -18,6 +18,12 @@ use smithay_client_toolkit::reexports::csd_frame::WindowState;
 use smithay_client_toolkit::reexports::protocols::xdg::shell::client::xdg_toplevel::ResizeEdge;
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState, FrameCallbackData, Region},
+    data_device_manager::{
+        data_device::{DataDevice, DataDeviceHandler},
+        data_offer::{DataOfferHandler, DragOffer},
+        data_source::{CopyPasteSource, DataSourceHandler},
+        DataDeviceManagerState, WritePipe,
+    },
     delegate_registry,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
@@ -39,12 +45,13 @@ use smithay_client_toolkit::{
 };
 use wayland_client::{
     globals::registry_queue_init,
-    protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_subsurface, wl_surface},
+    protocol::{wl_data_device, wl_data_device_manager::DndAction, wl_data_source, wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_subsurface, wl_surface},
     Connection, EventQueue, QueueHandle,
 };
 use wpe_platform::prelude::*;
 use wpe_platform::{EventType, InputSource, Modifiers as WpeModifiers};
 
+use super::clipboard::Clipboard;
 use super::toplevel::Toplevel;
 
 const APP_ID: &str = "org.basicshell.BasicShell";
@@ -106,6 +113,10 @@ enum Tell {
     WindowResized(i32, i32),
     /// A key held down repeats (its code and symbol), or none does.
     Repeat(Option<(u32, u32)>),
+    /// Another program's clipboard content, in these formats (none: empty).
+    Selection(Option<Vec<String>>),
+    /// Another program pastes what WebKit copied, in this format, through this pipe.
+    Send(String, WritePipe),
     /// A key, first for BasicShell's shortcuts, then for the view if not taken.
     Key { view: wpe_platform::View, event: wpe_platform::Event, keysym: u32, modifiers: WpeModifiers, pressed: bool },
 }
@@ -127,6 +138,7 @@ pub struct Shared {
     conn: Connection,
     /// The key held down repeating: its timer.
     repeating: RefCell<Option<glib::SourceId>>,
+    clipboard: RefCell<glib::WeakRef<Clipboard>>,
     queue: RefCell<EventQueue<State>>,
     state: RefCell<State>,
     hooks: RefCell<Hooks>,
@@ -141,6 +153,13 @@ pub struct State {
     xdg: XdgShell,
     shm: Shm,
     pool: SlotPool,
+    /// The clipboard's protocol, where the compositor has it.
+    data_manager: Option<DataDeviceManagerState>,
+    data_device: Option<DataDevice>,
+    /// What WebKit copied, offered to other programs.
+    source: Option<CopyPasteSource>,
+    /// The last press of a key or button, which taking the clipboard needs.
+    input_serial: u32,
     qh: QueueHandle<State>,
 
     window: Option<Window>,
@@ -195,6 +214,7 @@ impl Shared {
         let xdg = XdgShell::bind(&globals, &qh).map_err(|e| format!("xdg_wm_base: {e}"))?;
         let shm = Shm::bind(&globals, &qh).map_err(|e| format!("wl_shm: {e}"))?;
         let pool = SlotPool::new(1280 * 800 * 4, &shm).map_err(|e| e.to_string())?;
+        let data_manager = DataDeviceManagerState::bind(&globals, &qh).ok();
         let mut state = State {
             registry: RegistryState::new(&globals),
             seat_state: SeatState::new(&globals, &qh),
@@ -204,6 +224,10 @@ impl Shared {
             xdg,
             shm,
             pool,
+            data_manager,
+            data_device: None,
+            source: None,
+            input_serial: 0,
             qh,
             window: None,
             toplevel: glib::WeakRef::new(),
@@ -237,6 +261,7 @@ impl Shared {
             me: me.clone(),
             conn,
             repeating: RefCell::default(),
+            clipboard: RefCell::default(),
             queue: RefCell::new(queue),
             state: RefCell::new(state),
             hooks: RefCell::default(),
@@ -305,6 +330,21 @@ impl Shared {
                         }
                     }
                     Tell::Repeat(key) => self.repeat(key),
+                    Tell::Selection(formats) => {
+                        if let Some(clipboard) = self.clipboard.borrow().upgrade() {
+                            clipboard.remote_changed(formats);
+                        }
+                    }
+                    Tell::Send(format, pipe) => {
+                        let data = self.clipboard.borrow().upgrade().and_then(|c| c.serialize(&format));
+                        // Written beside the main loop: the reader takes it at its own pace.
+                        std::thread::spawn(move || {
+                            let mut pipe = pipe;
+                            if let Some(data) = data {
+                                let _ = std::io::Write::write_all(&mut pipe, &data);
+                            }
+                        });
+                    }
                     Tell::Key { view, event, keysym, modifiers, pressed } => {
                         let taken = self.hooks.borrow().key.as_ref().is_some_and(|hook| hook(keysym, modifiers, pressed));
                         if !taken {
@@ -314,6 +354,40 @@ impl Shared {
                 }
             }
         }
+    }
+
+    /// The clipboard WebKit asked for (on its first copy or paste): told
+    /// what is on the system's clipboard already.
+    pub fn set_clipboard(&self, clipboard: &Clipboard) {
+        *self.clipboard.borrow_mut() = clipboard.downgrade();
+        let formats = self.state.borrow().remote_formats();
+        if formats.is_some() {
+            clipboard.remote_changed(formats);
+        }
+    }
+
+    /// What another program put on the clipboard, in `format`: asked for, and
+    /// read as it sends it (WebKit waits for it, as its own platform does).
+    pub fn read_selection(&self, format: &str) -> Option<Vec<u8>> {
+        let mut pipe = {
+            let st = self.state.borrow();
+            let offer = st.data_device.as_ref()?.data().selection_offer()?;
+            offer.receive(format.to_owned()).ok()?
+        };
+        self.flush();
+        let mut data = Vec::new();
+        std::io::Read::read_to_end(&mut pipe, &mut data).ok()?;
+        Some(data)
+    }
+
+    /// WebKit copied something, in these formats: the clipboard is ours.
+    pub fn offer_selection(&self, formats: Vec<String>) {
+        self.with_state(|st| {
+            let (Some(manager), Some(device)) = (&st.data_manager, &st.data_device) else { return };
+            let source = manager.create_copy_paste_source(&st.qh, formats.iter());
+            source.set_selection(device, st.input_serial);
+            st.source = Some(source);
+        });
     }
 
     /// The key held down sent again and again, after the compositor's delay
@@ -687,6 +761,15 @@ impl State {
         }
     }
 
+    /// The formats another program's clipboard content is in; none while
+    /// the content is WebKit's own, or there is none.
+    fn remote_formats(&self) -> Option<Vec<String>> {
+        if self.source.is_some() {
+            return None;
+        }
+        self.data_device.as_ref().and_then(|d| d.data().selection_offer()).map(|o| o.with_mime_types(|m| m.to_vec()))
+    }
+
     fn modifiers(&self) -> WpeModifiers {
         self.keys | self.buttons
     }
@@ -847,6 +930,9 @@ impl SeatHandler for State {
             let surface = self.compositor.create_surface(qh);
             self.pointer = self.seat_state.get_pointer_with_theme::<State, ()>(qh, &seat, self.shm.wl_shm(), surface, ThemeSpec::default()).ok();
         }
+        if self.data_device.is_none() {
+            self.data_device = self.data_manager.as_ref().map(|m| m.get_data_device(qh, &seat));
+        }
         self.seat = Some(seat);
     }
 
@@ -929,7 +1015,8 @@ impl KeyboardHandler for State {
         }
     }
 
-    fn press_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, event: KeyEvent) {
+    fn press_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, serial: u32, event: KeyEvent) {
+        self.input_serial = serial;
         self.key(EventType::KeyboardKeyDown, &event);
     }
 
@@ -1009,6 +1096,7 @@ impl PointerHandler for State {
             match e.kind {
                 PointerEventKind::Press { serial, .. } => {
                     self.press_serial = serial;
+                    self.input_serial = serial;
                     // At the window's edge, where there is no frame: resizing it.
                     if let Some(edge) = self.resize_edge(in_window) {
                         if let (Some(window), Some(seat)) = (&self.window, &self.seat) {
@@ -1090,6 +1178,49 @@ impl PointerHandler for State {
             }
         }
     }
+}
+
+impl DataDeviceHandler for State {
+    fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_data_device::WlDataDevice, _: f64, _: f64, _: &wl_surface::WlSurface) {}
+    fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_data_device::WlDataDevice) {}
+    fn motion(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_data_device::WlDataDevice, _: f64, _: f64) {}
+    fn drop_performed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_data_device::WlDataDevice) {}
+
+    /// What is on the clipboard changed; while it is WebKit's own, WebKit knows.
+    fn selection(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_data_device::WlDataDevice) {
+        if self.source.is_some() {
+            return;
+        }
+        let formats = self.remote_formats();
+        self.tell.push(Tell::Selection(formats));
+    }
+}
+
+impl DataOfferHandler for State {
+    fn source_actions(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &mut DragOffer, _: DndAction) {}
+    fn selected_action(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &mut DragOffer, _: DndAction) {}
+}
+
+impl DataSourceHandler for State {
+    fn accept_mime(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_data_source::WlDataSource, _: Option<String>) {}
+
+    fn send_request(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &wl_data_source::WlDataSource, mime: String, fd: WritePipe) {
+        if self.source.as_ref().is_some_and(|s| s.inner() == source) {
+            self.tell.push(Tell::Send(mime, fd));
+        }
+    }
+
+    /// Another program took the clipboard.
+    fn cancelled(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &wl_data_source::WlDataSource) {
+        if self.source.as_ref().is_some_and(|s| s.inner() == source) {
+            self.source = None;
+            self.tell.push(Tell::Selection(None));
+        }
+    }
+
+    fn dnd_dropped(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_data_source::WlDataSource) {}
+    fn dnd_finished(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_data_source::WlDataSource) {}
+    fn action(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_data_source::WlDataSource, _: DndAction) {}
 }
 
 impl OutputHandler for State {

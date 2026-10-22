@@ -2,7 +2,7 @@ use glib::prelude::*;
 use glib::subclass::prelude::*;
 use glib::translate::*;
 
-use crate::{Display, Keymap, Toplevel, View};
+use crate::{Clipboard, Display, Keymap, Toplevel, View};
 
 /// What a platform's display does: connect to whatever shows its windows, and
 /// make the views and toplevels WebKit asks for.
@@ -22,6 +22,11 @@ pub trait DisplayImpl: ObjectImpl + ObjectSubclass<Type: IsA<Display>> {
     fn keymap(&self) -> Option<Keymap> {
         None
     }
+
+    /// The system's clipboard; none, and WebKit keeps one of its own.
+    fn clipboard(&self) -> Option<Clipboard> {
+        None
+    }
 }
 
 unsafe impl<T: DisplayImpl> IsSubclassable<T> for Display {
@@ -32,6 +37,7 @@ unsafe impl<T: DisplayImpl> IsSubclassable<T> for Display {
         klass.create_view = Some(create_view::<T>);
         klass.create_toplevel = Some(create_toplevel::<T>);
         klass.get_keymap = Some(keymap::<T>);
+        klass.get_clipboard = Some(clipboard::<T>);
     }
 }
 
@@ -64,4 +70,10 @@ unsafe extern "C" fn create_toplevel<T: DisplayImpl>(ptr: *mut ffi::WPEDisplay, 
 unsafe extern "C" fn keymap<T: DisplayImpl>(ptr: *mut ffi::WPEDisplay) -> *mut ffi::WPEKeymap {
     let keymap = unsafe { imp::<T>(ptr) }.keymap();
     keymap.as_ref().map(|k| k.as_ptr()).unwrap_or(std::ptr::null_mut())
+}
+
+// Transfer none: the display keeps it.
+unsafe extern "C" fn clipboard<T: DisplayImpl>(ptr: *mut ffi::WPEDisplay) -> *mut ffi::WPEClipboard {
+    let clipboard = unsafe { imp::<T>(ptr) }.clipboard();
+    clipboard.as_ref().map(|c| c.as_ptr()).unwrap_or(std::ptr::null_mut())
 }

@@ -3,7 +3,7 @@
 // from ../gir-files
 // DO NOT EDIT
 
-use crate::{ffi,Keymap,Screen,Toplevel};
+use crate::{ffi,Clipboard,Keymap,Screen,Toplevel};
 use glib::{object::ObjectType as _,prelude::*,signal::{connect_raw, SignalHandlerId},translate::*};
 use std::{boxed::Box as Box_};
 
@@ -67,11 +67,13 @@ pub trait DisplayExt: IsA<Display> + 'static {
     //    unsafe { TODO: call ffi:wpe_display_get_available_input_devices() }
     //}
 
-    //#[doc(alias = "wpe_display_get_clipboard")]
-    //#[doc(alias = "get_clipboard")]
-    //fn clipboard(&self) -> /*Ignored*/Option<Clipboard> {
-    //    unsafe { TODO: call ffi:wpe_display_get_clipboard() }
-    //}
+    #[doc(alias = "wpe_display_get_clipboard")]
+    #[doc(alias = "get_clipboard")]
+    fn clipboard(&self) -> Option<Clipboard> {
+        unsafe {
+            from_glib_none(ffi::wpe_display_get_clipboard(self.as_ref().to_glib_none().0))
+        }
+    }
 
     //#[doc(alias = "wpe_display_get_drm_device")]
     //#[doc(alias = "get_drm_device")]

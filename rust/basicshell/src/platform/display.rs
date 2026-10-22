@@ -14,6 +14,7 @@ mod imp {
     pub struct Display {
         pub shared: OnceCell<Rc<Shared>>,
         pub keymap: OnceCell<wpe_platform::Keymap>,
+        pub clipboard: OnceCell<super::super::clipboard::Clipboard>,
     }
 
     #[glib::object_subclass]
@@ -45,6 +46,16 @@ mod imp {
 
         fn keymap(&self) -> Option<wpe_platform::Keymap> {
             Some(self.keymap.get_or_init(|| wpe_platform::KeymapXKB::new().upcast()).clone())
+        }
+
+        fn clipboard(&self) -> Option<wpe_platform::Clipboard> {
+            let shared = self.shared.get()?;
+            let clipboard = self.clipboard.get_or_init(|| {
+                let clipboard = super::super::clipboard::Clipboard::new(&self.obj());
+                shared.set_clipboard(&clipboard);
+                clipboard
+            });
+            Some(clipboard.clone().upcast())
         }
     }
 }

@@ -129,7 +129,8 @@ generator) from the `.gir` files WebKit's build writes (`rust/gir-files`):
   few functions gir can't translate are left out there, to write by hand
   when needed.
 - `wpe-platform` also has what it takes to subclass WPEPlatform's Display,
-  View and Toplevel from Rust (`subclass/`): a platform of one's own.
+  View, Toplevel and Clipboard from Rust (`subclass/`): a platform of one's
+  own.
 - `basicshell`: the program, on a platform of its own (`platform/`): its
   own Wayland connection (smithay-client-toolkit, read on GLib's main loop),
   one window in which every view (each tab's page, and the browser's own
@@ -143,6 +144,8 @@ generator) from the `.gir` files WebKit's build writes (`rust/gir-files`):
   takes the shapes WebKit asks for (the compositor's own, through
   cursor-shape-v1, where it has them; else the system's cursor theme), and
   held keys repeat at the rate and after the delay the compositor gives.
+  Copy and paste go through the system's clipboard (wl_data_device), with
+  WPEPlatform's clipboard subclassed for it.
   Still to come: a screen's scale, and frames passed without a copy
   (DMA-BUF). It points WebKit, GStreamer and GIO at
   the folder it is in, and hands WebKit the proxy from the environment
