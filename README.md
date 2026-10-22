@@ -167,7 +167,10 @@ generator) from the `.gir` files WebKit's build writes (`rust/gir-files`):
   Ctrl+Shift+Tab the next and previous tab, Ctrl+1 to Ctrl+9 a tab,
   Alt+Left and Alt+Right (Ctrl+[ and Ctrl+]) back and forward, Ctrl+R (F5)
   reload, Ctrl+. stop, Ctrl+0, Ctrl++ and Ctrl+- the zoom, Ctrl+Q quit.
-  Still to come: tabs kept between runs, pinned tabs, icons, history and
+  The tabs come back at the next launch, with their history and the one in
+  front (`session.rs`: `session.json` in the data folder, written two
+  seconds after a change and on quitting; private tabs never), each loaded
+  only once it is shown. Still to come: pinned tabs, icons, history and
   bookmarks, downloads.
 
 `rust/regenerate.sh` makes the bindings again after WebKit is updated. They

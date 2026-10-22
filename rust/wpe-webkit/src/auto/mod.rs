@@ -66,6 +66,9 @@ pub use self::user_script::UserScript;
 mod user_style_sheet;
 pub use self::user_style_sheet::UserStyleSheet;
 
+mod web_view_session_state;
+pub use self::web_view_session_state::WebViewSessionState;
+
 mod enums;
 pub use self::enums::CacheModel;
 #[allow(deprecated)]

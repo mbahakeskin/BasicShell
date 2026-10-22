@@ -3,7 +3,7 @@
 // from ../gir-files
 // DO NOT EDIT
 
-use crate::{ffi,BackForwardList,BackForwardListItem,Color,FindController,LoadEvent,NavigationAction,NetworkSession,PermissionRequest,PolicyDecision,PolicyDecisionType,Settings,URIRequest,UserContentManager,WebContext,WebProcessTerminationReason};
+use crate::{ffi,BackForwardList,BackForwardListItem,Color,FindController,LoadEvent,NavigationAction,NetworkSession,PermissionRequest,PolicyDecision,PolicyDecisionType,Settings,URIRequest,UserContentManager,WebContext,WebProcessTerminationReason,WebViewSessionState};
 use glib::{object::ObjectType as _,prelude::*,signal::{connect_raw, SignalHandlerId},translate::*};
 use std::{boxed::Box as Box_,pin::Pin};
 
@@ -385,11 +385,13 @@ pub trait WebViewExt: IsA<WebView> + 'static {
         }
     }
 
-    //#[doc(alias = "webkit_web_view_get_session_state")]
-    //#[doc(alias = "get_session_state")]
-    //fn session_state(&self) -> /*Ignored*/Option<WebViewSessionState> {
-    //    unsafe { TODO: call ffi:webkit_web_view_get_session_state() }
-    //}
+    #[doc(alias = "webkit_web_view_get_session_state")]
+    #[doc(alias = "get_session_state")]
+    fn session_state(&self) -> Option<WebViewSessionState> {
+        unsafe {
+            from_glib_full(ffi::webkit_web_view_get_session_state(self.as_ref().to_glib_none().0))
+        }
+    }
 
     #[doc(alias = "webkit_web_view_get_settings")]
     #[doc(alias = "get_settings")]
@@ -631,10 +633,12 @@ pub trait WebViewExt: IsA<WebView> + 'static {
         }
     }
 
-    //#[doc(alias = "webkit_web_view_restore_session_state")]
-    //fn restore_session_state(&self, state: /*Ignored*/&WebViewSessionState) {
-    //    unsafe { TODO: call ffi:webkit_web_view_restore_session_state() }
-    //}
+    #[doc(alias = "webkit_web_view_restore_session_state")]
+    fn restore_session_state(&self, state: &WebViewSessionState) {
+        unsafe {
+            ffi::webkit_web_view_restore_session_state(self.as_ref().to_glib_none().0, state.to_glib_none().0);
+        }
+    }
 
     //#[doc(alias = "webkit_web_view_save")]
     //fn save<P: FnOnce(Result</*Ignored*/gio::InputStream, glib::Error>) + 'static>(&self, save_mode: /*Ignored*/SaveMode, cancellable: Option<&impl IsA<gio::Cancellable>>, callback: P) {

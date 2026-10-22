@@ -43,21 +43,65 @@ mod key {
 
 pub struct Tab {
     id: u64,
-    view: wpe_webkit::WebView,
     private: bool,
     /// The tab a link in it came from.
     opener: Cell<Option<u64>>,
+    /// Its page; none while it hasn't been shown since it was brought back.
+    view: RefCell<Option<wpe_webkit::WebView>>,
+    /// What a tab brought back was, until it has its page.
+    saved: RefCell<Saved>,
+}
+
+#[derive(Default)]
+struct Saved {
+    uri: String,
+    title: String,
+    history: Option<Vec<u8>>,
 }
 
 impl Tab {
-    fn name(&self) -> String {
-        if let Some(title) = self.view.title().filter(|t| !t.is_empty()) {
-            return title.to_string();
+    fn view(&self) -> Option<wpe_webkit::WebView> {
+        self.view.borrow().clone()
+    }
+
+    fn uri(&self) -> String {
+        match self.view() {
+            Some(view) => view.uri().map(|u| u.to_string()).unwrap_or_default(),
+            None => self.saved.borrow().uri.clone(),
         }
-        match self.view.uri().filter(|u| !u.is_empty()) {
-            Some(uri) => address::pretty(&uri),
-            None if self.private => "Private Tab".to_owned(),
-            None => "New Tab".to_owned(),
+    }
+
+    fn title(&self) -> String {
+        match self.view() {
+            Some(view) => view.title().map(|t| t.to_string()).unwrap_or_default(),
+            None => self.saved.borrow().title.clone(),
+        }
+    }
+
+    fn name(&self) -> String {
+        let title = self.title();
+        if !title.is_empty() {
+            return title;
+        }
+        let uri = self.uri();
+        if !uri.is_empty() {
+            address::pretty(&uri)
+        } else if self.private {
+            "Private Tab".to_owned()
+        } else {
+            "New Tab".to_owned()
+        }
+    }
+
+    fn loading(&self) -> bool {
+        self.view().is_some_and(|v| v.is_loading())
+    }
+
+    /// Its back-forward list, as WebKit writes it down.
+    fn history(&self) -> Option<Vec<u8>> {
+        match self.view() {
+            Some(view) => view.session_state().and_then(|s| s.serialize()).map(|b| b.to_vec()),
+            None => self.saved.borrow().history.clone(),
         }
     }
 }
@@ -95,6 +139,8 @@ pub struct Browser {
     update_queued: Cell<bool>,
     /// The field asked for before the interface was there to show it.
     pending_ask: RefCell<Option<String>>,
+    /// The session is written down this long after a change.
+    saving: RefCell<Option<glib::SourceId>>,
     quit: Box<dyn Fn()>,
 }
 
@@ -119,6 +165,7 @@ impl Browser {
             zone: Cell::new(Zone::Away),
             update_queued: Cell::new(false),
             pending_ask: RefCell::default(),
+            saving: RefCell::default(),
             quit: Box::new(quit),
         });
 
@@ -154,29 +201,61 @@ impl Browser {
 
     // MARK: - tabs
 
-    /// A new tab at `uri`, after the tab it came from (or at the end).
-    pub fn open(&self, uri: &str, private: bool, opener: Option<u64>) -> Rc<Tab> {
+    fn make_view(&self, private: bool) -> wpe_webkit::WebView {
         let session = if private {
             self.private_session.get_or_init(wpe_webkit::NetworkSession::new_ephemeral).clone()
         } else {
             self.session.clone()
         };
-        let view: wpe_webkit::WebView = glib::Object::builder()
+        glib::Object::builder()
             .property("display", self.display.upcast_ref::<wpe_platform::Display>())
             .property("network-session", &session)
             .property("settings", &self.settings)
-            .build();
-        let tab = self.adopt(view, private, opener, false);
-        tab.view.load_uri(uri);
+            .build()
+    }
+
+    fn new_tab(&self, private: bool, opener: Option<u64>, saved: Saved) -> Rc<Tab> {
+        let id = self.next_id.get();
+        self.next_id.set(id + 1);
+        Rc::new(Tab { id, private, opener: Cell::new(opener), view: RefCell::default(), saved: RefCell::new(saved) })
+    }
+
+    /// A new tab at `uri`, after the tab it came from (or at the end).
+    pub fn open(&self, uri: &str, private: bool, opener: Option<u64>) -> Rc<Tab> {
+        let view = self.make_view(private);
+        let tab = self.adopt(view.clone(), private, opener, false);
+        view.load_uri(uri);
         tab
     }
 
     /// A web view made for a tab, put in the window and the list.
     fn adopt(&self, view: wpe_webkit::WebView, private: bool, opener: Option<u64>, at_top: bool) -> Rc<Tab> {
-        let id = self.next_id.get();
-        self.next_id.set(id + 1);
-        let tab = Rc::new(Tab { id, view, private, opener: Cell::new(opener) });
-        if let Some(wpe_view) = tab.view.wpe_view() {
+        let tab = self.new_tab(private, opener, Saved::default());
+        self.install(&tab, view);
+        self.insert(&tab, at_top);
+        self.select(Some(&tab));
+        tab
+    }
+
+    /// The tabs of the last session, none of them loaded until shown.
+    pub fn restore(&self, session: crate::session::Session) {
+        let mut made: Vec<Rc<Tab>> = Vec::new();
+        for saved in session.tabs {
+            let opener = saved.opener.and_then(|i| made.get(i)).map(|t| t.id);
+            let tab = self.new_tab(false, opener, Saved { uri: saved.uri, title: saved.title, history: saved.history });
+            self.tabs.borrow_mut().push(tab.clone());
+            made.push(tab);
+        }
+        if let Some(tab) = session.selected.and_then(|i| made.get(i)) {
+            self.select(Some(tab));
+        }
+        self.update();
+    }
+
+    /// A tab's page given its place in the window.
+    fn install(&self, tab: &Rc<Tab>, view: wpe_webkit::WebView) {
+        *tab.view.borrow_mut() = Some(view.clone());
+        if let Some(wpe_view) = view.wpe_view() {
             wpe_view.set_toplevel(Some(self.toplevel.upcast_ref::<wpe_platform::Toplevel>()));
             // Hidden until selected; the interface stays over it.
             self.toplevel.set_visible(&wpe_view, false);
@@ -185,35 +264,51 @@ impl Browser {
                 self.toplevel.raise(&chrome);
             }
         }
-        self.watch(&tab);
-        {
-            let mut tabs = self.tabs.borrow_mut();
-            let index = match opener.and_then(|o| tabs.iter().position(|t| t.id == o)) {
-                // After the opener and whatever it already opened, in order.
-                Some(at) => {
-                    let mut index = at + 1;
-                    while index < tabs.len() && tabs[index].opener.get() == opener {
-                        index += 1;
-                    }
-                    index
-                }
-                None if at_top => 0,
-                None => tabs.len(),
-            };
-            tabs.insert(index, tab.clone());
-        }
-        self.select(Some(&tab));
-        tab
+        self.watch(tab, &view);
     }
 
-    fn watch(&self, tab: &Rc<Tab>) {
+    /// A tab brought back, shown for the first time: its page, where it was.
+    fn load(&self, tab: &Rc<Tab>) {
+        let view = self.make_view(tab.private);
+        self.install(tab, view.clone());
+        let saved = std::mem::take(&mut *tab.saved.borrow_mut());
+        if let Some(history) = saved.history {
+            view.restore_session_state(&wpe_webkit::WebViewSessionState::new(&glib::Bytes::from_owned(history)));
+            if let Some(item) = view.back_forward_list().and_then(|list| list.current_item()) {
+                view.go_to_back_forward_list_item(&item);
+                return;
+            }
+        }
+        if !saved.uri.is_empty() {
+            view.load_uri(&saved.uri);
+        }
+    }
+
+    fn insert(&self, tab: &Rc<Tab>, at_top: bool) {
+        let opener = tab.opener.get();
+        let mut tabs = self.tabs.borrow_mut();
+        let index = match opener.and_then(|o| tabs.iter().position(|t| t.id == o)) {
+            // After the opener and whatever it already opened, in order.
+            Some(at) => {
+                let mut index = at + 1;
+                while index < tabs.len() && tabs[index].opener.get() == opener {
+                    index += 1;
+                }
+                index
+            }
+            None if at_top => 0,
+            None => tabs.len(),
+        };
+        tabs.insert(index, tab.clone());
+    }
+
+    fn watch(&self, tab: &Rc<Tab>, view: &wpe_webkit::WebView) {
         let me = self.me.clone();
         let update = move |_: &wpe_webkit::WebView| {
             if let Some(browser) = me.upgrade() {
                 browser.update();
             }
         };
-        let view = &tab.view;
         view.connect_uri_notify(update.clone());
         view.connect_title_notify(update.clone());
         view.connect_estimated_load_progress_notify(update.clone());
@@ -249,12 +344,15 @@ impl Browser {
     fn select(&self, tab: Option<&Rc<Tab>>) {
         let previous = self.selected.replace(tab.cloned());
         if let Some(previous) = previous.as_ref().filter(|p| Some(p.id) != tab.map(|t| t.id)) {
-            if let Some(view) = previous.view.wpe_view() {
+            if let Some(view) = previous.view().and_then(|v| v.wpe_view()) {
                 self.toplevel.set_visible(&view, false);
             }
         }
         if let Some(tab) = tab {
-            if let Some(view) = tab.view.wpe_view() {
+            if tab.view.borrow().is_none() {
+                self.load(tab);
+            }
+            if let Some(view) = tab.view().and_then(|v| v.wpe_view()) {
                 self.toplevel.set_visible(&view, true);
                 self.toplevel.focus(&view);
             }
@@ -269,8 +367,9 @@ impl Browser {
         let Some(index) = self.tabs.borrow().iter().position(|t| t.id == id) else { return };
         let tab = self.tabs.borrow_mut().remove(index);
         self.recent.borrow_mut().retain(|&r| r != id);
-        if let Some(uri) = tab.view.uri().filter(|u| !u.is_empty() && !tab.private) {
-            self.closed.borrow_mut().push(uri.to_string());
+        let uri = tab.uri();
+        if !uri.is_empty() && !tab.private {
+            self.closed.borrow_mut().push(uri);
         }
         if self.selected.borrow().as_ref().is_some_and(|s| s.id == id) {
             // Back to the tab selected before it; else the one now in its place.
@@ -291,7 +390,7 @@ impl Browser {
                 }
             }
         }
-        if let Some(view) = tab.view.wpe_view() {
+        if let Some(view) = tab.view().and_then(|v| v.wpe_view()) {
             view.set_toplevel(None::<&wpe_platform::Toplevel>);
         }
         self.update();
@@ -325,7 +424,7 @@ impl Browser {
     }
 
     fn selected_view(&self) -> Option<wpe_webkit::WebView> {
-        self.selected.borrow().as_ref().map(|t| t.view.clone())
+        self.selected.borrow().as_ref().and_then(|t| t.view())
     }
 
     // MARK: - layout
@@ -344,7 +443,7 @@ impl Browser {
     fn layout(&self) {
         let place = self.page_place();
         for tab in self.tabs.borrow().iter() {
-            if let Some(view) = tab.view.wpe_view() {
+            if let Some(view) = tab.view().and_then(|v| v.wpe_view()) {
                 self.toplevel.place(&view, place);
             }
         }
@@ -361,6 +460,7 @@ impl Browser {
 
     /// Tells the interface how things are, once the current events are handled.
     fn update(&self) {
+        self.save_soon();
         if self.update_queued.replace(true) {
             return;
         }
@@ -373,6 +473,41 @@ impl Browser {
         });
     }
 
+    /// The session written down two seconds after the last change.
+    fn save_soon(&self) {
+        if let Some(source) = self.saving.take() {
+            source.remove();
+        }
+        let me = self.me.clone();
+        let source = glib::timeout_add_seconds_local_once(2, move || {
+            if let Some(browser) = me.upgrade() {
+                browser.saving.take();
+                browser.save();
+            }
+        });
+        *self.saving.borrow_mut() = Some(source);
+    }
+
+    /// Writes the session down now: every tab but the private ones.
+    pub fn save(&self) {
+        let tabs = self.tabs.borrow();
+        let kept: Vec<&Rc<Tab>> = tabs.iter().filter(|t| !t.private && !t.uri().is_empty()).collect();
+        let position = |id: u64| kept.iter().position(|t| t.id == id);
+        let session = crate::session::Session {
+            tabs: kept
+                .iter()
+                .map(|t| crate::session::SavedTab {
+                    uri: t.uri(),
+                    title: t.title(),
+                    history: t.history(),
+                    opener: t.opener.get().and_then(position),
+                })
+                .collect(),
+            selected: self.selected.borrow().as_ref().and_then(|t| position(t.id)),
+        };
+        crate::session::save(&session);
+    }
+
     fn push_state(&self) {
         let tabs = self.tabs.borrow();
         let selected = self.selected.borrow().clone();
@@ -382,22 +517,23 @@ impl Browser {
                 json!({
                     "id": t.id,
                     "name": t.name(),
-                    "uri": t.view.uri().as_deref().unwrap_or(""),
-                    "loading": t.view.is_loading(),
+                    "uri": t.uri(),
+                    "loading": t.loading(),
                     "private": t.private,
                     "depth": depth(t, &tabs, 2),
                 })
             })
             .collect();
         let page = selected.as_ref().map(|t| {
+            let view = t.view();
             json!({
                 "id": t.id,
-                "uri": t.view.uri().as_deref().unwrap_or(""),
+                "uri": t.uri(),
                 "private": t.private,
-                "loading": t.view.is_loading(),
-                "progress": t.view.estimated_load_progress(),
-                "back": t.view.can_go_back(),
-                "forward": t.view.can_go_forward(),
+                "loading": t.loading(),
+                "progress": view.as_ref().map_or(1.0, |v| v.estimated_load_progress()),
+                "back": view.as_ref().is_some_and(|v| v.can_go_back()),
+                "forward": view.as_ref().is_some_and(|v| v.can_go_forward()),
             })
         });
         let state = json!({ "tabs": list, "page": page, "pinned": self.pinned.get() });

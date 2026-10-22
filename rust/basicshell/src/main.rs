@@ -7,6 +7,7 @@ mod chrome;
 mod folder;
 mod platform;
 mod proxy;
+mod session;
 mod state;
 
 use glib::prelude::*;
@@ -37,17 +38,22 @@ fn main() -> glib::ExitCode {
         eprintln!("basicshell: WebKit made no view for the interface");
         return glib::ExitCode::FAILURE;
     };
-    // The addresses given, each in a tab; none, the field for one.
+    // The last session's tabs back, then the addresses given, each in a tab;
+    // with neither, the field for one.
+    let last = session::load();
+    let restored = !last.tabs.is_empty();
+    browser.restore(last);
     let addresses: Vec<String> = std::env::args().skip(1).collect();
     for typed in &addresses {
         if let Some(uri) = address::resolve(typed) {
             browser.open(&uri, false, None);
         }
     }
-    if addresses.is_empty() {
+    if addresses.is_empty() && !restored {
         browser.ask_when_ready("new");
     }
 
     main_loop.run();
+    browser.save();
     glib::ExitCode::SUCCESS
 }

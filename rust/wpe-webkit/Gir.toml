@@ -38,6 +38,7 @@ generate = [
     "WPEWebKit.CacheModel",
     "WPEWebKit.Color",
     "WPEWebKit.ScriptMessageReply",
+    "WPEWebKit.WebViewSessionState",
     "WPEWebKit.HardwareAccelerationPolicy",
     "WPEWebKit.InsecureContentEvent",
     "WPEWebKit.WebProcessTerminationReason",
