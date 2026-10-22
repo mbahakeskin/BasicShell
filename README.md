@@ -184,7 +184,13 @@ generator) from the `.gir` files WebKit's build writes (`rust/gir-files`):
   only once it is shown. Each tab has the page's icon, from WebKit's favicon
   database (`icon.rs`; turned on, as it is off unless asked for), kept in
   the session so it shows before the page loads. Still to come: history
-  and bookmarks, downloads shown, the Web Inspector.
+  and bookmarks, the Web Inspector.
+
+  Downloads (`downloads.rs`) go to the Downloads folder under the name the
+  site gave, never over a file already there ("name 2.ext"), as on macOS.
+  The sidebar has a button for them once there is one, filling a ring as
+  they come in, with their list: progress, size and site, cancel, show in
+  the folder, open, clear.
 
 `rust/regenerate.sh` makes the bindings again after WebKit is updated. They
 are built in the Package workflow, against the WebKit build it packs.

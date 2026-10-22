@@ -12,6 +12,7 @@ use wpe_webkit::prelude::*;
 
 use crate::address;
 use crate::chrome::Chrome;
+use crate::downloads::Downloads;
 use crate::icon::{self, Icon};
 use crate::platform::{Display, Rect, Toplevel};
 use crate::state;
@@ -145,6 +146,7 @@ pub struct Browser {
     pending_ask: RefCell<Option<String>>,
     /// The session is written down this long after a change.
     saving: RefCell<Option<glib::SourceId>>,
+    downloads: OnceCell<Rc<Downloads>>,
     /// The page's right-click menu on show: what each of its items does.
     page_menu: RefCell<Vec<(wpe_webkit::gio::Action, Option<glib::Variant>)>>,
     quit: Box<dyn Fn()>,
@@ -176,8 +178,18 @@ impl Browser {
             pending_ask: RefCell::default(),
             saving: RefCell::default(),
             page_menu: RefCell::default(),
+            downloads: OnceCell::new(),
             quit: Box::new(quit),
         });
+
+        let me = browser.me.clone();
+        let downloads = Downloads::new(move || {
+            if let Some(browser) = me.upgrade() {
+                browser.update();
+            }
+        });
+        downloads.watch(&browser.session);
+        let _ = browser.downloads.set(downloads);
 
         let me = browser.me.clone();
         let chrome = Chrome::new(display, toplevel, move |message| {
@@ -205,6 +217,10 @@ impl Browser {
         Some(browser)
     }
 
+    fn downloads(&self) -> &Rc<Downloads> {
+        self.downloads.get().expect("the downloads are made with the browser")
+    }
+
     fn chrome(&self) -> &Chrome {
         self.chrome.get().expect("the interface is made with the browser")
     }
@@ -220,6 +236,7 @@ impl Browser {
                     if let Some(data) = session.website_data_manager() {
                         data.set_favicons_enabled(true);
                     }
+                    self.downloads().watch(&session);
                     session
                 })
                 .clone()
@@ -710,7 +727,7 @@ impl Browser {
                 "forward": view.as_ref().is_some_and(|v| v.can_go_forward()),
             })
         });
-        let state = json!({ "tabs": list, "page": page, "pinned": self.pinned.get() });
+        let state = json!({ "tabs": list, "page": page, "pinned": self.pinned.get(), "downloads": self.downloads().state() });
         self.chrome().run(&format!("BasicShell.update({state})"));
         let title = selected.map(|t| t.name()).unwrap_or_else(|| "BasicShell".to_owned());
         self.toplevel.set_title(Some(&title));
@@ -796,6 +813,10 @@ impl Browser {
                 self.page_menu.borrow_mut().clear();
                 self.focus_page();
             }
+            "download-cancel" => id.into_iter().for_each(|id| self.downloads().cancel(id)),
+            "download-open" => id.into_iter().for_each(|id| self.downloads().open(id)),
+            "download-show" => id.into_iter().for_each(|id| self.downloads().show(id)),
+            "downloads-clear" => self.downloads().clear(),
             "copy-address" => {
                 if let Some(id) = id {
                     self.copy_address(id);

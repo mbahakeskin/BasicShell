@@ -3,8 +3,9 @@
 // from ../gir-files
 // DO NOT EDIT
 
-use crate::{ffi,NetworkProxyMode,NetworkProxySettings,TLSErrorsPolicy,WebsiteDataManager};
-use glib::{prelude::*,translate::*};
+use crate::{ffi,Download,NetworkProxyMode,NetworkProxySettings,TLSErrorsPolicy,WebsiteDataManager};
+use glib::{object::ObjectType as _,prelude::*,signal::{connect_raw, SignalHandlerId},translate::*};
+use std::{boxed::Box as Box_};
 
 glib::wrapper! {
     #[doc(alias = "WebKitNetworkSession")]
@@ -37,10 +38,12 @@ impl NetworkSession {
         }
     }
 
-    //#[doc(alias = "webkit_network_session_download_uri")]
-    //pub fn download_uri(&self, uri: &str) -> /*Ignored*/Option<Download> {
-    //    unsafe { TODO: call ffi:webkit_network_session_download_uri() }
-    //}
+    #[doc(alias = "webkit_network_session_download_uri")]
+    pub fn download_uri(&self, uri: &str) -> Option<Download> {
+        unsafe {
+            from_glib_full(ffi::webkit_network_session_download_uri(self.to_glib_none().0, uri.to_glib_none().0))
+        }
+    }
 
     //#[doc(alias = "webkit_network_session_get_cookie_manager")]
     //#[doc(alias = "get_cookie_manager")]
@@ -154,8 +157,16 @@ impl NetworkSession {
     //    unsafe { TODO: call ffi:webkit_network_session_set_memory_pressure_settings() }
     //}
 
-    //#[doc(alias = "download-started")]
-    //pub fn connect_download_started<Unsupported or ignored types>(&self, f: F) -> SignalHandlerId {
-    //    Ignored download: WPEWebKit.Download
-    //}
+    #[doc(alias = "download-started")]
+    pub fn connect_download_started<F: Fn(&Self, &Download) + 'static>(&self, f: F) -> SignalHandlerId {
+        unsafe extern "C" fn download_started_trampoline<F: Fn(&NetworkSession, &Download) + 'static>(this: *mut ffi::WebKitNetworkSession, download: *mut ffi::WebKitDownload, f: glib::ffi::gpointer) { unsafe {
+            let f: &F = &*(f as *const F);
+            f(&from_glib_borrow(this), &from_glib_borrow(download))
+        }}
+        unsafe {
+            let f: Box_<F> = Box_::new(f);
+            connect_raw(self.as_ptr() as *mut _, c"download-started".as_ptr(),
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(download_started_trampoline::<F> as *const ())), Box_::into_raw(f))
+        }
+    }
 }

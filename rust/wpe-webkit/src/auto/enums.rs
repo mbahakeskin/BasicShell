@@ -348,6 +348,136 @@ impl From<ContextMenuAction> for glib::Value {
     }
 }
 
+#[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Clone, Copy)]
+#[non_exhaustive]
+#[doc(alias = "WebKitDownloadError")]
+pub enum DownloadError {
+    #[doc(alias = "WEBKIT_DOWNLOAD_ERROR_NETWORK")]
+    Network,
+    #[doc(alias = "WEBKIT_DOWNLOAD_ERROR_CANCELLED_BY_USER")]
+    CancelledByUser,
+    #[doc(alias = "WEBKIT_DOWNLOAD_ERROR_DESTINATION")]
+    Destination,
+#[doc(hidden)]
+    __Unknown(i32),
+}
+
+impl DownloadError {
+    //#[doc(alias = "webkit_download_error_quark")]
+    //pub fn quark() -> /*Ignored*/glib::Quark {
+    //    unsafe { TODO: call ffi:webkit_download_error_quark() }
+    //}
+}
+
+#[doc(hidden)]
+impl IntoGlib for DownloadError {
+    type GlibType = ffi::WebKitDownloadError;
+
+    #[inline]
+fn into_glib(self) -> ffi::WebKitDownloadError {
+match self {
+            Self::Network => ffi::WEBKIT_DOWNLOAD_ERROR_NETWORK,
+            Self::CancelledByUser => ffi::WEBKIT_DOWNLOAD_ERROR_CANCELLED_BY_USER,
+            Self::Destination => ffi::WEBKIT_DOWNLOAD_ERROR_DESTINATION,
+            Self::__Unknown(value) => value,
+}
+}
+}
+
+#[doc(hidden)]
+impl FromGlib<ffi::WebKitDownloadError> for DownloadError {
+    #[inline]
+unsafe fn from_glib(value: ffi::WebKitDownloadError) -> Self {
+        
+match value {
+            ffi::WEBKIT_DOWNLOAD_ERROR_NETWORK => Self::Network,
+            ffi::WEBKIT_DOWNLOAD_ERROR_CANCELLED_BY_USER => Self::CancelledByUser,
+            ffi::WEBKIT_DOWNLOAD_ERROR_DESTINATION => Self::Destination,
+            value => Self::__Unknown(value),
+}
+}
+}
+
+impl glib::error::ErrorDomain for DownloadError {
+    #[inline]
+    fn domain() -> glib::Quark {
+        
+        static QUARK: ::std::sync::OnceLock<glib::ffi::GQuark> = ::std::sync::OnceLock::new();
+        let quark = *QUARK.get_or_init(|| unsafe {
+            glib::ffi::g_quark_from_static_string(c"WebKitDownloadError".as_ptr())
+        });
+        unsafe { from_glib(quark) }
+    }
+
+    #[inline]
+    fn code(self) -> i32 {
+        self.into_glib()
+    }
+
+    #[inline]
+    #[allow(clippy::match_single_binding)]
+    fn from(code: i32) -> Option<Self> {
+        match unsafe { from_glib(code) } {
+            value => Some(value),
+}
+    }
+}
+
+impl StaticType for DownloadError {
+                #[inline]
+    #[doc(alias = "webkit_download_error_get_type")]
+   fn static_type() -> glib::Type {
+                    unsafe { from_glib(ffi::webkit_download_error_get_type()) }
+                }
+            }
+
+impl glib::HasParamSpec for DownloadError {
+                type ParamSpec = glib::ParamSpecEnum;
+                type SetValue = Self;
+                type BuilderFn = fn(&str, Self) -> glib::ParamSpecEnumBuilder<Self>;
+
+                fn param_spec_builder() -> Self::BuilderFn {
+                    Self::ParamSpec::builder_with_default
+                }
+}
+
+impl glib::value::ValueType for DownloadError {
+    type Type = Self;
+}
+
+unsafe impl<'a> glib::value::FromValue<'a> for DownloadError {
+    type Checker = glib::value::GenericValueTypeChecker<Self>;
+
+    #[inline]
+    unsafe fn from_value(value: &'a glib::Value) -> Self {
+        unsafe { from_glib(glib::gobject_ffi::g_value_get_enum(value.to_glib_none().0)) }
+    }
+}
+
+impl ToValue for DownloadError {
+    #[inline]
+    fn to_value(&self) -> glib::Value {
+        let mut value = glib::Value::for_value_type::<Self>();
+        unsafe {
+            glib::gobject_ffi::g_value_set_enum(value.to_glib_none_mut().0, self.into_glib());
+        }
+        value
+    }
+
+    #[inline]
+    fn value_type(&self) -> glib::Type {
+        Self::static_type()
+    }
+}
+
+impl From<DownloadError> for glib::Value {
+    #[inline]
+    fn from(v: DownloadError) -> Self {
+        ToValue::to_value(&v)
+    }
+}
+
 #[deprecated = "Since 2.46"]
 #[derive(Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[derive(Clone, Copy)]

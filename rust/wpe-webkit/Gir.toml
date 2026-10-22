@@ -47,6 +47,8 @@ generate = [
     "WPEWebKit.ContextMenuAction",
     "WPEWebKit.HitTestResult",
     "WPEWebKit.HitTestResultContext",
+    "WPEWebKit.Download",
+    "WPEWebKit.DownloadError",
     "WPEWebKit.HardwareAccelerationPolicy",
     "WPEWebKit.InsecureContentEvent",
     "WPEWebKit.WebProcessTerminationReason",

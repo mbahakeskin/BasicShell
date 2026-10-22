@@ -106,6 +106,27 @@ button:disabled { color: var(--faint); }
 .tile .busy { position: absolute; bottom: 4px; left: 50%; width: 14px; height: 2px; margin-left: -7px; border-radius: 1px; background: var(--accent); }
 .dragging { opacity: 0.85; z-index: 2; pointer-events: none; box-shadow: var(--shadow); background: var(--glass) !important; }
 
+/* The downloads: a button that fills a ring as they come in, and its list. */
+#downloads { display: none; }
+body.downloads #downloads { display: grid; }
+#downloads svg { width: 18px; height: 18px; }
+#downloads .ring { stroke: var(--accent); stroke-width: 2; transform: rotate(-90deg); transform-origin: 9px 9px; transition: stroke-dashoffset 200ms; }
+#dl {
+  position: fixed; display: none; left: 266px; width: 330px; max-height: 60vh; overflow-y: auto; padding: 6px;
+  border-radius: 12px; background: var(--glass); box-shadow: var(--shadow); z-index: 5;
+}
+body.dl #dl { display: block; }
+#dl .item { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; }
+#dl .item.done:hover { background: var(--hover); }
+#dl .item > svg { width: 22px; height: 22px; color: var(--muted); }
+#dl .text { flex: 1; min-width: 0; }
+#dl .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#dl .detail { color: var(--muted); font-size: 11px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#dl .bar { height: 3px; border-radius: 2px; background: var(--fill); margin-top: 4px; overflow: hidden; }
+#dl .bar div { height: 100%; background: var(--accent); }
+#dl .foot { display: flex; justify-content: flex-end; padding: 4px 4px 0; }
+#dl .foot button { width: auto; padding: 0 10px; color: var(--accent); }
+
 /* A tab's right click. */
 #menu {
   position: fixed; display: none; min-width: 190px; padding: 5px; border-radius: 10px;
@@ -197,12 +218,14 @@ body.loading #loading { opacity: 1; }
     <button id="new" title="New Tab"><svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></svg></button>
     <button id="new-private" title="New Private Tab"><svg viewBox="0 0 16 16"><circle cx="4.3" cy="9.5" r="2.6"/><circle cx="11.7" cy="9.5" r="2.6"/><path d="M6.9 9.3c.7-.5 1.5-.5 2.2 0M1.7 9 3 5m11.3 4L13 5"/></svg></button>
     <div class="spacer"></div>
+    <button id="downloads" title="Downloads"><svg viewBox="0 0 18 18"><circle class="track" cx="9" cy="9" r="7.5" stroke-opacity="0.15"/><circle class="ring" cx="9" cy="9" r="7.5" stroke-dasharray="47.12" stroke-dashoffset="47.12"/><path d="M9 5.5v6m-2.5-2.5L9 11.5l2.5-2.5"/></svg></button>
   </div>
   <div id="pinned"></div>
   <div class="divider"></div>
   <div id="list"></div>
 </div>
 <div id="menu"></div>
+<div id="dl"></div>
 <button id="empty"><svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></svg>New Tab</button>
 <div id="loading"><div></div></div>
 <div id="ask">
@@ -225,6 +248,8 @@ const icons = {
   search: '<svg viewBox="0 0 20 20"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m12.6 12.6 4.4 4.4"/></svg>',
   glasses: '<svg viewBox="0 0 16 16"><circle cx="4.3" cy="9.5" r="2.6"/><circle cx="11.7" cy="9.5" r="2.6"/><path d="M6.9 9.3c.7-.5 1.5-.5 2.2 0M1.7 9 3 5m11.3 4L13 5"/></svg>',
   go: '<svg viewBox="0 0 16 16"><path d="M5 11 11 5M6 5h5v5"/></svg>',
+  folder: '<svg viewBox="0 0 16 16"><path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h3l1.5 1.5h4.5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z"/></svg>',
+  file: '<svg viewBox="0 0 22 22"><path d="M6 2.5h7l4 4v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1z"/><path d="M13 2.5v4h4"/></svg>',
   tabs: '<svg viewBox="0 0 16 16"><rect x="2" y="5" width="9" height="9" rx="2"/><path d="M5 2.5h6.5A2 2 0 0 1 13.5 4.5V11"/></svg>',
 };
 const escape = text => String(text).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -239,6 +264,8 @@ let asking = null, atTop = false, chosen = 0;
 let dwell = 0, linger = 0;
 // The tab whose menu is open.
 let menuFor = null;
+// The downloads' list is open (the sidebar stays out while it is).
+let downloadsOpen = false;
 
 // MARK: - where this layer takes the pointer
 
@@ -248,6 +275,10 @@ function regions() {
   if (asking || menuFor) rects.push([0, 0, innerWidth, innerHeight]);
   else {
     if (out()) rects.push([0, 0, 262, innerHeight]);
+    if (downloadsOpen) {
+      const r = $("dl").getBoundingClientRect();
+      rects.push([r.left, r.top, r.width, r.height].map(Math.round));
+    }
     // The left edge, to bring the sidebar out from.
     else rects.push([0, 0, 6, innerHeight]);
     if (!state.tabs.length) {
@@ -264,7 +295,7 @@ function regions() {
 
 // MARK: - the sidebar coming and going (the macOS app's Motion)
 
-const out = () => state.pinned || shown;
+const out = () => state.pinned || shown || downloadsOpen;
 
 function show() {
   clearTimeout(linger);
@@ -320,6 +351,7 @@ function render() {
   document.body.classList.toggle("pinned", state.pinned);
   document.body.classList.toggle("asking", !!asking);
   document.body.classList.toggle("menu", !!menuFor);
+  drawDownloads();
   document.body.classList.toggle("empty", !state.tabs.length);
   document.body.classList.toggle("loading", !!(page && page.loading));
 
@@ -456,6 +488,72 @@ function endDrag(event) {
   const target = group.find(past);
   post({ type: "reorder", id: was.tab.id, before: target ? +target.dataset.id : null });
 }
+
+// MARK: - downloads
+
+let lastDownloads = "";
+const sizes = ["bytes", "KB", "MB", "GB", "TB"];
+function bytes(n) {
+  let i = 0;
+  while (n >= 1000 && i < sizes.length - 1) { n /= 1000; i++; }
+  return i === 0 ? `${n} bytes` : `${n < 10 ? n.toFixed(1) : Math.round(n)} ${sizes[i]}`;
+}
+
+function drawDownloads() {
+  const items = state.downloads || [];
+  document.body.classList.toggle("downloads", items.length > 0);
+  if (!items.length) downloadsOpen = false;
+  document.body.classList.toggle("dl", downloadsOpen);
+  // How far along the running ones are, together.
+  const running = items.filter(d => d.state === "running");
+  const fraction = running.length ? running.reduce((a, d) => a + d.progress, 0) / running.length : 0;
+  $("downloads").querySelector(".ring").style.strokeDashoffset = 47.12 * (1 - fraction);
+  if (!downloadsOpen) { lastDownloads = ""; return; }
+  const panel = $("dl");
+  const button = $("downloads").getBoundingClientRect();
+  panel.style.top = Math.max(6, button.top - 6) + "px";
+  // Drawn again only when what it lists changed; progress is updated in
+  // place, so a button isn't replaced under the pointer.
+  const shape = JSON.stringify(items.map(d => [d.id, d.name, d.state, d.missing]));
+  if (shape === lastDownloads) {
+    for (const d of running) {
+      const row = panel.querySelector(`.item[data-id="${d.id}"]`);
+      if (!row) continue;
+      row.querySelector(".detail").textContent = d.total ? `${bytes(d.received)} of ${bytes(d.total)}` : bytes(d.received);
+      row.querySelector(".bar div").style.width = Math.max(3, d.progress * 100) + "%";
+    }
+    return;
+  }
+  lastDownloads = shape;
+  panel.innerHTML = items.map(d => {
+    let detail;
+    if (d.state === "running") detail = d.total ? `${bytes(d.received)} of ${bytes(d.total)}` : bytes(d.received);
+    else if (d.state === "finished") detail = d.missing ? "Moved or deleted" : [d.total ? bytes(d.total) : bytes(d.received), d.source].filter(Boolean).join(" · ");
+    else if (d.state === "failed") detail = d.problem || "Failed";
+    else detail = "Cancelled";
+    const done = d.state === "finished" && !d.missing;
+    const action = d.state === "running"
+      ? `<button data-do="download-cancel" title="Cancel">${icons.stop}</button>`
+      : done ? `<button data-do="download-show" title="Show in Folder">${icons.folder}</button>` : "";
+    return `<div class="item${done ? " done" : ""}" data-id="${d.id}">${icons.file}<div class="text"><div class="name">${escape(d.name)}</div>` +
+      `<div class="detail">${escape(detail)}</div>` +
+      (d.state === "running" ? `<div class="bar"><div style="width:${Math.max(3, d.progress * 100)}%"></div></div>` : "") +
+      `</div>${action}</div>`;
+  }).join("") + (items.some(d => d.state !== "running") ? `<div class="foot"><button data-do="downloads-clear">Clear</button></div>` : "");
+}
+
+$("downloads").addEventListener("click", () => { downloadsOpen = !downloadsOpen; render(); });
+$("dl").addEventListener("click", event => {
+  const button = event.target.closest("[data-do]");
+  const item = event.target.closest(".item");
+  if (button) post({ type: button.dataset.do, id: item ? +item.dataset.id : undefined });
+  // A finished one opens in the program the system has for it.
+  else if (item && item.classList.contains("done")) post({ type: "download-open", id: +item.dataset.id });
+});
+// A press outside the list (and its button) puts it away.
+document.addEventListener("mousedown", event => {
+  if (downloadsOpen && !event.target.closest("#dl") && !event.target.closest("#downloads")) { downloadsOpen = false; render(); }
+}, true);
 
 // MARK: - menus: a tab's, and the page's own
 

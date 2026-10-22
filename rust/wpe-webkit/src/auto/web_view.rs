@@ -3,7 +3,7 @@
 // from ../gir-files
 // DO NOT EDIT
 
-use crate::{ffi,BackForwardList,BackForwardListItem,Color,ContextMenu,FindController,HitTestResult,Image,ImageList,LoadEvent,NavigationAction,NetworkSession,PermissionRequest,PolicyDecision,PolicyDecisionType,Settings,URIRequest,UserContentManager,WebContext,WebProcessTerminationReason,WebViewSessionState};
+use crate::{ffi,BackForwardList,BackForwardListItem,Color,ContextMenu,Download,FindController,HitTestResult,Image,ImageList,LoadEvent,NavigationAction,NetworkSession,PermissionRequest,PolicyDecision,PolicyDecisionType,Settings,URIRequest,UserContentManager,WebContext,WebProcessTerminationReason,WebViewSessionState};
 use glib::{object::ObjectType as _,prelude::*,signal::{connect_raw, SignalHandlerId},translate::*};
 use std::{boxed::Box as Box_,pin::Pin};
 
@@ -155,10 +155,12 @@ pub trait WebViewExt: IsA<WebView> + 'static {
         }
     }
 
-    //#[doc(alias = "webkit_web_view_download_uri")]
-    //fn download_uri(&self, uri: &str) -> /*Ignored*/Option<Download> {
-    //    unsafe { TODO: call ffi:webkit_web_view_download_uri() }
-    //}
+    #[doc(alias = "webkit_web_view_download_uri")]
+    fn download_uri(&self, uri: &str) -> Option<Download> {
+        unsafe {
+            from_glib_full(ffi::webkit_web_view_download_uri(self.as_ref().to_glib_none().0, uri.to_glib_none().0))
+        }
+    }
 
     #[doc(alias = "webkit_web_view_evaluate_javascript")]
     fn evaluate_javascript<P: FnOnce(Result<wpe_java_script_core::Value, glib::Error>) + 'static>(&self, script: &str, world_name: Option<&str>, source_uri: Option<&str>, cancellable: Option<&impl IsA<gio::Cancellable>>, callback: P) {

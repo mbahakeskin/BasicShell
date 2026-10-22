@@ -15,6 +15,9 @@ pub use self::context_menu::ContextMenu;
 mod context_menu_item;
 pub use self::context_menu_item::ContextMenuItem;
 
+mod download;
+pub use self::download::Download;
+
 mod favicon_database;
 pub use self::favicon_database::FaviconDatabase;
 
@@ -90,6 +93,7 @@ pub use self::web_view_session_state::WebViewSessionState;
 mod enums;
 pub use self::enums::CacheModel;
 pub use self::enums::ContextMenuAction;
+pub use self::enums::DownloadError;
 #[allow(deprecated)]
 pub use self::enums::InsecureContentEvent;
 pub use self::enums::LoadEvent;

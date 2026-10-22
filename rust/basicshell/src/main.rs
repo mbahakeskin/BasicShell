@@ -4,6 +4,7 @@
 mod address;
 mod browser;
 mod chrome;
+mod downloads;
 mod folder;
 mod icon;
 mod platform;
