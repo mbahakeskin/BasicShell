@@ -1,0 +1,63 @@
+name: Package
+
+# Puts the newest WebKit build on this branch, FFmpeg and GStreamer into one
+# folder that runs on Ubuntu 24.04 and anything newer (package/assemble.sh),
+# kept as the run's artifact "basicshell-linux". Runs when media/ or package/
+# change, from the Actions tab, and after each WebKit build, which starts it
+# (GitHub starts a workflow after another only from the default branch).
+
+on:
+  push:
+    branches: [linux]
+    paths: ['media/**', 'package/**', '.github/workflows/package.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: package
+  cancel-in-progress: true
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install what FFmpeg is built with, and what the folder takes from Ubuntu
+        run: |
+          sudo media/ci/install-deps.sh
+          sudo package/install-runtime.sh
+
+      - name: Take the newest WebKit build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow webkit.yml --branch linux \
+            --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          echo "WebKit from run $run"
+          gh run download "$run" --repo "$GITHUB_REPOSITORY" --name wpewebkit-basicshell --dir build/webkit
+
+      - name: Take back FFmpeg and gst-libav, built before from the same media/
+        id: media
+        uses: actions/cache@v6
+        with:
+          path: build/media-*.tar.xz
+          key: media-${{ hashFiles('media/**') }}
+
+      - name: Build FFmpeg and gst-libav
+        if: steps.media.outputs.cache-hit != 'true'
+        run: media/build.sh
+
+      - name: Put the folder together
+        run: package/assemble.sh build/webkit/wpewebkit-*-basicshell.tar.xz build/media-*.tar.xz
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: basicshell-linux
+          path: build/basicshell-linux.tar.xz
+          retention-days: 90
+          compression-level: 0

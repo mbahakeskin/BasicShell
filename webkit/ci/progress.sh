@@ -6,8 +6,10 @@
 #   - on GitHub, as a status next to the commit ("WebKit build"), when it
 #     runs in Actions. The commits page of the linux branch shows it, the
 #     run's page is a click away.
-# The time left is a guess from the pace so far: compiling WebCore is slower
-# than the steps before it, and linking at the end takes a while.
+# The time left is a guess from the pace of the last 20 minutes, shown once
+# 15 minutes have gone by: the first thousands of steps take seconds (they
+# write code, or come out of the compiler cache), WebCore's take minutes, and
+# linking at the end takes a while, so the whole run's pace says little.
 #
 #   progress.sh <ninja log> <attempt>
 #   progress.sh --final <success|failure|error> <description>
@@ -38,15 +40,23 @@ fi
 log=$1 attempt=${2:-1}
 mkdir -p "$(dirname "$out")"
 started=$(date +%s)
+samples=()
 report pending "Starting (try $attempt)"
 while sleep 60; do
   last=$(tail -n 400 "$log" 2>/dev/null | grep -o '\[[0-9]*/[0-9]* *[0-9]*%\]' | tail -1)
   [ -n "$last" ] || { report pending "Configuring (try $attempt)"; continue; }
   read -r finished total percent < <(echo "$last" | tr -d '[]%' | tr '/' ' ')
-  elapsed=$(($(date +%s) - started))
+  now=$(date +%s)
+  elapsed=$((now - started))
+  samples+=("$now:$finished")
+  # Keep 20 minutes of samples; the oldest kept is where the pace is taken from.
+  while [ ${#samples[@]} -gt 1 ] && [ $((now - ${samples[0]%%:*})) -gt 1200 ]; do
+    samples=("${samples[@]:1}")
+  done
   left=""
-  if [ "$finished" -gt 0 ]; then
-    left=" · ~$(clock $((elapsed * (total - finished) / finished))) left"
+  since=$((now - ${samples[0]%%:*})) done_since=$((finished - ${samples[0]##*:}))
+  if [ "$elapsed" -ge 900 ] && [ "$done_since" -gt 0 ]; then
+    left=" · ~$(clock $((since * (total - finished) / done_since))) left"
   fi
   report pending "${percent}% · ${finished}/${total} steps · $(clock $elapsed) in${left} · try $attempt"
 done

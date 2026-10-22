@@ -1,0 +1,9 @@
+<!doctype html><meta charset="utf-8"><title>video</title>
+<style>body{margin:0;background:#111;color:#eee;font:16px "Noto Sans",sans-serif;display:flex;gap:10px;padding:10px;flex-wrap:wrap}div{width:400px}video{width:400px;height:225px;background:#000}pre{margin:4px 0}</style>
+<div><video id=a src="h264.mp4" muted autoplay loop></video><pre id=pa></pre></div>
+<div><video id=b src="vp9.webm" muted autoplay loop></video><pre id=pb></pre></div>
+<div><video id=c src="av1.mp4" muted autoplay loop></video><pre id=pc></pre></div>
+<script>
+const t={a:'H.264+AAC mp4',b:'VP9+Opus webm',c:'AV1 mp4'};
+setInterval(()=>{for(const k of ['a','b','c']){const v=document.getElementById(k);document.getElementById('p'+k).textContent=`${t[k]}\n${v.videoWidth}x${v.videoHeight} t=${v.currentTime.toFixed(2)} state=${v.readyState}${v.error?' ERR '+v.error.code:''}\ncanPlay: ${v.canPlayType(k=='a'?'video/mp4; codecs="avc1.42E01E, mp4a.40.2"':k=='b'?'video/webm; codecs="vp9, opus"':'video/mp4; codecs="av01.0.05M.08"')}`}},250);
+</script>

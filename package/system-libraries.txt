@@ -1,0 +1,94 @@
+# Libraries taken from the system instead of shipped: every desktop since
+# Ubuntu 24.04 has them, newer versions keep working for what was built
+# against older ones, and the system's own libraries (graphics drivers,
+# PulseAudio and PipeWire, D-Bus, fontconfig) load them too, so a second,
+# older copy in the folder could take their place. Shell patterns on sonames.
+
+# glibc and the compiler's runtime
+linux-vdso.so.*
+ld-linux-*.so.*
+libc.so.*
+libm.so.*
+libdl.so.*
+libpthread.so.*
+librt.so.*
+libresolv.so.*
+libutil.so.*
+libanl.so.*
+libstdc++.so.*
+libgcc_s.so.*
+libatomic.so.*
+
+# Graphics: the drivers and the display
+libGL.so.*
+libGLX*.so.*
+libGLdispatch.so.*
+libEGL*.so.*
+libGLES*.so.*
+libOpenGL.so.*
+libgbm.so.*
+libdrm*.so.*
+libvulkan.so.*
+libva.so.*
+libva-drm.so.*
+libva-wayland.so.*
+libva-x11.so.*
+libwayland-*.so.*
+libxkbcommon.so.*
+libX*.so.*
+libxcb*.so.*
+libxshmfence.so.*
+
+# GLib, and what it is built on
+libglib-2.0.so.*
+libgobject-2.0.so.*
+libgio-2.0.so.*
+libgmodule-2.0.so.*
+libgthread-2.0.so.*
+libffi.so.*
+libpcre2-8.so.*
+libmount.so.*
+libblkid.so.*
+libselinux.so.*
+
+# Fonts
+libfontconfig.so.*
+libfreetype.so.*
+libharfbuzz.so.*
+libpng16.so.*
+libbrotli*.so.*
+libexpat.so.*
+
+# Compression
+libz.so.*
+liblzma.so.*
+libzstd.so.*
+liblz4.so.*
+libbz2.so.*
+
+# System services: D-Bus, systemd, sound, TLS, crypto. Not PulseAudio's
+# client libraries: GStreamer's plugin links its versioned private library
+# (libpulsecommon-16.1), so the whole client is shipped; the protocol to the
+# sound server (PulseAudio's, or PipeWire's) stays the same.
+libdbus-1.so.*
+libsystemd.so.*
+libudev.so.*
+libcap.so.*
+libgcrypt.so.*
+libgpg-error.so.*
+libasound.so.*
+libpipewire-*.so.*
+libjack.so.*
+libgnutls.so.*
+libnettle.so.*
+libhogweed.so.*
+libgmp.so.*
+libidn2.so.*
+libunistring.so.*
+libp11-kit.so.*
+libtasn1.so.*
+libkeyutils.so.*
+libkrb5*.so.*
+libk5crypto.so.*
+libcom_err.so.*
+libgssapi_krb5.so.*

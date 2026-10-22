@@ -1,0 +1,6 @@
+#!/bin/sh
+# WebKit's MiniBrowser from the folder, until BasicShell itself is here:
+#   basicshell/bin/minibrowser https://example.com
+BASICSHELL=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+. "$BASICSHELL/lib/environment.sh"
+exec "$BASICSHELL/libexec/wpe-webkit-2.0/MiniBrowser" "$@"

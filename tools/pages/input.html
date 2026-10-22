@@ -1,0 +1,4 @@
+<!doctype html><meta charset="utf-8"><title>input</title>
+<style>body{margin:0;font:22px "Noto Sans",sans-serif;height:100vh;background:#f4f4f4}#b{position:absolute;left:300px;top:200px;width:240px;height:90px;background:#2a5298;color:#fff;border:0;border-radius:12px;font-size:22px}#i{position:absolute;left:300px;top:340px;width:400px;font-size:22px;padding:8px}#l{position:absolute;left:20px;top:20px;white-space:pre}#dot{position:absolute;width:14px;height:14px;margin:-7px;border-radius:7px;background:red}</style>
+<div id=l>hareket: -</div><div id=dot></div><button id=b>Tıkla</button><input id=i placeholder="buraya yaz">
+<script>let n=0;onmousemove=e=>{l.textContent=`hareket: ${e.clientX},${e.clientY}\ntıklama: ${n}\nyazılan: ${i.value}`;dot.style.left=e.clientX+'px';dot.style.top=e.clientY+'px'};b.onclick=()=>{n++;b.textContent='Tıklandı '+n};i.oninput=()=>onmousemove({clientX:+dot.style.left.slice(0,-2)||0,clientY:+dot.style.top.slice(0,-2)||0})</script>

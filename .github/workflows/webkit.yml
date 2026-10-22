@@ -6,7 +6,8 @@ name: WebKit
 #
 # A GitHub runner stops a job after 6 hours. The build stops itself well
 # before that, keeps what the compiler has done (ccache), and starts this
-# workflow again, up to four tries, each going on from the last.
+# workflow again, up to four tries, each going on from the last. A finished
+# build starts the Package workflow.
 
 on:
   push:
@@ -94,5 +95,11 @@ jobs:
         with:
           name: wpewebkit-basicshell
           path: build/wpewebkit-*-basicshell.tar.xz
-          retention-days: 14
+          retention-days: 90
           compression-level: 0
+
+      - name: Package it
+        if: steps.build.outputs.result == 'built'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run package.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME"

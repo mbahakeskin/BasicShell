@@ -1,0 +1,48 @@
+# GStreamer plugins shipped from Ubuntu 24.04, by name (libgst<name>.so).
+# Decoding is gst-libav's (FFmpeg), from the media build, not listed here.
+
+# Core and base: playback, types, conversion
+coreelements
+app
+playback
+typefindfunctions
+audioconvert
+audioresample
+audiorate
+videoconvertscale
+videorate
+volume
+pbtypes
+rawparse
+subparse
+opengl
+# Containers and parsers
+ogg
+opus
+vorbis
+isomp4
+matroska
+audioparsers
+flac
+wavparse
+id3demux
+apetag
+icydemux
+videoparsersbad
+opusparse
+# Decoders that aren't FFmpeg's: VP8 and VP9 through libvpx, AV1 through
+# libaom, VP9 with alpha, and the GPU's through VA-API
+vpx
+aom
+codecalpha
+va
+# Web Audio, playback speed keeping the pitch (scaletempo), WebVTT
+# subtitles, deinterlacing
+interleave
+audiofx
+subenc
+deinterlace
+videofilter
+# Sound out
+autodetect
+pulseaudio
