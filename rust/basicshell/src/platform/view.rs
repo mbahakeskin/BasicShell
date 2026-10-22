@@ -45,7 +45,7 @@ mod imp {
         }
 
         fn set_cursor_from_name(&self, name: &str) {
-            self.obj().shared().set_cursor(name);
+            self.obj().shared().set_cursor(self.obj().upcast_ref(), name);
         }
     }
 }

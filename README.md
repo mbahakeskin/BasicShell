@@ -139,9 +139,12 @@ generator) from the `.gir` files WebKit's build writes (`rust/gir-files`):
   compositor's; pointer, wheel, touchpad and keyboard go to WebKit as its
   own events. Where the compositor draws no frame round the window
   (GNOME's doesn't; `BASICSHELL_CLIENT_DECORATIONS=1` asks for none
-  anywhere), a press within 5 pixels of its edge resizes it. Still to come:
-  the pointer's cursor shapes, key repeat, a screen's scale, and frames
-  passed without a copy (DMA-BUF). It points WebKit, GStreamer and GIO at
+  anywhere), a press within 5 pixels of its edge resizes it. The pointer
+  takes the shapes WebKit asks for (the compositor's own, through
+  cursor-shape-v1, where it has them; else the system's cursor theme), and
+  held keys repeat at the rate and after the delay the compositor gives.
+  Still to come: a screen's scale, and frames passed without a copy
+  (DMA-BUF). It points WebKit, GStreamer and GIO at
   the folder it is in, and hands WebKit the proxy from the environment
   (`https_proxy` and the rest).
 - Its interface (`ui/chrome.html`) is a page too, in a view over the tabs:

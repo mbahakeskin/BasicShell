@@ -23,8 +23,8 @@ use smithay_client_toolkit::{
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
     seat::{
-        keyboard::{KeyEvent, KeyboardHandler, Keysym, Modifiers, RawModifiers},
-        pointer::{PointerEvent, PointerEventKind, PointerHandler},
+        keyboard::{KeyEvent, KeyboardHandler, Keysym, Modifiers, RawModifiers, RepeatInfo},
+        pointer::{CursorIcon, PointerEvent, PointerEventKind, PointerHandler, ThemeSpec, ThemedPointer},
         Capability, SeatHandler, SeatState,
     },
     shell::{
@@ -72,6 +72,8 @@ struct Slot {
     told: (i32, i32),
     /// The frame attached and waiting for the compositor's frame callback.
     shown: Option<wpe_platform::Buffer>,
+    /// The pointer's shape over it, as WebKit last said.
+    cursor: CursorIcon,
     /// What it was copied into; kept until the next, so the pool doesn't
     /// reuse it, and put back when a hidden view is shown again, until WebKit
     /// draws it anew.
@@ -102,6 +104,8 @@ enum Tell {
     Pointer(wpe_platform::View, Option<(f64, f64)>),
     /// For BasicShell: the window's new size.
     WindowResized(i32, i32),
+    /// A key held down repeats (its code and symbol), or none does.
+    Repeat(Option<(u32, u32)>),
     /// A key, first for BasicShell's shortcuts, then for the view if not taken.
     Key { view: wpe_platform::View, event: wpe_platform::Event, keysym: u32, modifiers: WpeModifiers, pressed: bool },
 }
@@ -119,7 +123,10 @@ struct Hooks {
 }
 
 pub struct Shared {
+    me: std::rc::Weak<Shared>,
     conn: Connection,
+    /// The key held down repeating: its timer.
+    repeating: RefCell<Option<glib::SourceId>>,
     queue: RefCell<EventQueue<State>>,
     state: RefCell<State>,
     hooks: RefCell<Hooks>,
@@ -153,7 +160,9 @@ pub struct State {
 
     seat: Option<wl_seat::WlSeat>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
-    pointer: Option<wl_pointer::WlPointer>,
+    pointer: Option<ThemedPointer>,
+    /// The pointer's shape now.
+    cursor: Option<CursorIcon>,
     /// The view with the keyboard.
     focused: Option<wpe_platform::View>,
     keys: WpeModifiers,
@@ -163,8 +172,14 @@ pub struct State {
     press_serial: u32,
     /// A press went to resizing the window: its release goes nowhere.
     grabbed: bool,
+    /// Held keys repeat at this rate (per second) after this delay (ms).
+    repeat: Option<(u32, u32)>,
+    /// The key repeating, by its code.
+    repeating: Option<u32>,
     /// The view under the pointer, and where in it.
     under: Option<(wpe_platform::View, (f64, f64))>,
+    /// The pointer is where a press resizes the window.
+    on_resize_edge: bool,
 
     tell: Vec<Tell>,
 }
@@ -203,18 +218,29 @@ impl Shared {
             seat: None,
             keyboard: None,
             pointer: None,
+            cursor: None,
             focused: None,
             keys: WpeModifiers::empty(),
             buttons: WpeModifiers::empty(),
             press_count: 0,
             press_serial: 0,
             grabbed: false,
+            repeat: Some((25, 600)),
+            repeating: None,
             under: None,
+            on_resize_edge: false,
             tell: Vec::new(),
         };
         queue.roundtrip(&mut state).map_err(|e| e.to_string())?;
 
-        let shared = Rc::new(Shared { conn, queue: RefCell::new(queue), state: RefCell::new(state), hooks: RefCell::default() });
+        let shared = Rc::new_cyclic(|me| Shared {
+            me: me.clone(),
+            conn,
+            repeating: RefCell::default(),
+            queue: RefCell::new(queue),
+            state: RefCell::new(state),
+            hooks: RefCell::default(),
+        });
         let fd = shared.conn.backend().poll_fd().as_raw_fd();
         let weak = Rc::downgrade(&shared);
         glib_unix::unix_fd_add_local(fd, glib::IOCondition::IN | glib::IOCondition::ERR | glib::IOCondition::HUP, move |_, condition| {
@@ -278,6 +304,7 @@ impl Shared {
                             hook(w, h);
                         }
                     }
+                    Tell::Repeat(key) => self.repeat(key),
                     Tell::Key { view, event, keysym, modifiers, pressed } => {
                         let taken = self.hooks.borrow().key.as_ref().is_some_and(|hook| hook(keysym, modifiers, pressed));
                         if !taken {
@@ -287,6 +314,30 @@ impl Shared {
                 }
             }
         }
+    }
+
+    /// The key held down sent again and again, after the compositor's delay
+    /// at its rate (Wayland leaves repeating keys to the client).
+    fn repeat(&self, key: Option<(u32, u32)>) {
+        if let Some(source) = self.repeating.take() {
+            source.remove();
+        }
+        let Some((code, keysym)) = key else { return };
+        let Some((rate, delay)) = self.state.borrow().repeat else { return };
+        let me = self.me.clone();
+        let source = glib::timeout_add_local_once(std::time::Duration::from_millis(delay as u64), move || {
+            let Some(shared) = me.upgrade() else { return };
+            let me = shared.me.clone();
+            let interval = std::time::Duration::from_micros(1_000_000 / rate.max(1) as u64);
+            let source = glib::timeout_add_local(interval, move || {
+                let Some(shared) = me.upgrade() else { return glib::ControlFlow::Break };
+                shared.with_state(|st| st.key_event(EventType::KeyboardKeyDown, code, keysym, now_ms()));
+                glib::ControlFlow::Continue
+            });
+            *shared.repeating.borrow_mut() = Some(source);
+            shared.with_state(|st| st.key_event(EventType::KeyboardKeyDown, code, keysym, now_ms()));
+        });
+        *self.repeating.borrow_mut() = Some(source);
     }
 
     /// Runs `f` on the state, then tells WebKit what it gave rise to and
@@ -330,7 +381,17 @@ impl Shared {
             let (subsurface, surface) = st.subcompositor.create_subsurface(window.wl_surface().clone(), &st.qh);
             subsurface.set_desync();
             // A new subsurface goes on top of the others.
-            st.slots.push(Slot { view: view.downgrade(), surface, subsurface, place: None, visible: true, told: (0, 0), shown: None, attached: None });
+            st.slots.push(Slot {
+                view: view.downgrade(),
+                surface,
+                subsurface,
+                place: None,
+                visible: true,
+                told: (0, 0),
+                cursor: CursorIcon::Default,
+                shown: None,
+                attached: None,
+            });
             if st.focused.is_none() {
                 st.focused = Some(view.clone());
             }
@@ -534,8 +595,17 @@ impl Shared {
         self.hooks.borrow_mut().resized = Some(Box::new(f));
     }
 
-    pub fn set_cursor(&self, _name: &str) {
-        // The compositor's default cursor, until a cursor theme is loaded.
+    /// The pointer's shape over `view`, by its CSS name.
+    pub fn set_cursor(&self, view: &wpe_platform::View, name: &str) {
+        let icon = name.parse::<CursorIcon>().unwrap_or(CursorIcon::Default);
+        let mut st = self.state.borrow_mut();
+        let Some(index) = st.index(view) else { return };
+        st.slots[index].cursor = icon;
+        if st.under.as_ref().is_some_and(|(v, _)| v == view) && !st.on_resize_edge {
+            st.show_cursor(&self.conn, icon);
+        }
+        drop(st);
+        self.flush();
     }
 
     pub fn set_title(&self, title: &str) {
@@ -630,6 +700,31 @@ impl State {
         }
         self.focused = Some(view.clone());
         self.tell.push(Tell::FocusIn(view.clone()));
+    }
+
+    fn show_cursor(&mut self, conn: &Connection, icon: CursorIcon) {
+        if self.cursor == Some(icon) {
+            return;
+        }
+        if let Some(pointer) = &self.pointer {
+            if pointer.set_cursor(conn, icon).is_ok() {
+                self.cursor = Some(icon);
+            }
+        }
+    }
+
+    /// The shape for resizing from an edge, or for what is under the pointer.
+    fn point(&mut self, conn: &Connection, in_window: (f64, f64), shape: CursorIcon) {
+        let edge = self.resize_edge(in_window);
+        self.on_resize_edge = edge.is_some();
+        let icon = match edge {
+            Some(ResizeEdge::Left | ResizeEdge::Right) => CursorIcon::EwResize,
+            Some(ResizeEdge::Top | ResizeEdge::Bottom) => CursorIcon::NsResize,
+            Some(ResizeEdge::TopLeft | ResizeEdge::BottomRight) => CursorIcon::NwseResize,
+            Some(ResizeEdge::TopRight | ResizeEdge::BottomLeft) => CursorIcon::NeswResize,
+            _ => shape,
+        };
+        self.show_cursor(conn, icon);
     }
 
     /// Which edges of the window a point is on, for resizing from there.
@@ -747,7 +842,10 @@ impl SeatHandler for State {
             self.keyboard = self.seat_state.get_keyboard(qh, &seat, None).ok();
         }
         if capability == Capability::Pointer && self.pointer.is_none() {
-            self.pointer = self.seat_state.get_pointer(qh, &seat).ok();
+            // The compositor's own shapes where it has them (cursor-shape-v1),
+            // else the system's cursor theme.
+            let surface = self.compositor.create_surface(qh);
+            self.pointer = self.seat_state.get_pointer_with_theme::<State, ()>(qh, &seat, self.shm.wl_shm(), surface, ThemeSpec::default()).ok();
         }
         self.seat = Some(seat);
     }
@@ -760,26 +858,53 @@ impl SeatHandler for State {
         }
         if capability == Capability::Pointer {
             if let Some(pointer) = self.pointer.take() {
-                pointer.release();
+                pointer.pointer().release();
             }
+            self.cursor = None;
         }
     }
 
     fn remove_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
 }
 
+/// Milliseconds on the monotonic clock, as event times are.
+fn now_ms() -> u32 {
+    (glib::monotonic_time() / 1000) as u32
+}
+
+/// Modifiers and locks don't repeat.
+fn repeats(keysym: u32) -> bool {
+    !matches!(keysym, 0xffe1..=0xffee | 0xfe01..=0xfe13 | 0xff7f | 0xff14)
+}
+
 impl State {
     fn key(&mut self, kind: EventType, key: &KeyEvent) {
+        let (code, keysym) = (key.raw_code, key.keysym.raw());
+        if kind == EventType::KeyboardKeyDown && repeats(keysym) {
+            self.repeating = Some(code);
+            self.tell.push(Tell::Repeat(Some((code, keysym))));
+        } else if kind == EventType::KeyboardKeyUp && self.repeating == Some(code) {
+            self.stop_repeating();
+        }
+        self.key_event(kind, code, keysym, key.time);
+    }
+
+    fn stop_repeating(&mut self) {
+        if self.repeating.take().is_some() {
+            self.tell.push(Tell::Repeat(None));
+        }
+    }
+
+    fn key_event(&mut self, kind: EventType, code: u32, keysym: u32, time: u32) {
         let Some(view) = self.focused.clone() else { return };
-        let keysym = key.keysym.raw();
         let ptr = unsafe {
             wpe_platform::ffi::wpe_event_keyboard_new(
                 kind.into_glib(),
                 view.to_glib_none().0,
                 InputSource::Keyboard.into_glib(),
-                key.time,
+                time,
                 self.modifiers().into_glib(),
-                key.raw_code + 8,
+                code + 8,
                 keysym,
             )
         };
@@ -798,6 +923,7 @@ impl KeyboardHandler for State {
     }
 
     fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, _: u32) {
+        self.stop_repeating();
         if let Some(view) = self.focused.clone() {
             self.tell.push(Tell::FocusOut(view));
         }
@@ -813,6 +939,13 @@ impl KeyboardHandler for State {
 
     fn release_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, event: KeyEvent) {
         self.key(EventType::KeyboardKeyUp, &event);
+    }
+
+    fn update_repeat_info(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, info: RepeatInfo) {
+        self.repeat = match info {
+            RepeatInfo::Repeat { rate, delay } => Some((rate.get(), delay)),
+            RepeatInfo::Disable => None,
+        };
     }
 
     fn update_modifiers(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, modifiers: Modifiers, _: RawModifiers, _: u32) {
@@ -837,10 +970,17 @@ impl KeyboardHandler for State {
 }
 
 impl PointerHandler for State {
-    fn pointer_frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_pointer::WlPointer, events: &[PointerEvent]) {
+    fn pointer_frame(&mut self, conn: &Connection, _: &QueueHandle<Self>, _: &wl_pointer::WlPointer, events: &[PointerEvent]) {
         for e in events {
+            // A new enter needs the shape set again.
+            if matches!(e.kind, PointerEventKind::Enter { .. }) {
+                self.cursor = None;
+            }
             // Between the views, on the window's own surface: only resizing from its edges.
             if self.window.as_ref().is_some_and(|w| w.wl_surface() == &e.surface) {
+                if matches!(e.kind, PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. }) {
+                    self.point(conn, e.position, CursorIcon::Default);
+                }
                 if let PointerEventKind::Press { serial, .. } = e.kind {
                     if let (Some(edge), Some(window), Some(seat)) = (self.resize_edge(e.position), &self.window, &self.seat) {
                         window.resize(seat, serial, edge);
@@ -855,6 +995,8 @@ impl PointerHandler for State {
             // BasicShell hears where the pointer is (its panels come out at the edges).
             match e.kind {
                 PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => {
+                    let shape = self.slots[index].cursor;
+                    self.point(conn, in_window, shape);
                     self.under = Some((view.clone(), e.position));
                     self.tell.push(Tell::Pointer(view.clone(), Some(in_window)));
                 }
