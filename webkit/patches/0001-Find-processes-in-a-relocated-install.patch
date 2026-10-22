@@ -1,0 +1,102 @@
+Find WebKit's processes in the folder it was moved to
+
+A build that is not a developer build looks for WPEWebProcess and
+WPENetworkProcess only in the libexec folder named when it was built, and
+its sandbox lets in only that folder and the system's library folders.
+BasicShell ships WebKit in a folder that can be put anywhere, so the folder
+is worked out from where libWPEWebKit-2.0.so was loaded from
+(<prefix>/lib), the processes are looked for in <prefix>/libexec first,
+and the sandbox is given <prefix> read-only.
+
+diff -ru a/Source/WebKit/Shared/ProcessExecutablePath.h b/Source/WebKit/Shared/ProcessExecutablePath.h
+--- a/Source/WebKit/Shared/ProcessExecutablePath.h
++++ b/Source/WebKit/Shared/ProcessExecutablePath.h
+@@ -35,4 +35,8 @@
+ String executablePathOfGPUProcess();
+ #endif
+ 
++// The folder WebKit runs from when it has been moved from where it was
++// installed (<prefix>/lib/libWPEWebKit-2.0.so), or null.
++String relocatedInstallPrefix();
++
+ }
+diff -ru a/Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp b/Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
+--- a/Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
++++ b/Source/WebKit/Shared/glib/ProcessExecutablePathGLib.cpp
+@@ -27,11 +27,32 @@
+ #include "config.h"
+ #include "ProcessExecutablePath.h"
+ 
++#include <dlfcn.h>
+ #include <glib.h>
+ #include <wtf/FileSystem.h>
++#include <wtf/NeverDestroyed.h>
+ 
+ namespace WebKit {
+ 
++// WebKit's processes are looked for in the folder it was installed in, known
++// when it was built. A copy shipped inside an application can be put anywhere,
++// so the folder is worked out from where this library was loaded from:
++// <prefix>/lib/libWPEWebKit-2.0.so has its processes in
++// <prefix>/libexec/wpe-webkit-2.0.
++String relocatedInstallPrefix()
++{
++    static NeverDestroyed<String> prefix([] {
++        Dl_info info;
++        if (!dladdr(reinterpret_cast<void*>(&relocatedInstallPrefix), &info) || !info.dli_fname)
++            return String();
++        String loadedFrom = FileSystem::parentPath(FileSystem::parentPath(FileSystem::stringFromFileSystemRepresentation(info.dli_fname)));
++        if (loadedFrom == FileSystem::parentPath(FileSystem::stringFromFileSystemRepresentation(LIBDIR)))
++            return String();
++        return loadedFrom;
++    }());
++    return prefix.get();
++}
++
+ #if ENABLE(DEVELOPER_MODE)
+ static String getExecutablePath()
+ {
+@@ -60,6 +81,19 @@
+     }
+ #endif
+ 
++    static NeverDestroyed<String> relocatedDirectory([] {
++        String prefix = relocatedInstallPrefix();
++        if (prefix.isNull())
++            return String();
++        String libexec = FileSystem::pathByAppendingComponent(prefix, "libexec"_s);
++        return FileSystem::pathByAppendingComponent(libexec, FileSystem::pathFileName(FileSystem::stringFromFileSystemRepresentation(PKGLIBEXECDIR)));
++    }());
++    if (!relocatedDirectory.get().isNull()) {
++        String processPath = FileSystem::pathByAppendingComponent(relocatedDirectory.get(), processName);
++        if (FileSystem::fileExists(processPath))
++            return processPath;
++    }
++
+     return FileSystem::pathByAppendingComponent(FileSystem::stringFromFileSystemRepresentation(PKGLIBEXECDIR), processName);
+ }
+ 
+diff -ru a/Source/WebKit/UIProcess/Launcher/glib/BubblewrapLauncher.cpp b/Source/WebKit/UIProcess/Launcher/glib/BubblewrapLauncher.cpp
+--- a/Source/WebKit/UIProcess/Launcher/glib/BubblewrapLauncher.cpp
++++ b/Source/WebKit/UIProcess/Launcher/glib/BubblewrapLauncher.cpp
+@@ -20,6 +20,7 @@
+ 
+ #if ENABLE(BUBBLEWRAP_SANDBOX)
+ 
++#include "ProcessExecutablePath.h"
+ #include "XDGDBusProxy.h"
+ #include <fcntl.h>
+ #include <glib.h>
+@@ -863,6 +864,12 @@
+ 
+     addExtraPaths(launchOptions.extraSandboxPaths, sandboxArgs);
+ 
++    // A WebKit moved from where it was installed has its processes and
++    // libraries in the folder it was moved to.
++    String relocatedPrefix = relocatedInstallPrefix();
++    if (!relocatedPrefix.isNull())
++        bindIfExists(sandboxArgs, relocatedPrefix.utf8().data());
++
+     if (launchOptions.processType == ProcessLauncher::ProcessType::DBusProxy) {
+         sandboxArgs.appendList<CString>({
+             "--ro-bind", DBUS_PROXY_EXECUTABLE, DBUS_PROXY_EXECUTABLE,

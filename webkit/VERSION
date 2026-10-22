@@ -1,0 +1,4 @@
+# The WPE WebKit release BasicShell is built with, and the SHA-256 that
+# https://wpewebkit.org/releases/wpewebkit-<version>.tar.xz.sums gives for it.
+WPE_VERSION=2.54.1
+WPE_SHA256=0de8bdfba011f9cd63ba9a9171fa6038dd2c08237894f4082abbb821f29d3fe9

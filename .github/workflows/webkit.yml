@@ -1,0 +1,98 @@
+name: WebKit
+
+# Builds WPE WebKit for BasicShell on Linux (webkit/build.sh). How far it is
+# shows next to the commit on the linux branch's commits page ("WebKit
+# build"), updated every minute.
+#
+# A GitHub runner stops a job after 6 hours. The build stops itself well
+# before that, keeps what the compiler has done (ccache), and starts this
+# workflow again, up to four tries, each going on from the last.
+
+on:
+  push:
+    branches: [linux]
+    paths: ['webkit/**', '.github/workflows/webkit.yml']
+  workflow_dispatch:
+    inputs:
+      attempt:
+        description: Which try this is
+        default: '1'
+
+permissions:
+  contents: read
+  statuses: write
+  actions: write
+
+concurrency:
+  group: webkit
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    env:
+      ATTEMPT: ${{ inputs.attempt || '1' }}
+      BUILD_MINUTES: '300'
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 6G
+      CCACHE_COMPRESS: 'true'
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Make room on the disk
+        run: webkit/ci/make-room.sh
+
+      - name: Install what WebKit is built with
+        run: sudo webkit/ci/install-deps.sh
+
+      - name: Take back the compiler's work from the last try
+        uses: actions/cache/restore@v6
+        with:
+          path: .ccache
+          key: webkit-ccache-${{ hashFiles('webkit/VERSION', 'webkit/patches/**') }}-${{ github.run_id }}
+          restore-keys: |
+            webkit-ccache-${{ hashFiles('webkit/VERSION', 'webkit/patches/**') }}-
+            webkit-ccache-
+
+      - name: Build WebKit
+        id: build
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: webkit/build.sh
+
+      - name: Keep the compiler's work
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: .ccache
+          key: webkit-ccache-${{ hashFiles('webkit/VERSION', 'webkit/patches/**') }}-${{ github.run_id }}
+
+      - name: Go on in a new run
+        if: steps.build.outputs.result == 'out-of-time' && fromJSON(env.ATTEMPT) < 4
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run webkit.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME" -f attempt=$((ATTEMPT + 1))
+
+      - name: Give up after four tries
+        if: steps.build.outputs.result == 'out-of-time' && fromJSON(env.ATTEMPT) >= 4
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          webkit/ci/progress.sh --final failure "Still not built after four tries"
+          exit 1
+
+      - name: Report a stop that wasn't the build's
+        if: failure() && steps.build.outputs.result == ''
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          webkit/ci/progress.sh --final error "Stopped before or during the build (try $ATTEMPT), see the run's log"
+
+      - uses: actions/upload-artifact@v7
+        if: steps.build.outputs.result == 'built'
+        with:
+          name: wpewebkit-basicshell
+          path: build/wpewebkit-*-basicshell.tar.xz
+          retention-days: 14
+          compression-level: 0
