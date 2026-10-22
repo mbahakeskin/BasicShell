@@ -1,15 +1,16 @@
 name: Package
 
-# Puts the newest WebKit build on this branch, FFmpeg and GStreamer into one
-# folder that runs on Ubuntu 24.04 and anything newer (package/assemble.sh),
-# kept as the run's artifact "basicshell-linux". Runs when media/ or package/
-# change, from the Actions tab, and after each WebKit build, which starts it
-# (GitHub starts a workflow after another only from the default branch).
+# Builds BasicShell (rust/) and puts it, the newest WebKit build on this
+# branch, FFmpeg and GStreamer into one folder that runs on Ubuntu 24.04 and
+# anything newer (package/assemble.sh), kept as the run's artifact
+# "basicshell-linux". Runs when media/, package/ or rust/ change, from the
+# Actions tab, and after each WebKit build, which starts it (GitHub starts a
+# workflow after another only from the default branch).
 
 on:
   push:
     branches: [linux]
-    paths: ['media/**', 'package/**', '.github/workflows/package.yml']
+    paths: ['media/**', 'package/**', 'rust/**', '.github/workflows/package.yml']
   workflow_dispatch:
 
 permissions:
@@ -55,8 +56,28 @@ jobs:
         if: steps.media.outputs.cache-hit != 'true'
         run: media/build.sh
 
+      - name: Take back Cargo's downloads and build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+          key: cargo-${{ hashFiles('rust/Cargo.lock') }}-${{ hashFiles('rust/**/*.rs', 'rust/**/Cargo.toml') }}
+          restore-keys: cargo-${{ hashFiles('rust/Cargo.lock') }}-
+
+      # Built against the WebKit just downloaded, where its pkg-config files say
+      # it is installed.
+      - name: Build BasicShell
+        run: |
+          sudo mkdir -p /opt/basicshell-webkit
+          sudo tar -xf build/webkit/wpewebkit-*-basicshell.tar.xz -C /opt/basicshell-webkit
+          cd rust
+          PKG_CONFIG_PATH=/opt/basicshell-webkit/lib/pkgconfig cargo build --release --locked -p basicshell
+          PKG_CONFIG_PATH=/opt/basicshell-webkit/lib/pkgconfig cargo test --locked -p wpe-platform-sys -p wpe-webkit-sys -p wpe-javascriptcore-sys -p wpe-platform-wayland-sys
+
       - name: Put the folder together
-        run: package/assemble.sh build/webkit/wpewebkit-*-basicshell.tar.xz build/media-*.tar.xz
+        run: package/assemble.sh build/webkit/wpewebkit-*-basicshell.tar.xz build/media-*.tar.xz rust/target/release/basicshell
 
       - uses: actions/upload-artifact@v7
         with:

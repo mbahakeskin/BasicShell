@@ -1,0 +1,55 @@
+[options]
+library = "WPEPlatform"
+version = "2.0"
+min_cfg_version = "2.54"
+target_path = "."
+work_mode = "normal"
+girs_directories = ["../gir-files", "../../build/gir-files"]
+single_version_file = true
+deprecate_by_min_version = true
+external_libraries = ["GLib", "GObject", "Gio"]
+
+generate = [
+    "WPEPlatform.Toplevel",
+    "WPEPlatform.Screen",
+    "WPEPlatform.ToplevelState",
+    "WPEPlatform.EventType",
+    "WPEPlatform.Modifiers",
+    "WPEPlatform.InputSource",
+    "WPEPlatform.PixelFormat",
+    "WPEPlatform.Buffer",
+    "WPEPlatform.BufferSHM",
+    "WPEPlatform.ViewError",
+    "WPEPlatform.DisplayError",
+    "WPEPlatform.BufferError",
+]
+
+manual = [
+    "GLib.Bytes",
+    "GLib.Error",
+    "GObject.Object",
+    "Gio.Cancellable",
+    "WPEPlatform.Event",
+]
+
+# What gir can't turn into Rust on its own; written by hand when needed.
+[[object]]
+name = "WPEPlatform.View"
+status = "generate"
+    [[object.signal]]
+    name = "buffers-changed"
+    ignore = true
+
+[[object]]
+name = "WPEPlatform.BufferDMABuf"
+status = "generate"
+    [[object.function]]
+    name = "new"
+    ignore = true
+
+[[object]]
+name = "WPEPlatform.Display"
+status = "generate"
+    [[object.function]]
+    name = "disconnected"
+    ignore = true

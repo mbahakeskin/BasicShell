@@ -1,0 +1,365 @@
+<?xml version="1.0"?>
+<!-- This file was automatically generated from C sources - DO NOT EDIT!
+To affect the contents of this file, edit the original C definitions,
+and/or use gtk-doc annotations.  -->
+<repository version="1.2"
+            xmlns="http://www.gtk.org/introspection/core/1.0"
+            xmlns:c="http://www.gtk.org/introspection/c/1.0"
+            xmlns:glib="http://www.gtk.org/introspection/glib/1.0">
+  <include name="WPEPlatform" version="2.0"/>
+  <package name="wpe-platform-wayland-2.0"/>
+  <c:include name="wpe/wayland/wpe-wayland.h"/>
+  <namespace name="WPEPlatformWayland"
+             version="2.0"
+             shared-library="libWPEWebKit-2.0.so.1"
+             c:identifier-prefixes="WPE"
+             c:symbol-prefixes="wpe">
+    <class name="ClipboardWayland"
+           c:symbol-prefix="clipboard_wayland"
+           c:type="WPEClipboardWayland"
+           parent="WPEPlatform.Clipboard"
+           final="1"
+           glib:type-name="WPEClipboardWayland"
+           glib:get-type="wpe_clipboard_wayland_get_type"
+           glib:type-struct="ClipboardWaylandClass">
+      <doc xml:space="preserve"
+           filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEClipboardWayland.cpp"
+           line="40">A [class@WPEPlatform.Clipboard] implementation for Wayland.
+
+[class@ClipboardWayland] is the [class@WPEPlatform.Clipboard] implementation
+used by [class@DisplayWayland]. It integrates with the Wayland data device
+protocol to share clipboard contents with other Wayland clients.</doc>
+      <source-position filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEClipboardWayland.h"
+                       line="40"/>
+      <constructor name="new" c:identifier="wpe_clipboard_wayland_new">
+        <doc xml:space="preserve"
+             filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEClipboardWayland.cpp"
+             line="258">Create a new #WPEClipboardWayland</doc>
+        <source-position filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEClipboardWayland.h"
+                         line="42"/>
+        <return-value transfer-ownership="full">
+          <doc xml:space="preserve"
+               filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEClipboardWayland.cpp"
+               line="264">a #WPEClipboard</doc>
+          <type name="WPEPlatform.Clipboard" c:type="WPEClipboard*"/>
+        </return-value>
+        <parameters>
+          <parameter name="display" transfer-ownership="none">
+            <doc xml:space="preserve"
+                 filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEClipboardWayland.cpp"
+                 line="260">a #WPEDisplayWayland</doc>
+            <type name="DisplayWayland" c:type="WPEDisplayWayland*"/>
+          </parameter>
+        </parameters>
+      </constructor>
+    </class>
+    <record name="ClipboardWaylandClass"
+            c:type="WPEClipboardWaylandClass"
+            glib:is-gtype-struct-for="ClipboardWayland">
+      <source-position filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEClipboardWayland.h"
+                       line="40"/>
+      <field name="parent_class">
+        <type name="WPEPlatform.ClipboardClass" c:type="WPEClipboardClass"/>
+      </field>
+    </record>
+    <class name="DisplayWayland"
+           c:symbol-prefix="display_wayland"
+           c:type="WPEDisplayWayland"
+           parent="WPEPlatform.Display"
+           final="1"
+           glib:type-name="WPEDisplayWayland"
+           glib:get-type="wpe_display_wayland_get_type"
+           glib:type-struct="DisplayWaylandClass">
+      <doc xml:space="preserve"
+           filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.cpp"
+           line="73">A [class@WPEPlatform.Display] implementation for Wayland.
+
+[class@DisplayWayland] is the built-in [class@WPEPlatform.Display]
+implementation for the Wayland windowing system. Use
+[ctor@DisplayWayland.new] to create a new instance and
+[method@DisplayWayland.connect] to connect to a particular Wayland display
+by name. The underlying Wayland objects can be accessed with
+[method@DisplayWayland.get_wl_display],
+[method@DisplayWayland.get_wl_compositor] and
+[method@DisplayWayland.get_wl_shm].</doc>
+      <source-position filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.h"
+                       line="40"/>
+      <constructor name="new" c:identifier="wpe_display_wayland_new">
+        <doc xml:space="preserve"
+             filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.cpp"
+             line="689">Create a new #WPEDisplayWayland</doc>
+        <source-position filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.h"
+                         line="42"/>
+        <return-value transfer-ownership="full">
+          <doc xml:space="preserve"
+               filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.cpp"
+               line="694">a #WPEDisplay</doc>
+          <type name="WPEPlatform.Display" c:type="WPEDisplay*"/>
+        </return-value>
+      </constructor>
+      <method name="connect"
+              c:identifier="wpe_display_wayland_connect"
+              throws="1">
+        <doc xml:space="preserve"
+             filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.cpp"
+             line="701">Connect to the Wayland display named @name. If @name is %NULL it
+connects to the default display.</doc>
+        <source-position filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.h"
+                         line="43"/>
+        <return-value transfer-ownership="none">
+          <doc xml:space="preserve"
+               filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.cpp"
+               line="711">%TRUE if connection succeeded, or %FALSE in case of error.</doc>
+          <type name="gboolean" c:type="gboolean"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="display" transfer-ownership="none">
+            <doc xml:space="preserve"
+                 filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.cpp"
+                 line="703">a #WPEDisplayWayland</doc>
+            <type name="DisplayWayland" c:type="WPEDisplayWayland*"/>
+          </instance-parameter>
+          <parameter name="name"
+                     transfer-ownership="none"
+                     nullable="1"
+                     allow-none="1">
+            <doc xml:space="preserve"
+                 filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.cpp"
+                 line="704">the name of the display to connect to, or %NULL</doc>
+            <type name="utf8" c:type="const char*"/>
+          </parameter>
+        </parameters>
+      </method>
+      <method name="get_wl_compositor"
+              c:identifier="wpe_display_wayland_get_wl_compositor"
+              introspectable="0">
+        <doc xml:space="preserve"
+             filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.cpp"
+             line="750">Get the Wayland compositor of @display</doc>
+        <source-position filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.h"
+                         line="47"/>
+        <return-value transfer-ownership="none" nullable="1">
+          <doc xml:space="preserve"
+               filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.cpp"
+               line="756">a Wayland `wl_compositor`,
+   or %NULL if display is not connected</doc>
+          <type name="gpointer" c:type="wl_compositor*"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="display" transfer-ownership="none">
+            <doc xml:space="preserve"
+                 filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.cpp"
+                 line="752">a #WPEDisplayWayland</doc>
+            <type name="DisplayWayland" c:type="WPEDisplayWayland*"/>
+          </instance-parameter>
+        </parameters>
+      </method>
+      <method name="get_wl_display"
+              c:identifier="wpe_display_wayland_get_wl_display"
+              introspectable="0">
+        <doc xml:space="preserve"
+             filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.cpp"
+             line="734">Get the native Wayland display of @display</doc>
+        <source-position filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.h"
+                         line="46"/>
+        <return-value transfer-ownership="none" nullable="1">
+          <doc xml:space="preserve"
+               filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.cpp"
+               line="740">a Wayland `wl_display`,
+   or %NULL if display is not connected</doc>
+          <type name="gpointer" c:type="wl_display*"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="display" transfer-ownership="none">
+            <doc xml:space="preserve"
+                 filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.cpp"
+                 line="736">a #WPEDisplayWayland</doc>
+            <type name="DisplayWayland" c:type="WPEDisplayWayland*"/>
+          </instance-parameter>
+        </parameters>
+      </method>
+      <method name="get_wl_shm"
+              c:identifier="wpe_display_wayland_get_wl_shm"
+              introspectable="0">
+        <doc xml:space="preserve"
+             filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.cpp"
+             line="766">Get the Wayland SHM of @display</doc>
+        <source-position filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.h"
+                         line="48"/>
+        <return-value transfer-ownership="none" nullable="1">
+          <doc xml:space="preserve"
+               filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.cpp"
+               line="772">a Wayland `wl_shm`, or %NULL</doc>
+          <type name="gpointer" c:type="wl_shm*"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="display" transfer-ownership="none">
+            <doc xml:space="preserve"
+                 filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.cpp"
+                 line="768">a #WPEDisplayWayland</doc>
+            <type name="DisplayWayland" c:type="WPEDisplayWayland*"/>
+          </instance-parameter>
+        </parameters>
+      </method>
+    </class>
+    <record name="DisplayWaylandClass"
+            c:type="WPEDisplayWaylandClass"
+            glib:is-gtype-struct-for="DisplayWayland">
+      <source-position filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEDisplayWayland.h"
+                       line="40"/>
+      <field name="parent_class">
+        <type name="WPEPlatform.DisplayClass" c:type="WPEDisplayClass"/>
+      </field>
+    </record>
+    <class name="ScreenWayland"
+           c:symbol-prefix="screen_wayland"
+           c:type="WPEScreenWayland"
+           parent="WPEPlatform.Screen"
+           final="1"
+           glib:type-name="WPEScreenWayland"
+           glib:get-type="wpe_screen_wayland_get_type"
+           glib:type-struct="ScreenWaylandClass">
+      <doc xml:space="preserve"
+           filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEScreenWayland.cpp"
+           line="31">A [class@WPEPlatform.Screen] implementation for Wayland.
+
+[class@ScreenWayland] is the [class@WPEPlatform.Screen] implementation used
+by [class@DisplayWayland]. Each instance represents a `wl_output`, which can
+be accessed with [method@ScreenWayland.get_wl_output].</doc>
+      <source-position filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEScreenWayland.h"
+                       line="40"/>
+      <method name="get_wl_output"
+              c:identifier="wpe_screen_wayland_get_wl_output"
+              introspectable="0">
+        <doc xml:space="preserve"
+             filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEScreenWayland.cpp"
+             line="146">Get the Wayland output of @screen</doc>
+        <source-position filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEScreenWayland.h"
+                         line="42"/>
+        <return-value transfer-ownership="none" nullable="1">
+          <doc xml:space="preserve"
+               filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEScreenWayland.cpp"
+               line="152">a Wayland `wl_output`</doc>
+          <type name="gpointer" c:type="wl_output*"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="screen" transfer-ownership="none">
+            <doc xml:space="preserve"
+                 filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEScreenWayland.cpp"
+                 line="148">a #WPEScreenWayland</doc>
+            <type name="ScreenWayland" c:type="WPEScreenWayland*"/>
+          </instance-parameter>
+        </parameters>
+      </method>
+    </class>
+    <record name="ScreenWaylandClass"
+            c:type="WPEScreenWaylandClass"
+            glib:is-gtype-struct-for="ScreenWayland">
+      <source-position filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEScreenWayland.h"
+                       line="40"/>
+      <field name="parent_class">
+        <type name="WPEPlatform.ScreenClass" c:type="WPEScreenClass"/>
+      </field>
+    </record>
+    <class name="ToplevelWayland"
+           c:symbol-prefix="toplevel_wayland"
+           c:type="WPEToplevelWayland"
+           parent="WPEPlatform.Toplevel"
+           final="1"
+           glib:type-name="WPEToplevelWayland"
+           glib:get-type="wpe_toplevel_wayland_get_type"
+           glib:type-struct="ToplevelWaylandClass">
+      <doc xml:space="preserve"
+           filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEToplevelWayland.cpp"
+           line="221">A [class@WPEPlatform.Toplevel] implementation for Wayland.
+
+[class@ToplevelWayland] is the [class@WPEPlatform.Toplevel] implementation
+used by [class@DisplayWayland]. It is backed by an `xdg_toplevel` and its
+Wayland surface can be accessed with [method@ToplevelWayland.get_wl_surface].</doc>
+      <source-position filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEToplevelWayland.h"
+                       line="41"/>
+      <method name="get_wl_surface"
+              c:identifier="wpe_toplevel_wayland_get_wl_surface"
+              introspectable="0">
+        <doc xml:space="preserve"
+             filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEToplevelWayland.cpp"
+             line="927">Get the native Wayland surface of @toplevel</doc>
+        <source-position filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEToplevelWayland.h"
+                         line="43"/>
+        <return-value transfer-ownership="none" nullable="1">
+          <doc xml:space="preserve"
+               filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEToplevelWayland.cpp"
+               line="933">a Wayland `wl_surface`</doc>
+          <type name="gpointer" c:type="wl_surface*"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="toplevel" transfer-ownership="none">
+            <doc xml:space="preserve"
+                 filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEToplevelWayland.cpp"
+                 line="929">a #WPEToplevelWayland</doc>
+            <type name="ToplevelWayland" c:type="WPEToplevelWayland*"/>
+          </instance-parameter>
+        </parameters>
+      </method>
+    </class>
+    <record name="ToplevelWaylandClass"
+            c:type="WPEToplevelWaylandClass"
+            glib:is-gtype-struct-for="ToplevelWayland">
+      <source-position filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEToplevelWayland.h"
+                       line="41"/>
+      <field name="parent_class">
+        <type name="WPEPlatform.ToplevelClass" c:type="WPEToplevelClass"/>
+      </field>
+    </record>
+    <class name="ViewWayland"
+           c:symbol-prefix="view_wayland"
+           c:type="WPEViewWayland"
+           parent="WPEPlatform.View"
+           final="1"
+           glib:type-name="WPEViewWayland"
+           glib:get-type="wpe_view_wayland_get_type"
+           glib:type-struct="ViewWaylandClass">
+      <doc xml:space="preserve"
+           filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEViewWayland.cpp"
+           line="86">A [class@WPEPlatform.View] implementation for Wayland.
+
+[class@ViewWayland] is the [class@WPEPlatform.View] implementation used by
+[class@DisplayWayland]. It renders the web view contents into a Wayland
+surface, which can be accessed with [method@ViewWayland.get_wl_surface].</doc>
+      <source-position filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEViewWayland.h"
+                       line="41"/>
+      <method name="get_wl_surface"
+              c:identifier="wpe_view_wayland_get_wl_surface"
+              introspectable="0">
+        <doc xml:space="preserve"
+             filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEViewWayland.cpp"
+             line="739">Get the native Wayland surface of @view</doc>
+        <source-position filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEViewWayland.h"
+                         line="43"/>
+        <return-value transfer-ownership="none" nullable="1">
+          <doc xml:space="preserve"
+               filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEViewWayland.cpp"
+               line="745">a Wayland `wl_surface`</doc>
+          <type name="gpointer" c:type="wl_surface*"/>
+        </return-value>
+        <parameters>
+          <instance-parameter name="view" transfer-ownership="none">
+            <doc xml:space="preserve"
+                 filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEViewWayland.cpp"
+                 line="741">a #WPEViewWayland</doc>
+            <type name="ViewWayland" c:type="WPEViewWayland*"/>
+          </instance-parameter>
+        </parameters>
+      </method>
+    </class>
+    <record name="ViewWaylandClass"
+            c:type="WPEViewWaylandClass"
+            glib:is-gtype-struct-for="ViewWayland">
+      <source-position filename="Source/WebKit/WPEPlatform/wpe/wayland/WPEViewWayland.h"
+                       line="41"/>
+      <field name="parent_class">
+        <type name="WPEPlatform.ViewClass" c:type="WPEViewClass"/>
+      </field>
+    </record>
+  </namespace>
+</repository>

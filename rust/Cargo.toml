@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = ["sys/*", "wpe-platform", "wpe-webkit", "basicshell"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

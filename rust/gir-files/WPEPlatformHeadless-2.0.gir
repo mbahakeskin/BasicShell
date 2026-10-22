@@ -1,0 +1,140 @@
+<?xml version="1.0"?>
+<!-- This file was automatically generated from C sources - DO NOT EDIT!
+To affect the contents of this file, edit the original C definitions,
+and/or use gtk-doc annotations.  -->
+<repository version="1.2"
+            xmlns="http://www.gtk.org/introspection/core/1.0"
+            xmlns:c="http://www.gtk.org/introspection/c/1.0"
+            xmlns:glib="http://www.gtk.org/introspection/glib/1.0">
+  <include name="WPEPlatform" version="2.0"/>
+  <package name="wpe-platform-headless-2.0"/>
+  <c:include name="wpe/headless/wpe-headless.h"/>
+  <namespace name="WPEPlatformHeadless"
+             version="2.0"
+             shared-library="libWPEWebKit-2.0.so.1"
+             c:identifier-prefixes="WPE"
+             c:symbol-prefixes="wpe">
+    <class name="DisplayHeadless"
+           c:symbol-prefix="display_headless"
+           c:type="WPEDisplayHeadless"
+           parent="WPEPlatform.Display"
+           final="1"
+           glib:type-name="WPEDisplayHeadless"
+           glib:get-type="wpe_display_headless_get_type"
+           glib:type-struct="DisplayHeadlessClass">
+      <doc xml:space="preserve"
+           filename="Source/WebKit/WPEPlatform/wpe/headless/WPEDisplayHeadless.cpp"
+           line="52">A headless [class@WPEPlatform.Display] implementation.
+
+[class@DisplayHeadless] is the built-in [class@WPEPlatform.Display]
+implementation that does not connect to any native display. It renders to
+offscreen buffers and is useful for testing or for running web content
+without showing it on screen. Use [ctor@DisplayHeadless.new] to create a
+new instance, or [ctor@DisplayHeadless.new_for_device] to back it by a
+specific DRM device.</doc>
+      <source-position filename="Source/WebKit/WPEPlatform/wpe/headless/WPEDisplayHeadless.h"
+                       line="39"/>
+      <constructor name="new" c:identifier="wpe_display_headless_new">
+        <doc xml:space="preserve"
+             filename="Source/WebKit/WPEPlatform/wpe/headless/WPEDisplayHeadless.cpp"
+             line="185">Create a new #WPEDisplayHeadless</doc>
+        <source-position filename="Source/WebKit/WPEPlatform/wpe/headless/WPEDisplayHeadless.h"
+                         line="41"/>
+        <return-value transfer-ownership="full">
+          <doc xml:space="preserve"
+               filename="Source/WebKit/WPEPlatform/wpe/headless/WPEDisplayHeadless.cpp"
+               line="190">a #WPEDisplay</doc>
+          <type name="WPEPlatform.Display" c:type="WPEDisplay*"/>
+        </return-value>
+      </constructor>
+      <constructor name="new_for_device"
+                   c:identifier="wpe_display_headless_new_for_device"
+                   introspectable="0"
+                   throws="1">
+        <doc xml:space="preserve"
+             filename="Source/WebKit/WPEPlatform/wpe/headless/WPEDisplayHeadless.cpp"
+             line="197">Create a new #WPEDisplayHeadless for the DRM device with @name.</doc>
+        <source-position filename="Source/WebKit/WPEPlatform/wpe/headless/WPEDisplayHeadless.h"
+                         line="42"/>
+        <return-value transfer-ownership="full" nullable="1">
+          <doc xml:space="preserve"
+               filename="Source/WebKit/WPEPlatform/wpe/headless/WPEDisplayHeadless.cpp"
+               line="204">a #WPEDisplay, or %NULL if an error occurred</doc>
+          <type name="WPEPlatform.Display" c:type="WPEDisplay*"/>
+        </return-value>
+        <parameters>
+          <parameter name="name" transfer-ownership="none">
+            <doc xml:space="preserve"
+                 filename="Source/WebKit/WPEPlatform/wpe/headless/WPEDisplayHeadless.cpp"
+                 line="199">the name of the DRM device</doc>
+            <type name="utf8" c:type="const char*"/>
+          </parameter>
+        </parameters>
+      </constructor>
+    </class>
+    <record name="DisplayHeadlessClass"
+            c:type="WPEDisplayHeadlessClass"
+            glib:is-gtype-struct-for="DisplayHeadless">
+      <source-position filename="Source/WebKit/WPEPlatform/wpe/headless/WPEDisplayHeadless.h"
+                       line="39"/>
+      <field name="parent_class">
+        <type name="WPEPlatform.DisplayClass" c:type="WPEDisplayClass"/>
+      </field>
+    </record>
+    <class name="ToplevelHeadless"
+           c:symbol-prefix="toplevel_headless"
+           c:type="WPEToplevelHeadless"
+           parent="WPEPlatform.Toplevel"
+           final="1"
+           glib:type-name="WPEToplevelHeadless"
+           glib:get-type="wpe_toplevel_headless_get_type"
+           glib:type-struct="ToplevelHeadlessClass">
+      <doc xml:space="preserve"
+           filename="Source/WebKit/WPEPlatform/wpe/headless/WPEToplevelHeadless.cpp"
+           line="31">A headless [class@WPEPlatform.Toplevel] implementation.
+
+[class@ToplevelHeadless] is the [class@WPEPlatform.Toplevel] implementation
+used by [class@DisplayHeadless]. It has no native window and only tracks its
+state, since there is no compositor or display to manage it.</doc>
+      <source-position filename="Source/WebKit/WPEPlatform/wpe/headless/WPEToplevelHeadless.h"
+                       line="40"/>
+    </class>
+    <record name="ToplevelHeadlessClass"
+            c:type="WPEToplevelHeadlessClass"
+            glib:is-gtype-struct-for="ToplevelHeadless">
+      <source-position filename="Source/WebKit/WPEPlatform/wpe/headless/WPEToplevelHeadless.h"
+                       line="40"/>
+      <field name="parent_class">
+        <type name="WPEPlatform.ToplevelClass" c:type="WPEToplevelClass"/>
+      </field>
+    </record>
+    <class name="ViewHeadless"
+           c:symbol-prefix="view_headless"
+           c:type="WPEViewHeadless"
+           parent="WPEPlatform.View"
+           final="1"
+           glib:type-name="WPEViewHeadless"
+           glib:get-type="wpe_view_headless_get_type"
+           glib:type-struct="ViewHeadlessClass">
+      <doc xml:space="preserve"
+           filename="Source/WebKit/WPEPlatform/wpe/headless/WPEViewHeadless.cpp"
+           line="34">A headless [class@WPEPlatform.View] implementation.
+
+[class@ViewHeadless] is the [class@WPEPlatform.View] implementation used by
+[class@DisplayHeadless]. It does not display buffers on any native surface;
+instead it notifies that each buffer has been rendered, driving the
+rendering loop without producing visible output.</doc>
+      <source-position filename="Source/WebKit/WPEPlatform/wpe/headless/WPEViewHeadless.h"
+                       line="40"/>
+    </class>
+    <record name="ViewHeadlessClass"
+            c:type="WPEViewHeadlessClass"
+            glib:is-gtype-struct-for="ViewHeadless">
+      <source-position filename="Source/WebKit/WPEPlatform/wpe/headless/WPEViewHeadless.h"
+                       line="40"/>
+      <field name="parent_class">
+        <type name="WPEPlatform.ViewClass" c:type="WPEViewClass"/>
+      </field>
+    </record>
+  </namespace>
+</repository>

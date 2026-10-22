@@ -1,0 +1,17 @@
+[options]
+library = "WPEPlatform"
+version = "2.0"
+min_cfg_version = "2.0"
+target_path = "."
+work_mode = "sys"
+girs_directories = ["../../gir-files", "../../../build/gir-files"]
+single_version_file = true
+external_libraries = ["GLib", "GObject", "Gio"]
+
+# They hand out xkbcommon's own types, which gir doesn't know.
+[[object]]
+name = "WPEPlatform.KeymapXKB"
+status = "generate"
+    [[object.function]]
+    pattern = "get_xkb_(keymap|state)"
+    ignore = true

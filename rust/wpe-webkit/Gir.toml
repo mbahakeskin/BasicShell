@@ -1,0 +1,69 @@
+[options]
+library = "WPEWebKit"
+version = "2.0"
+min_cfg_version = "2.54"
+target_path = "."
+work_mode = "normal"
+girs_directories = ["../gir-files", "../../build/gir-files"]
+single_version_file = true
+deprecate_by_min_version = true
+external_libraries = ["GLib", "GObject", "Gio", "Soup", "WPEPlatform"]
+
+generate = [
+    "WPEWebKit.WebView",
+    "WPEWebKit.WebContext",
+    "WPEWebKit.Settings",
+    "WPEWebKit.LoadEvent",
+    "WPEWebKit.PolicyDecision",
+    "WPEWebKit.NavigationPolicyDecision",
+    "WPEWebKit.ResponsePolicyDecision",
+    "WPEWebKit.PolicyDecisionType",
+    "WPEWebKit.NavigationAction",
+    "WPEWebKit.NavigationType",
+    "WPEWebKit.URIRequest",
+    "WPEWebKit.URIResponse",
+    "WPEWebKit.UserContentManager",
+    "WPEWebKit.UserScript",
+    "WPEWebKit.UserStyleSheet",
+    "WPEWebKit.UserContentInjectedFrames",
+    "WPEWebKit.UserScriptInjectionTime",
+    "WPEWebKit.UserStyleLevel",
+    "WPEWebKit.WebsiteDataManager",
+    "WPEWebKit.BackForwardList",
+    "WPEWebKit.BackForwardListItem",
+    "WPEWebKit.FindController",
+    "WPEWebKit.FindOptions",
+    "WPEWebKit.NetworkProxySettings",
+    "WPEWebKit.NetworkProxyMode",
+    "WPEWebKit.PermissionRequest",
+    "WPEWebKit.CacheModel",
+    "WPEWebKit.HardwareAccelerationPolicy",
+    "WPEWebKit.InsecureContentEvent",
+    "WPEWebKit.WebProcessTerminationReason",
+    "WPEWebKit.TLSErrorsPolicy",
+    "WPEWebKit.NetworkError",
+    "WPEWebKit.PolicyError",
+]
+
+manual = [
+    "GLib.Bytes",
+    "GLib.Error",
+    "GLib.Variant",
+    "GObject.Object",
+    "Gio.Cancellable",
+    "Gio.AsyncResult",
+    "Gio.TlsCertificate",
+    "Gio.TlsCertificateFlags",
+    "Soup.MessageHeaders",
+    "WPEPlatform.Display",
+    "WPEPlatform.View",
+]
+
+[[object]]
+name = "WPEWebKit.NetworkSession"
+status = "generate"
+    [[object.function]]
+    name = "set_proxy_settings"
+        [[object.function.parameter]]
+        name = "proxy_settings"
+        const = true

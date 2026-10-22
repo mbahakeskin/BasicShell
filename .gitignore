@@ -1,2 +1,3 @@
 /build/
 /.ccache/
+/rust/target/

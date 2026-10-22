@@ -1,0 +1,12 @@
+[package]
+name = "basicshell"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT"
+description = "A small, quiet web browser for Wayland, on WPE WebKit"
+
+[dependencies]
+wpe-webkit = { path = "../wpe-webkit" }
+wpe-platform = { path = "../wpe-platform" }
+glib = "0.22"

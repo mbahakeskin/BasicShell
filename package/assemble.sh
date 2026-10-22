@@ -3,7 +3,9 @@
 # one folder, basicshell/, that runs wherever it is put on Ubuntu 24.04 or
 # anything newer, and packs it as build/basicshell-linux.tar.xz.
 #
-#   package/assemble.sh <webkit tarball or folder> <media tarball or folder>
+#   package/assemble.sh <webkit tarball or folder> <media tarball or folder> [<basicshell>]
+#
+# <basicshell> is the program (rust/, built), put in as bin/basicshell.
 #
 # What it takes from the system it runs on, which is to be Ubuntu 24.04 with
 # install-runtime.sh's packages: GStreamer's plugins (the list below), its
@@ -89,9 +91,13 @@ while read -r elf; do
   patchelf --force-rpath --set-rpath "$rpath" "$elf"
 done < <(elves)
 
-# Until BasicShell itself is here, MiniBrowser shows what the folder can do.
+# BasicShell, and WebKit's MiniBrowser beside it, to compare against.
 mkdir -p "$out/bin"
 cp "$here/minibrowser" "$out/bin/minibrowser"
+if [ -n "${3:-}" ]; then
+  cp "$3" "$out/bin/basicshell"
+  patchelf --force-rpath --set-rpath '$ORIGIN/../lib' "$out/bin/basicshell"
+fi
 cp "$here/environment.sh" "$out/lib/environment.sh"
 
 # Anything still not found is a library missing from both lists.

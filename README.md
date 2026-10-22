@@ -10,18 +10,22 @@ asks nothing of the system beyond its graphics drivers, glibc, GLib and the
 Wayland compositor. Built on Ubuntu 24.04, so it runs there and on anything
 newer. There are no releases: builds are the Actions runs' artifacts.
 
-So far there is the engine and what it plays media with, put together into
-a folder that runs; BasicShell itself is next.
+So far: the engine and what it plays media with, put together into a folder
+that runs, Rust bindings for WebKit, and the first of BasicShell itself, a
+window with a page in it.
 
 ## Trying it
 
 From the newest run of the
 [Package workflow](https://github.com/mbahakeskin/BasicShell/actions/workflows/package.yml),
 download `basicshell-linux` (signed in to GitHub), unpack it anywhere and
-run WebKit's MiniBrowser from it:
+run it:
 
     unzip basicshell-linux.zip && tar -xf basicshell-linux.tar.xz
-    basicshell/bin/minibrowser https://en.wikipedia.org
+    basicshell/bin/basicshell https://en.wikipedia.org
+
+`basicshell/bin/minibrowser` is WebKit's own test browser, from the same
+folder, to compare against.
 
 WebKit's sandbox needs `bwrap` and `xdg-dbus-proxy` from the system
 (`sudo apt install bubblewrap xdg-dbus-proxy` where they aren't there).
@@ -109,6 +113,27 @@ GNOME's ends the process where no GSettings schemas are installed;
 BasicShell is to hand WebKit the proxy itself.
 
 The folder is about 290 MB, 77 MB packed.
+
+## BasicShell (rust/)
+
+The browser, in Rust, on bindings for WPE WebKit made by gir (gtk-rs's
+generator) from the `.gir` files WebKit's build writes (`rust/gir-files`):
+
+- `sys/`: the C API as it is, one crate per library (WPEPlatform, its
+  Wayland platform, JavaScriptCore, WebKit). `cargo test` builds C against
+  WebKit's headers and checks every struct's size and layout and every
+  constant against the Rust side.
+- `wpe-platform`, `wpe-webkit`: the safe API on glib-rs (objects, signals,
+  properties), for the parts BasicShell uses, listed in each `Gir.toml`; a
+  few functions gir can't translate are left out there, to write by hand
+  when needed.
+- `basicshell`: the program. So far one window with one page, on WebKit's
+  own Wayland platform; it points WebKit, GStreamer and GIO at the folder it
+  is in, and hands WebKit the proxy from the environment (`https_proxy` and
+  the rest).
+
+`rust/regenerate.sh` makes the bindings again after WebKit is updated. They
+are built in the Package workflow, against the WebKit build it packs.
 
 ## Looking at it without a screen
 
