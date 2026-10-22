@@ -1,6 +1,9 @@
 //! BasicShell for Linux. For now: one window, one page, from the address
-//! given (or a start page), on BasicShell's own Wayland platform.
+//! given (or a start page), with a bar over it, on BasicShell's own Wayland
+//! platform.
 
+mod address;
+mod chrome;
 mod folder;
 mod platform;
 mod proxy;
@@ -53,7 +56,13 @@ fn main() -> glib::ExitCode {
     let quit = main_loop.clone();
     view.connect_close(move |_| quit.quit());
 
-    view.load_uri(&address);
+    // Over the page, so after it.
+    let Some(_chrome) = chrome::Chrome::new(&display, &toplevel, &view) else {
+        eprintln!("basicshell: WebKit made no view for the interface");
+        return glib::ExitCode::FAILURE;
+    };
+
+    view.load_uri(&address::resolve(&address).unwrap_or(address));
     main_loop.run();
     glib::ExitCode::SUCCESS
 }

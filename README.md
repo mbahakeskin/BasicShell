@@ -12,7 +12,7 @@ newer. There are no releases: builds are the Actions runs' artifacts.
 
 So far: the engine and what it plays media with, put together into a folder
 that runs, Rust bindings for WebKit, and the first of BasicShell itself, a
-window with a page in it.
+window with a page in it and a bar over the page.
 
 ## Trying it
 
@@ -123,8 +123,8 @@ generator) from the `.gir` files WebKit's build writes (`rust/gir-files`):
   Wayland platform, JavaScriptCore, WebKit). `cargo test` builds C against
   WebKit's headers and checks every struct's size and layout and every
   constant against the Rust side.
-- `wpe-platform`, `wpe-webkit`: the safe API on glib-rs (objects, signals,
-  properties), for the parts BasicShell uses, listed in each `Gir.toml`; a
+- `wpe-platform`, `wpe-javascriptcore`, `wpe-webkit`: the safe API on
+  glib-rs (objects, signals, properties), for the parts BasicShell uses, listed in each `Gir.toml`; a
   few functions gir can't translate are left out there, to write by hand
   when needed.
 - `wpe-platform` also has what it takes to subclass WPEPlatform's Display,
@@ -142,6 +142,15 @@ generator) from the `.gir` files WebKit's build writes (`rust/gir-files`):
   frames passed without a copy (DMA-BUF). It points WebKit, GStreamer and
   GIO at the folder it is in, and hands WebKit the proxy from the
   environment (`https_proxy` and the rest).
+- Its interface (`ui/chrome.html`, `chrome.rs`) is a page too, in a second
+  view over the first: transparent, and taking the pointer only where
+  something of it is shown (the page says where, and BasicShell sets the
+  subsurface's input region to that). The bar is hidden until the pointer
+  touches the top edge, or Ctrl+L (also Alt+D, F6); back, forward, reload
+  and the address, which takes an address or words to search for (Google,
+  in the system's language and region, as on macOS: `address.rs`).
+  Alt+Left and Alt+Right go back and forward, Ctrl+R and F5 reload. They
+  talk through a script message handler one way and JavaScript the other.
 
 `rust/regenerate.sh` makes the bindings again after WebKit is updated. They
 are built in the Package workflow, against the WebKit build it packs.

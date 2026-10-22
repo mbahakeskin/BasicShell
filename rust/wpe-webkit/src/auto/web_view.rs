@@ -3,7 +3,7 @@
 // from ../gir-files
 // DO NOT EDIT
 
-use crate::{ffi,BackForwardList,BackForwardListItem,FindController,LoadEvent,NavigationAction,NetworkSession,PermissionRequest,PolicyDecision,PolicyDecisionType,Settings,URIRequest,UserContentManager,WebContext,WebProcessTerminationReason};
+use crate::{ffi,BackForwardList,BackForwardListItem,Color,FindController,LoadEvent,NavigationAction,NetworkSession,PermissionRequest,PolicyDecision,PolicyDecisionType,Settings,URIRequest,UserContentManager,WebContext,WebProcessTerminationReason};
 use glib::{object::ObjectType as _,prelude::*,signal::{connect_raw, SignalHandlerId},translate::*};
 use std::{boxed::Box as Box_,pin::Pin};
 
@@ -41,31 +41,55 @@ pub trait WebViewExt: IsA<WebView> + 'static {
         }
     }
 
-    //#[doc(alias = "webkit_web_view_call_async_javascript_function")]
-    //fn call_async_javascript_function<P: FnOnce(Result</*Ignored*/wpe_java_script_core::Value, glib::Error>) + 'static>(&self, body: &str, arguments: Option<&glib::Variant>, world_name: Option<&str>, source_uri: Option<&str>, cancellable: Option<&impl IsA<gio::Cancellable>>, callback: P) {
-    //    unsafe { TODO: call ffi:webkit_web_view_call_async_javascript_function() }
-    //}
+    #[doc(alias = "webkit_web_view_call_async_javascript_function")]
+    fn call_async_javascript_function<P: FnOnce(Result<wpe_java_script_core::Value, glib::Error>) + 'static>(&self, body: &str, arguments: Option<&glib::Variant>, world_name: Option<&str>, source_uri: Option<&str>, cancellable: Option<&impl IsA<gio::Cancellable>>, callback: P) {
+        let length = body.len() as _;
+        
+                let main_context = glib::MainContext::ref_thread_default();
+                let is_main_context_owner = main_context.is_owner();
+                let has_acquired_main_context = (!is_main_context_owner)
+                    .then(|| main_context.acquire().ok())
+                    .flatten();
+                assert!(
+                    is_main_context_owner || has_acquired_main_context.is_some(),
+                    "Async operations only allowed if the thread is owning the MainContext"
+                );
+        
+        let user_data: Box_<glib::thread_guard::ThreadGuard<P>> = Box_::new(glib::thread_guard::ThreadGuard::new(callback));
+        unsafe extern "C" fn call_async_javascript_function_trampoline<P: FnOnce(Result<wpe_java_script_core::Value, glib::Error>) + 'static>(_source_object: *mut glib::gobject_ffi::GObject, res: *mut gio::ffi::GAsyncResult, user_data: glib::ffi::gpointer) { unsafe {
+            let mut error = std::ptr::null_mut();
+            let ret = ffi::webkit_web_view_call_async_javascript_function_finish(_source_object as *mut _, res, &mut error);
+            let result = if error.is_null() { Ok(from_glib_full(ret)) } else { Err(from_glib_full(error)) };
+            let callback: Box_<glib::thread_guard::ThreadGuard<P>> = Box_::from_raw(user_data as *mut _);
+            let callback: P = callback.into_inner();
+            callback(result);
+        }}
+        let callback = call_async_javascript_function_trampoline::<P>;
+        unsafe {
+            ffi::webkit_web_view_call_async_javascript_function(self.as_ref().to_glib_none().0, body.to_glib_none().0, length, arguments.to_glib_none().0, world_name.to_glib_none().0, source_uri.to_glib_none().0, cancellable.map(|p| p.as_ref()).to_glib_none().0, Some(callback), Box_::into_raw(user_data) as *mut _);
+        }
+    }
 
-    //
-    //fn call_async_javascript_function_future(&self, body: &str, arguments: Option<&glib::Variant>, world_name: Option<&str>, source_uri: Option<&str>) -> Pin<Box_<dyn std::future::Future<Output = Result</*Ignored*/wpe_java_script_core::Value, glib::Error>> + 'static>> {
+    
+    fn call_async_javascript_function_future(&self, body: &str, arguments: Option<&glib::Variant>, world_name: Option<&str>, source_uri: Option<&str>) -> Pin<Box_<dyn std::future::Future<Output = Result<wpe_java_script_core::Value, glib::Error>> + 'static>> {
 
-        //let body = String::from(body);
-        //let arguments = arguments.map(ToOwned::to_owned);
-        //let world_name = world_name.map(ToOwned::to_owned);
-        //let source_uri = source_uri.map(ToOwned::to_owned);
-        //Box_::pin(gio::GioFuture::new(self, move |obj, cancellable, send| {
-        //    obj.call_async_javascript_function(
-        //        &body,
-        //        arguments.as_ref().map(::std::borrow::Borrow::borrow),
-        //        world_name.as_ref().map(::std::borrow::Borrow::borrow),
-        //        source_uri.as_ref().map(::std::borrow::Borrow::borrow),
-        //        Some(cancellable),
-        //        move |res| {
-        //            send.resolve(res);
-        //        },
-        //    );
-        //}))
-    //}
+        let body = String::from(body);
+        let arguments = arguments.map(ToOwned::to_owned);
+        let world_name = world_name.map(ToOwned::to_owned);
+        let source_uri = source_uri.map(ToOwned::to_owned);
+        Box_::pin(gio::GioFuture::new(self, move |obj, cancellable, send| {
+            obj.call_async_javascript_function(
+                &body,
+                arguments.as_ref().map(::std::borrow::Borrow::borrow),
+                world_name.as_ref().map(::std::borrow::Borrow::borrow),
+                source_uri.as_ref().map(::std::borrow::Borrow::borrow),
+                Some(cancellable),
+                move |res| {
+                    send.resolve(res);
+                },
+            );
+        }))
+    }
 
     #[doc(alias = "webkit_web_view_can_execute_editing_command")]
     fn can_execute_editing_command<P: FnOnce(Result<(), glib::Error>) + 'static>(&self, command: &str, cancellable: Option<&impl IsA<gio::Cancellable>>, callback: P) {
@@ -136,29 +160,53 @@ pub trait WebViewExt: IsA<WebView> + 'static {
     //    unsafe { TODO: call ffi:webkit_web_view_download_uri() }
     //}
 
-    //#[doc(alias = "webkit_web_view_evaluate_javascript")]
-    //fn evaluate_javascript<P: FnOnce(Result</*Ignored*/wpe_java_script_core::Value, glib::Error>) + 'static>(&self, script: &str, world_name: Option<&str>, source_uri: Option<&str>, cancellable: Option<&impl IsA<gio::Cancellable>>, callback: P) {
-    //    unsafe { TODO: call ffi:webkit_web_view_evaluate_javascript() }
-    //}
+    #[doc(alias = "webkit_web_view_evaluate_javascript")]
+    fn evaluate_javascript<P: FnOnce(Result<wpe_java_script_core::Value, glib::Error>) + 'static>(&self, script: &str, world_name: Option<&str>, source_uri: Option<&str>, cancellable: Option<&impl IsA<gio::Cancellable>>, callback: P) {
+        let length = script.len() as _;
+        
+                let main_context = glib::MainContext::ref_thread_default();
+                let is_main_context_owner = main_context.is_owner();
+                let has_acquired_main_context = (!is_main_context_owner)
+                    .then(|| main_context.acquire().ok())
+                    .flatten();
+                assert!(
+                    is_main_context_owner || has_acquired_main_context.is_some(),
+                    "Async operations only allowed if the thread is owning the MainContext"
+                );
+        
+        let user_data: Box_<glib::thread_guard::ThreadGuard<P>> = Box_::new(glib::thread_guard::ThreadGuard::new(callback));
+        unsafe extern "C" fn evaluate_javascript_trampoline<P: FnOnce(Result<wpe_java_script_core::Value, glib::Error>) + 'static>(_source_object: *mut glib::gobject_ffi::GObject, res: *mut gio::ffi::GAsyncResult, user_data: glib::ffi::gpointer) { unsafe {
+            let mut error = std::ptr::null_mut();
+            let ret = ffi::webkit_web_view_evaluate_javascript_finish(_source_object as *mut _, res, &mut error);
+            let result = if error.is_null() { Ok(from_glib_full(ret)) } else { Err(from_glib_full(error)) };
+            let callback: Box_<glib::thread_guard::ThreadGuard<P>> = Box_::from_raw(user_data as *mut _);
+            let callback: P = callback.into_inner();
+            callback(result);
+        }}
+        let callback = evaluate_javascript_trampoline::<P>;
+        unsafe {
+            ffi::webkit_web_view_evaluate_javascript(self.as_ref().to_glib_none().0, script.to_glib_none().0, length, world_name.to_glib_none().0, source_uri.to_glib_none().0, cancellable.map(|p| p.as_ref()).to_glib_none().0, Some(callback), Box_::into_raw(user_data) as *mut _);
+        }
+    }
 
-    //
-    //fn evaluate_javascript_future(&self, script: &str, world_name: Option<&str>, source_uri: Option<&str>) -> Pin<Box_<dyn std::future::Future<Output = Result</*Ignored*/wpe_java_script_core::Value, glib::Error>> + 'static>> {
+    
+    fn evaluate_javascript_future(&self, script: &str, world_name: Option<&str>, source_uri: Option<&str>) -> Pin<Box_<dyn std::future::Future<Output = Result<wpe_java_script_core::Value, glib::Error>> + 'static>> {
 
-        //let script = String::from(script);
-        //let world_name = world_name.map(ToOwned::to_owned);
-        //let source_uri = source_uri.map(ToOwned::to_owned);
-        //Box_::pin(gio::GioFuture::new(self, move |obj, cancellable, send| {
-        //    obj.evaluate_javascript(
-        //        &script,
-        //        world_name.as_ref().map(::std::borrow::Borrow::borrow),
-        //        source_uri.as_ref().map(::std::borrow::Borrow::borrow),
-        //        Some(cancellable),
-        //        move |res| {
-        //            send.resolve(res);
-        //        },
-        //    );
-        //}))
-    //}
+        let script = String::from(script);
+        let world_name = world_name.map(ToOwned::to_owned);
+        let source_uri = source_uri.map(ToOwned::to_owned);
+        Box_::pin(gio::GioFuture::new(self, move |obj, cancellable, send| {
+            obj.evaluate_javascript(
+                &script,
+                world_name.as_ref().map(::std::borrow::Borrow::borrow),
+                source_uri.as_ref().map(::std::borrow::Borrow::borrow),
+                Some(cancellable),
+                move |res| {
+                    send.resolve(res);
+                },
+            );
+        }))
+    }
 
     #[doc(alias = "webkit_web_view_execute_editing_command")]
     fn execute_editing_command(&self, command: &str) {
@@ -189,11 +237,13 @@ pub trait WebViewExt: IsA<WebView> + 'static {
         }
     }
 
-    //#[doc(alias = "webkit_web_view_get_background_color")]
-    //#[doc(alias = "get_background_color")]
-    //fn background_color(&self, color: /*Ignored*/&mut Color) {
-    //    unsafe { TODO: call ffi:webkit_web_view_get_background_color() }
-    //}
+    #[doc(alias = "webkit_web_view_get_background_color")]
+    #[doc(alias = "get_background_color")]
+    fn background_color(&self, color: &mut Color) {
+        unsafe {
+            ffi::webkit_web_view_get_background_color(self.as_ref().to_glib_none().0, color.to_glib_none_mut().0);
+        }
+    }
 
     //#[doc(alias = "webkit_web_view_get_camera_capture_state")]
     //#[doc(alias = "get_camera_capture_state")]
@@ -370,12 +420,14 @@ pub trait WebViewExt: IsA<WebView> + 'static {
         //}))
     //}
 
-    //#[doc(alias = "webkit_web_view_get_theme_color")]
-    //#[doc(alias = "get_theme_color")]
-    //#[doc(alias = "theme-color")]
-    //fn is_theme_color(&self, color: /*Ignored*/&mut Color) -> bool {
-    //    unsafe { TODO: call ffi:webkit_web_view_get_theme_color() }
-    //}
+    #[doc(alias = "webkit_web_view_get_theme_color")]
+    #[doc(alias = "get_theme_color")]
+    #[doc(alias = "theme-color")]
+    fn is_theme_color(&self, color: &mut Color) -> bool {
+        unsafe {
+            from_glib(ffi::webkit_web_view_get_theme_color(self.as_ref().to_glib_none().0, color.to_glib_none_mut().0))
+        }
+    }
 
     #[doc(alias = "webkit_web_view_get_title")]
     #[doc(alias = "get_title")]
@@ -644,10 +696,12 @@ pub trait WebViewExt: IsA<WebView> + 'static {
         //}))
     //}
 
-    //#[doc(alias = "webkit_web_view_set_background_color")]
-    //fn set_background_color(&self, color: /*Ignored*/&mut Color) {
-    //    unsafe { TODO: call ffi:webkit_web_view_set_background_color() }
-    //}
+    #[doc(alias = "webkit_web_view_set_background_color")]
+    fn set_background_color(&self, color: &Color) {
+        unsafe {
+            ffi::webkit_web_view_set_background_color(self.as_ref().to_glib_none().0, mut_override(color.to_glib_none().0));
+        }
+    }
 
     //#[doc(alias = "webkit_web_view_set_camera_capture_state")]
     //#[doc(alias = "camera-capture-state")]

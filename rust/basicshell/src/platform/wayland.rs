@@ -15,7 +15,7 @@ use glib::prelude::*;
 use glib::translate::*;
 use smithay_client_toolkit::reexports::csd_frame::WindowState;
 use smithay_client_toolkit::{
-    compositor::{CompositorHandler, CompositorState, FrameCallbackData},
+    compositor::{CompositorHandler, CompositorState, FrameCallbackData, Region},
     delegate_registry,
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
@@ -71,12 +71,28 @@ enum Tell {
     FocusIn(wpe_platform::View),
     FocusOut(wpe_platform::View),
     Close(Toplevel),
+    /// The pointer over the page (the window's first view), or gone from
+    /// it, for BasicShell.
+    PagePointer(Option<(f64, f64)>),
+    /// A key, first for BasicShell's shortcuts, then for the view if not taken.
+    Key { view: wpe_platform::View, event: wpe_platform::Event, keysym: u32, modifiers: WpeModifiers, pressed: bool },
+}
+
+type PagePointerHook = Box<dyn Fn(Option<(f64, f64)>)>;
+type KeyHook = Box<dyn Fn(u32, WpeModifiers, bool) -> bool>;
+
+/// What BasicShell itself wants to hear about.
+#[derive(Default)]
+struct Hooks {
+    page_pointer: Option<PagePointerHook>,
+    key: Option<KeyHook>,
 }
 
 pub struct Shared {
     conn: Connection,
     queue: RefCell<EventQueue<State>>,
     state: RefCell<State>,
+    hooks: RefCell<Hooks>,
 }
 
 pub struct State {
@@ -145,7 +161,7 @@ impl Shared {
         };
         queue.roundtrip(&mut state).map_err(|e| e.to_string())?;
 
-        let shared = Rc::new(Shared { conn, queue: RefCell::new(queue), state: RefCell::new(state) });
+        let shared = Rc::new(Shared { conn, queue: RefCell::new(queue), state: RefCell::new(state), hooks: RefCell::default() });
         let fd = shared.conn.backend().poll_fd().as_raw_fd();
         let weak = Rc::downgrade(&shared);
         glib_unix::unix_fd_add_local(fd, glib::IOCondition::IN | glib::IOCondition::ERR | glib::IOCondition::HUP, move |_, condition| {
@@ -198,6 +214,17 @@ impl Shared {
                     Tell::FocusIn(view) => view.focus_in(),
                     Tell::FocusOut(view) => view.focus_out(),
                     Tell::Close(toplevel) => toplevel.close_requested(),
+                    Tell::PagePointer(at) => {
+                        if let Some(hook) = &self.hooks.borrow().page_pointer {
+                            hook(at);
+                        }
+                    }
+                    Tell::Key { view, event, keysym, modifiers, pressed } => {
+                        let taken = self.hooks.borrow().key.as_ref().is_some_and(|hook| hook(keysym, modifiers, pressed));
+                        if !taken {
+                            view.event(&event);
+                        }
+                    }
                 }
             }
         }
@@ -233,6 +260,10 @@ impl Shared {
                 let (subsurface, surface) = st.subcompositor.create_subsurface(window_surface, &st.qh);
                 subsurface.set_desync();
                 subsurface.set_position(0, 0);
+                // Nothing of it takes input until BasicShell says where it does.
+                if let Ok(region) = Region::new(&st.compositor) {
+                    surface.set_input_region(Some(region.wl_region()));
+                }
                 (surface, Some(subsurface))
             };
             st.slots.push(Slot { view: view.downgrade(), surface, subsurface, shown: None, attached: None });
@@ -248,7 +279,7 @@ impl Shared {
     pub fn detach_view(&self, view: &wpe_platform::View) {
         let Ok(mut st) = self.state.try_borrow_mut() else { return };
         st.slots.retain(|slot| {
-            let gone = slot.view.upgrade().map_or(true, |v| &v == view);
+            let gone = slot.view.upgrade().is_none_or(|v| &v == view);
             if gone {
                 if let Some(subsurface) = &slot.subsurface {
                     subsurface.destroy();
@@ -304,6 +335,41 @@ impl Shared {
         Ok(())
     }
 
+    /// Where a view takes the pointer (rectangles in its own coordinates):
+    /// elsewhere it goes to what is under it.
+    pub fn set_input_region(&self, view: &wpe_platform::View, rects: &[(i32, i32, i32, i32)]) {
+        {
+            let st = self.state.borrow();
+            let Some(slot) = st.slots.iter().find(|s| s.view.upgrade().as_ref() == Some(view)) else { return };
+            let Ok(region) = Region::new(&st.compositor) else { return };
+            for &(x, y, w, h) in rects {
+                region.add(x, y, w, h);
+            }
+            slot.surface.set_input_region(Some(region.wl_region()));
+            slot.surface.commit();
+        }
+        self.flush();
+    }
+
+    /// Gives a view the keyboard.
+    pub fn focus(&self, view: &wpe_platform::View) {
+        {
+            let mut st = self.state.borrow_mut();
+            if let Some(index) = st.slots.iter().position(|s| s.view.upgrade().as_ref() == Some(view)) {
+                st.move_focus(index);
+            }
+        }
+        self.tell_webkit();
+    }
+
+    pub fn connect_page_pointer(&self, f: impl Fn(Option<(f64, f64)>) + 'static) {
+        self.hooks.borrow_mut().page_pointer = Some(Box::new(f));
+    }
+
+    pub fn connect_key(&self, f: impl Fn(u32, WpeModifiers, bool) -> bool + 'static) {
+        self.hooks.borrow_mut().key = Some(Box::new(f));
+    }
+
     pub fn set_cursor(&self, _name: &str) {
         // The compositor's default cursor, until a cursor theme is loaded.
     }
@@ -342,16 +408,25 @@ impl Shared {
 }
 
 impl State {
-    fn slot_view(&self, surface: &wl_surface::WlSurface) -> Option<wpe_platform::View> {
-        self.slots.iter().find(|s| &s.surface == surface).and_then(|s| s.view.upgrade())
-    }
-
     fn focused_view(&self) -> Option<wpe_platform::View> {
         self.slots.get(self.focused).and_then(|s| s.view.upgrade())
     }
 
     fn modifiers(&self) -> WpeModifiers {
         self.keys | self.buttons
+    }
+
+    fn move_focus(&mut self, index: usize) {
+        if index == self.focused {
+            return;
+        }
+        if let Some(old) = self.focused_view() {
+            self.tell.push(Tell::FocusOut(old));
+        }
+        self.focused = index;
+        if let Some(new) = self.focused_view() {
+            self.tell.push(Tell::FocusIn(new));
+        }
     }
 }
 
@@ -459,21 +534,23 @@ impl SeatHandler for State {
 }
 
 impl State {
-    fn key(&mut self, kind: EventType, event: &KeyEvent) {
+    fn key(&mut self, kind: EventType, key: &KeyEvent) {
         let Some(view) = self.focused_view() else { return };
+        let keysym = key.keysym.raw();
         let ptr = unsafe {
             wpe_platform::ffi::wpe_event_keyboard_new(
                 kind.into_glib(),
                 view.to_glib_none().0,
                 InputSource::Keyboard.into_glib(),
-                event.time,
+                key.time,
                 self.modifiers().into_glib(),
-                event.raw_code + 8,
-                event.keysym.raw(),
+                key.raw_code + 8,
+                keysym,
             )
         };
         if let Some(event) = unsafe { wpe_event(ptr) } {
-            self.tell.push(Tell::Event(view, event));
+            let pressed = kind == EventType::KeyboardKeyDown;
+            self.tell.push(Tell::Key { view, event, keysym, modifiers: self.modifiers(), pressed });
         }
     }
 }
@@ -527,15 +604,38 @@ impl KeyboardHandler for State {
 impl PointerHandler for State {
     fn pointer_frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_pointer::WlPointer, events: &[PointerEvent]) {
         for e in events {
-            let Some(view) = self.slot_view(&e.surface) else { continue };
-            let (x, y) = e.position;
+            let Some(index) = self.slots.iter().position(|s| s.surface == e.surface) else { continue };
+            let Some(view) = self.slots[index].view.upgrade() else { continue };
+            // The page tells BasicShell where the pointer is (its bars come out at the edges).
+            if index == 0 {
+                match e.kind {
+                    PointerEventKind::Enter { .. } | PointerEventKind::Motion { .. } => self.tell.push(Tell::PagePointer(Some(e.position))),
+                    PointerEventKind::Leave { .. } => self.tell.push(Tell::PagePointer(None)),
+                    _ => {}
+                }
+            }
+            // A click gives the view it lands in the keyboard.
+            if matches!(e.kind, PointerEventKind::Press { .. }) {
+                self.move_focus(index);
+            }
+            // WebKit keeps what was under the pointer hovered after a leave;
+            // a move to outside the view first ends that.
+            let (x, y) = if matches!(e.kind, PointerEventKind::Leave { .. }) { (-1.0, -1.0) } else { e.position };
             let modifiers = self.modifiers();
             let view_ptr = view.to_glib_none().0;
             let ptr = match e.kind {
                 PointerEventKind::Enter { .. } | PointerEventKind::Leave { .. } | PointerEventKind::Motion { .. } => {
                     let (kind, time) = match e.kind {
                         PointerEventKind::Enter { .. } => (EventType::PointerEnter, 0),
-                        PointerEventKind::Leave { .. } => (EventType::PointerLeave, 0),
+                        PointerEventKind::Leave { .. } => {
+                            let moved = unsafe {
+                                wpe_platform::ffi::wpe_event_pointer_move_new(EventType::PointerMove.into_glib(), view_ptr, InputSource::Mouse.into_glib(), 0, modifiers.into_glib(), x, y, 0.0, 0.0)
+                            };
+                            if let Some(event) = unsafe { wpe_event(moved) } {
+                                self.tell.push(Tell::Event(view.clone(), event));
+                            }
+                            (EventType::PointerLeave, 0)
+                        }
                         PointerEventKind::Motion { time } => (EventType::PointerMove, time),
                         _ => unreachable!(),
                     };
@@ -578,8 +678,8 @@ impl PointerHandler for State {
                 }
             };
             if let Some(event) = unsafe { wpe_event(ptr) } {
-            self.tell.push(Tell::Event(view, event));
-        }
+                self.tell.push(Tell::Event(view, event));
+            }
         }
     }
 }

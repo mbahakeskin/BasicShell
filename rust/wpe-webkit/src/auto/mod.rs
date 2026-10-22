@@ -48,11 +48,17 @@ pub use self::web_view::WebView;
 mod website_data_manager;
 pub use self::website_data_manager::WebsiteDataManager;
 
+mod color;
+pub use self::color::Color;
+
 mod navigation_action;
 pub use self::navigation_action::NavigationAction;
 
 mod network_proxy_settings;
 pub use self::network_proxy_settings::NetworkProxySettings;
+
+mod script_message_reply;
+pub use self::script_message_reply::ScriptMessageReply;
 
 mod user_script;
 pub use self::user_script::UserScript;

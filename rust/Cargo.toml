@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["sys/*", "wpe-platform", "wpe-webkit", "basicshell"]
+members = ["sys/*", "wpe-platform", "wpe-javascriptcore", "wpe-webkit", "basicshell"]
 
 [profile.release]
 lto = "thin"

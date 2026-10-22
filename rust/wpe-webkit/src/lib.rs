@@ -7,6 +7,7 @@ pub use gio;
 pub use glib;
 pub use soup;
 pub use wpe_platform;
+pub use wpe_java_script_core as javascriptcore;
 
 #[allow(unused_imports)]
 mod auto;
@@ -16,3 +17,5 @@ pub mod prelude {
     pub use super::auto::traits::*;
     pub use wpe_platform::prelude::*;
 }
+
+mod color;

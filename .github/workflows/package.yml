@@ -74,7 +74,7 @@ jobs:
           sudo tar -xf build/webkit/wpewebkit-*-basicshell.tar.xz -C /opt/basicshell-webkit
           cd rust
           PKG_CONFIG_PATH=/opt/basicshell-webkit/lib/pkgconfig cargo build --release --locked -p basicshell
-          PKG_CONFIG_PATH=/opt/basicshell-webkit/lib/pkgconfig cargo test --locked -p wpe-platform-sys -p wpe-webkit-sys -p wpe-javascriptcore-sys -p wpe-platform-wayland-sys
+          PKG_CONFIG_PATH=/opt/basicshell-webkit/lib/pkgconfig cargo test --locked -p wpe-platform-sys -p wpe-webkit-sys -p wpe-javascriptcore-sys -p wpe-platform-wayland-sys -p basicshell
 
       - name: Put the folder together
         run: package/assemble.sh build/webkit/wpewebkit-*-basicshell.tar.xz build/media-*.tar.xz rust/target/release/basicshell

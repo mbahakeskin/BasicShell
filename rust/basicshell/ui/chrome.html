@@ -1,0 +1,184 @@
+<!doctype html>
+<!--
+  BasicShell's own interface, drawn by WebKit in a view of its own over the
+  page: a transparent window-sized layer that takes the pointer only where
+  something of it is shown (it tells BasicShell where, "regions"). It loads
+  nothing: no network, no other file (the content security policy below).
+  BasicShell talks to it through window.BasicShell; it answers through the
+  "basicshell" script message handler.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
+<style>
+:root {
+  --bar: rgba(246, 246, 247, 0.96);
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --field: rgba(0, 0, 0, 0.06);
+  --field-focus: #fff;
+  --line: rgba(0, 0, 0, 0.1);
+  --accent: #0a84ff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bar: rgba(40, 40, 42, 0.96);
+    --text: #f5f5f7;
+    --muted: #a1a1a6;
+    --field: rgba(255, 255, 255, 0.1);
+    --field-focus: #1c1c1e;
+    --line: rgba(255, 255, 255, 0.12);
+  }
+}
+html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+body { font: 13px/1.2 system-ui, "Noto Sans", sans-serif; color: var(--text); user-select: none; }
+
+#bar {
+  position: fixed; left: 0; right: 0; top: 0; height: 44px;
+  display: flex; align-items: center; gap: 4px; padding: 0 10px;
+  background: var(--bar); border-bottom: 1px solid var(--line);
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.08);
+  transform: translateY(-46px); transition: transform 160ms ease-out;
+}
+body.revealed #bar { transform: translateY(0); }
+
+button {
+  width: 30px; height: 30px; border: 0; border-radius: 7px; padding: 0;
+  background: transparent; color: var(--text); display: grid; place-items: center;
+}
+button:hover:not(:disabled) { background: var(--field); }
+button:disabled { color: var(--muted); opacity: 0.45; }
+button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+#address {
+  flex: 1; max-width: 680px; margin: 0 auto; height: 30px; box-sizing: border-box;
+  border: 1px solid transparent; border-radius: 8px; padding: 0 10px;
+  background: var(--field); color: var(--text); font: inherit; text-align: center; outline: none;
+}
+#address:focus { background: var(--field-focus); border-color: var(--accent); text-align: left; user-select: text; }
+
+#progress {
+  position: fixed; left: 0; top: 0; height: 2px; width: 0; background: var(--accent);
+  opacity: 0; transition: width 200ms ease-out, opacity 300ms; pointer-events: none;
+}
+body.loading #progress { opacity: 1; }
+body.revealed #progress { top: 43px; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <button id="back" title="Back" disabled><svg viewBox="0 0 16 16"><path d="M10 3 5 8l5 5"/></svg></button>
+  <button id="forward" title="Forward" disabled><svg viewBox="0 0 16 16"><path d="m6 3 5 5-5 5"/></svg></button>
+  <button id="reload" title="Reload"><svg viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5v3h-3"/></svg></button>
+  <input id="address" spellcheck="false" autocomplete="off" placeholder="Search or enter an address">
+  <span style="width: 98px"></span>
+</div>
+<div id="progress"></div>
+<script>
+"use strict";
+const post = message => window.webkit.messageHandlers.basicshell.postMessage(JSON.stringify(message));
+const $ = id => document.getElementById(id);
+const bar = $("bar"), address = $("address");
+
+let page = { uri: "", title: "", progress: 1, loading: false, back: false, forward: false };
+// Whether the pointer is on the bar, kept here: WebKit doesn't say when the
+// pointer leaves the view, so :hover and mouseleave can't be trusted to.
+let revealed = false, editing = false, onBar = false, hideTimer = 0;
+
+// Where this layer takes the pointer: the bar while it is out, nowhere else.
+function regions() {
+  const rects = [];
+  if (revealed) rects.push([0, 0, window.innerWidth, 45]);
+  post({ type: "regions", rects });
+}
+
+function shown(uri) {
+  try {
+    const url = new URL(uri);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      const host = url.host.replace(/^www\./, "");
+      return url.pathname === "/" ? host : host + decodeURI(url.pathname);
+    }
+  } catch (e) {}
+  return uri;
+}
+
+function render() {
+  $("back").disabled = !page.back;
+  $("forward").disabled = !page.forward;
+  if (!editing) address.value = shown(page.uri);
+  document.body.classList.toggle("loading", page.loading);
+  $("progress").style.width = (page.loading ? Math.max(5, page.progress * 100) : 100) + "%";
+}
+
+function reveal() {
+  clearTimeout(hideTimer);
+  if (!revealed) {
+    revealed = true;
+    document.body.classList.add("revealed");
+    regions();
+  }
+}
+
+function conceal() {
+  if (editing || !revealed) return;
+  revealed = false;
+  document.body.classList.remove("revealed");
+  regions();
+}
+
+function concealSoon(delay = 450) {
+  clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => { if (!onBar) conceal(); }, delay);
+}
+
+bar.addEventListener("mousemove", () => { onBar = true; clearTimeout(hideTimer); });
+$("back").addEventListener("click", () => post({ type: "back" }));
+$("forward").addEventListener("click", () => post({ type: "forward" }));
+$("reload").addEventListener("click", () => post({ type: page.loading ? "stop" : "reload" }));
+
+function stopEditing() {
+  if (!editing) return;
+  editing = false;
+  address.blur();
+  render();
+  concealSoon();
+}
+
+address.addEventListener("focus", () => {
+  reveal();
+  if (editing) return;  // back from another window: as it was left
+  editing = true;
+  address.value = page.uri;
+  address.select();
+});
+// The window losing the keyboard blurs it too; that leaves it as it is.
+address.addEventListener("blur", () => { if (document.hasFocus()) stopEditing(); });
+address.addEventListener("keydown", event => {
+  if (event.key === "Enter" && address.value.trim()) {
+    post({ type: "navigate", text: address.value.trim() });
+    stopEditing();
+    post({ type: "focus-page" });
+  } else if (event.key === "Escape") {
+    stopEditing();
+    post({ type: "focus-page" });
+  }
+});
+
+window.BasicShell = {
+  update(state) { Object.assign(page, state); render(); },
+  reveal() { reveal(); concealSoon(1500); },
+  editAddress() { reveal(); address.focus(); },
+  // The page has the keyboard: whatever was being typed here is left.
+  pageFocused() { stopEditing(); },
+  // The pointer went from here to the page.
+  pointerOnPage() { onBar = false; concealSoon(300); },
+};
+
+regions();
+render();
+post({ type: "ready" });
+</script>
+</body>
+</html>

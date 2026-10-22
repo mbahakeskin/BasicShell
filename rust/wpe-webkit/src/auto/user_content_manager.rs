@@ -3,8 +3,9 @@
 // from ../gir-files
 // DO NOT EDIT
 
-use crate::{ffi,UserScript,UserStyleSheet};
-use glib::{translate::*};
+use crate::{ffi,ScriptMessageReply,UserScript,UserStyleSheet};
+use glib::{object::ObjectType as _,prelude::*,signal::{connect_raw, SignalHandlerId},translate::*};
+use std::{boxed::Box as Box_};
 
 glib::wrapper! {
     #[doc(alias = "WebKitUserContentManager")]
@@ -110,16 +111,35 @@ impl UserContentManager {
         }
     }
 
-    //#[doc(alias = "script-message-received")]
-    //pub fn connect_script_message_received<Unsupported or ignored types>(&self, detail: Option<&str>, f: F) -> SignalHandlerId {
-    //    Ignored value: WPEJavaScriptCore.Value
-    //}
+    #[doc(alias = "script-message-received")]
+    pub fn connect_script_message_received<F: Fn(&Self, &wpe_java_script_core::Value) + 'static>(&self, detail: Option<&str>, f: F) -> SignalHandlerId {
+        unsafe extern "C" fn script_message_received_trampoline<F: Fn(&UserContentManager, &wpe_java_script_core::Value) + 'static>(this: *mut ffi::WebKitUserContentManager, value: *mut wpe_java_script_core::ffi::JSCValue, f: glib::ffi::gpointer) { unsafe {
+            let f: &F = &*(f as *const F);
+            f(&from_glib_borrow(this), &from_glib_borrow(value))
+        }}
+        unsafe {
+            let f: Box_<F> = Box_::new(f);
+            let detailed_signal_name = detail.map(|name| { format!("script-message-received::{name}\0") });
+            let signal_name = detailed_signal_name.as_ref().map_or(c"script-message-received", |n| std::ffi::CStr::from_bytes_with_nul_unchecked(n.as_bytes()));
+            connect_raw(self.as_ptr() as *mut _, signal_name.as_ptr(),
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(script_message_received_trampoline::<F> as *const ())), Box_::into_raw(f))
+        }
+    }
 
-    //#[doc(alias = "script-message-with-reply-received")]
-    //pub fn connect_script_message_with_reply_received<Unsupported or ignored types>(&self, detail: Option<&str>, f: F) -> SignalHandlerId {
-    //    Ignored value: WPEJavaScriptCore.Value
-    //    Ignored reply: WPEWebKit.ScriptMessageReply
-    //}
+    #[doc(alias = "script-message-with-reply-received")]
+    pub fn connect_script_message_with_reply_received<F: Fn(&Self, &wpe_java_script_core::Value, &ScriptMessageReply) -> bool + 'static>(&self, detail: Option<&str>, f: F) -> SignalHandlerId {
+        unsafe extern "C" fn script_message_with_reply_received_trampoline<F: Fn(&UserContentManager, &wpe_java_script_core::Value, &ScriptMessageReply) -> bool + 'static>(this: *mut ffi::WebKitUserContentManager, value: *mut wpe_java_script_core::ffi::JSCValue, reply: *mut ffi::WebKitScriptMessageReply, f: glib::ffi::gpointer) -> glib::ffi::gboolean { unsafe {
+            let f: &F = &*(f as *const F);
+            f(&from_glib_borrow(this), &from_glib_borrow(value), &from_glib_borrow(reply)).into_glib()
+        }}
+        unsafe {
+            let f: Box_<F> = Box_::new(f);
+            let detailed_signal_name = detail.map(|name| { format!("script-message-with-reply-received::{name}\0") });
+            let signal_name = detailed_signal_name.as_ref().map_or(c"script-message-with-reply-received", |n| std::ffi::CStr::from_bytes_with_nul_unchecked(n.as_bytes()));
+            connect_raw(self.as_ptr() as *mut _, signal_name.as_ptr(),
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(script_message_with_reply_received_trampoline::<F> as *const ())), Box_::into_raw(f))
+        }
+    }
 }
 
 impl Default for UserContentManager {

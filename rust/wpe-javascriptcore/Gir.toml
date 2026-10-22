@@ -1,0 +1,31 @@
+[options]
+library = "WPEJavaScriptCore"
+version = "2.0"
+min_cfg_version = "2.54"
+target_path = "."
+work_mode = "normal"
+girs_directories = ["../gir-files", "../../build/gir-files"]
+single_version_file = true
+deprecate_by_min_version = true
+external_libraries = ["GLib", "GObject"]
+
+generate = [
+    "WPEJavaScriptCore.Context",
+    "WPEJavaScriptCore.Exception",
+    "WPEJavaScriptCore.ValuePropertyFlags",
+    "WPEJavaScriptCore.TypedArrayType",
+]
+
+manual = [
+    "GLib.Bytes",
+    "GObject.Object",
+    "GObject.Value",
+]
+
+# Raw memory of array buffers and typed arrays, which gir hands out wrongly.
+[[object]]
+name = "WPEJavaScriptCore.Value"
+status = "generate"
+    [[object.function]]
+    pattern = ".*_get_data"
+    ignore = true

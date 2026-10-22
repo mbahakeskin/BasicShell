@@ -7,10 +7,9 @@ work_mode = "normal"
 girs_directories = ["../gir-files", "../../build/gir-files"]
 single_version_file = true
 deprecate_by_min_version = true
-external_libraries = ["GLib", "GObject", "Gio", "Soup", "WPEPlatform"]
+external_libraries = ["GLib", "GObject", "Gio", "Soup", "WPEJavaScriptCore", "WPEPlatform"]
 
 generate = [
-    "WPEWebKit.WebView",
     "WPEWebKit.WebContext",
     "WPEWebKit.Settings",
     "WPEWebKit.LoadEvent",
@@ -37,6 +36,8 @@ generate = [
     "WPEWebKit.NetworkProxyMode",
     "WPEWebKit.PermissionRequest",
     "WPEWebKit.CacheModel",
+    "WPEWebKit.Color",
+    "WPEWebKit.ScriptMessageReply",
     "WPEWebKit.HardwareAccelerationPolicy",
     "WPEWebKit.InsecureContentEvent",
     "WPEWebKit.WebProcessTerminationReason",
@@ -55,6 +56,7 @@ manual = [
     "Gio.TlsCertificate",
     "Gio.TlsCertificateFlags",
     "Soup.MessageHeaders",
+    "WPEJavaScriptCore.Value",
     "WPEPlatform.Display",
     "WPEPlatform.View",
 ]
@@ -66,4 +68,13 @@ status = "generate"
     name = "set_proxy_settings"
         [[object.function.parameter]]
         name = "proxy_settings"
+        const = true
+
+[[object]]
+name = "WPEWebKit.WebView"
+status = "generate"
+    [[object.function]]
+    name = "set_background_color"
+        [[object.function.parameter]]
+        name = "color"
         const = true
