@@ -3,7 +3,7 @@
 // from ../gir-files
 // DO NOT EDIT
 
-use crate::{ffi,Screen,Toplevel};
+use crate::{ffi,Keymap,Screen,Toplevel};
 use glib::{object::ObjectType as _,prelude::*,signal::{connect_raw, SignalHandlerId},translate::*};
 use std::{boxed::Box as Box_};
 
@@ -85,11 +85,13 @@ pub trait DisplayExt: IsA<Display> + 'static {
     //    unsafe { TODO: call ffi:wpe_display_get_egl_display() }
     //}
 
-    //#[doc(alias = "wpe_display_get_keymap")]
-    //#[doc(alias = "get_keymap")]
-    //fn keymap(&self) -> /*Ignored*/Option<Keymap> {
-    //    unsafe { TODO: call ffi:wpe_display_get_keymap() }
-    //}
+    #[doc(alias = "wpe_display_get_keymap")]
+    #[doc(alias = "get_keymap")]
+    fn keymap(&self) -> Option<Keymap> {
+        unsafe {
+            from_glib_none(ffi::wpe_display_get_keymap(self.as_ref().to_glib_none().0))
+        }
+    }
 
     #[doc(alias = "wpe_display_get_n_screens")]
     #[doc(alias = "get_n_screens")]

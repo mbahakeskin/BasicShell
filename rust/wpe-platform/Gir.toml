@@ -12,6 +12,7 @@ external_libraries = ["GLib", "GObject", "Gio"]
 generate = [
     "WPEPlatform.Toplevel",
     "WPEPlatform.Screen",
+    "WPEPlatform.Keymap",
     "WPEPlatform.ToplevelState",
     "WPEPlatform.EventType",
     "WPEPlatform.Modifiers",
@@ -52,4 +53,12 @@ name = "WPEPlatform.Display"
 status = "generate"
     [[object.function]]
     name = "disconnected"
+    ignore = true
+
+# They hand out xkbcommon's own types, which gir doesn't know.
+[[object]]
+name = "WPEPlatform.KeymapXKB"
+status = "generate"
+    [[object.function]]
+    pattern = "get_xkb_(keymap|state)"
     ignore = true

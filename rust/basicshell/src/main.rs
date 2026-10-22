@@ -1,9 +1,11 @@
 //! BasicShell for Linux. For now: one window, one page, from the address
-//! given (or a start page), on WPE WebKit's own Wayland platform.
+//! given (or a start page), on BasicShell's own Wayland platform.
 
 mod folder;
+mod platform;
 mod proxy;
 
+use glib::prelude::*;
 use wpe_webkit::prelude::*;
 
 const START: &str = "https://duckduckgo.com";
@@ -15,6 +17,15 @@ fn main() -> glib::ExitCode {
     let address = std::env::args().nth(1).unwrap_or_else(|| START.to_owned());
     let main_loop = glib::MainLoop::new(None, false);
 
+    let display = platform::Display::new();
+    if let Err(e) = wpe_platform::prelude::DisplayExt::connect(display.upcast_ref::<wpe_platform::Display>()) {
+        eprintln!("basicshell: {e}");
+        return glib::ExitCode::FAILURE;
+    }
+    let toplevel = platform::Toplevel::new(&display);
+    let quit = main_loop.clone();
+    toplevel.connect_close(move || quit.quit());
+
     let session = wpe_webkit::NetworkSession::new(
         Some(&folder::data_dir().to_string_lossy()),
         Some(&folder::cache_dir().to_string_lossy()),
@@ -24,32 +35,23 @@ fn main() -> glib::ExitCode {
     settings.set_enable_developer_extras(true);
 
     let view: wpe_webkit::WebView = glib::Object::builder()
+        .property("display", display.upcast_ref::<wpe_platform::Display>())
         .property("network-session", &session)
         .property("settings", &settings)
         .build();
-
     let Some(wpe_view) = view.wpe_view() else {
-        eprintln!("basicshell: WebKit has no view (is there a Wayland display?)");
+        eprintln!("basicshell: WebKit made no view");
         return glib::ExitCode::FAILURE;
     };
-    let toplevel = wpe_view.toplevel();
-    if let Some(toplevel) = &toplevel {
-        toplevel.set_title(Some("BasicShell"));
-        toplevel.resize(1280, 800);
-    }
+    wpe_view.set_toplevel(Some(toplevel.upcast_ref::<wpe_platform::Toplevel>()));
 
+    let window = toplevel.clone();
     view.connect_title_notify(move |view| {
-        if let Some(toplevel) = &toplevel {
-            let title = view.title().filter(|t| !t.is_empty());
-            toplevel.set_title(Some(title.as_deref().unwrap_or("BasicShell")));
-        }
+        let title = view.title().filter(|t| !t.is_empty());
+        window.set_title(Some(title.as_deref().unwrap_or("BasicShell")));
     });
     let quit = main_loop.clone();
     view.connect_close(move |_| quit.quit());
-    if let Some(display) = wpe_view.display() {
-        let quit = main_loop.clone();
-        display.connect_disconnected(move |_, _| quit.quit());
-    }
 
     view.load_uri(&address);
     main_loop.run();

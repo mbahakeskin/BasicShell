@@ -10,3 +10,6 @@ description = "A small, quiet web browser for Wayland, on WPE WebKit"
 wpe-webkit = { path = "../wpe-webkit" }
 wpe-platform = { path = "../wpe-platform" }
 glib = "0.22"
+smithay-client-toolkit = { version = "0.21", default-features = false, features = ["xkbcommon"] }
+wayland-client = "0.31"
+glib-unix = "0.22"

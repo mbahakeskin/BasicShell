@@ -17,3 +17,6 @@ pub mod prelude {
 /// An input event, a boxed type gir leaves to be written by hand.
 pub mod event;
 pub use event::Event;
+
+/// Subclassing Display, View and Toplevel: a platform of one's own.
+pub mod subclass;

@@ -127,10 +127,21 @@ generator) from the `.gir` files WebKit's build writes (`rust/gir-files`):
   properties), for the parts BasicShell uses, listed in each `Gir.toml`; a
   few functions gir can't translate are left out there, to write by hand
   when needed.
-- `basicshell`: the program. So far one window with one page, on WebKit's
-  own Wayland platform; it points WebKit, GStreamer and GIO at the folder it
-  is in, and hands WebKit the proxy from the environment (`https_proxy` and
-  the rest).
+- `wpe-platform` also has what it takes to subclass WPEPlatform's Display,
+  View and Toplevel from Rust (`subclass/`): a platform of one's own.
+- `basicshell`: the program, on a platform of its own (`platform/`): its
+  own Wayland connection (smithay-client-toolkit, read on GLib's main loop),
+  one window whose surface the first view draws into and where every other
+  view gets a subsurface over it, placed where BasicShell says (WebKit's
+  own Wayland platform can't place its views, and the browser's interface
+  is to sit over the page). WebKit's frames come as shared memory and are
+  copied into the compositor's; pointer, wheel, touchpad and keyboard go to
+  WebKit as its own events. So far one window with one page; tried in the
+  headless compositor: a page, clicking, typing and scrolling. Still to
+  come: the pointer's cursor shapes, key repeat, a screen's scale, and
+  frames passed without a copy (DMA-BUF). It points WebKit, GStreamer and
+  GIO at the folder it is in, and hands WebKit the proxy from the
+  environment (`https_proxy` and the rest).
 
 `rust/regenerate.sh` makes the bindings again after WebKit is updated. They
 are built in the Package workflow, against the WebKit build it packs.

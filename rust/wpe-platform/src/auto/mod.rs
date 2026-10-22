@@ -15,6 +15,12 @@ pub use self::buffer_shm::BufferSHM;
 mod display;
 pub use self::display::Display;
 
+mod keymap;
+pub use self::keymap::Keymap;
+
+mod keymap_xkb;
+pub use self::keymap_xkb::KeymapXKB;
+
 mod screen;
 pub use self::screen::Screen;
 
@@ -39,6 +45,7 @@ pub use self::flags::ToplevelState;
 pub(crate) mod traits {
     pub use super::buffer::BufferExt;
     pub use super::display::DisplayExt;
+    pub use super::keymap::KeymapExt;
     pub use super::screen::ScreenExt;
     pub use super::toplevel::ToplevelExt;
     pub use super::view::ViewExt;
