@@ -112,6 +112,14 @@ impl Toplevel {
         self.shared().start_move();
     }
 
+    pub fn is_maximized(&self) -> bool {
+        self.shared().is_maximized()
+    }
+
+    pub fn is_fullscreen(&self) -> bool {
+        self.shared().is_fullscreen()
+    }
+
     pub fn toggle_maximized(&self) {
         let shared = self.shared();
         shared.set_maximized(!shared.is_maximized());

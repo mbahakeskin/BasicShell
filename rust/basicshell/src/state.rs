@@ -5,10 +5,14 @@ use serde_json::{json, Value};
 
 use crate::folder;
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy, PartialEq)]
 pub struct State {
     /// The sidebar stays out, the page beside it.
     pub sidebar_pinned: bool,
+    /// The window's size when it was last neither maximized nor full screen
+    /// (Wayland leaves where it goes to the compositor).
+    pub window: Option<(i32, i32)>,
+    pub maximized: bool,
 }
 
 fn path() -> std::path::PathBuf {
@@ -19,11 +23,20 @@ fn path() -> std::path::PathBuf {
 pub fn load() -> State {
     let Ok(text) = std::fs::read_to_string(path()) else { return State::default() };
     let Ok(value) = serde_json::from_str::<Value>(&text) else { return State::default() };
-    State { sidebar_pinned: value["sidebarPinned"].as_bool().unwrap_or(false) }
+    let size = |v: &Value| v.as_i64().filter(|&n| (100..=20000).contains(&n)).map(|n| n as i32);
+    State {
+        sidebar_pinned: value["sidebarPinned"].as_bool().unwrap_or(false),
+        window: size(&value["window"][0]).zip(size(&value["window"][1])),
+        maximized: value["maximized"].as_bool().unwrap_or(false),
+    }
 }
 
 pub fn save(state: &State) {
-    let value = json!({ "sidebarPinned": state.sidebar_pinned });
+    let value = json!({
+        "sidebarPinned": state.sidebar_pinned,
+        "window": state.window.map(|(w, h)| [w, h]),
+        "maximized": state.maximized,
+    });
     let path = path();
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);

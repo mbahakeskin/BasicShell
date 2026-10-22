@@ -174,6 +174,7 @@ pub struct State {
     /// Maximized, full screen or tiled: no resizing from the edges.
     fixed: bool,
     maximized: bool,
+    fullscreen: bool,
     /// In stacking order, the bottom one first.
     slots: Vec<Slot>,
 
@@ -238,6 +239,7 @@ impl Shared {
             client_side: true,
             fixed: false,
             maximized: false,
+            fullscreen: false,
             slots: Vec::new(),
             seat: None,
             keyboard: None,
@@ -657,6 +659,10 @@ impl Shared {
         self.state.borrow().maximized
     }
 
+    pub fn is_fullscreen(&self) -> bool {
+        self.state.borrow().fullscreen
+    }
+
     pub fn connect_pointer(&self, f: impl Fn(&wpe_platform::View, Option<(f64, f64)>) + 'static) {
         self.hooks.borrow_mut().pointer = Some(Box::new(f));
     }
@@ -880,6 +886,7 @@ impl WindowHandler for State {
         let Some(toplevel) = self.toplevel.upgrade() else { return };
         self.client_side = configure.decoration_mode == DecorationMode::Client;
         self.maximized = configure.state.contains(WindowState::MAXIMIZED);
+        self.fullscreen = configure.state.contains(WindowState::FULLSCREEN);
         self.fixed = configure.state.intersects(
             WindowState::MAXIMIZED | WindowState::FULLSCREEN | WindowState::TILED_LEFT | WindowState::TILED_RIGHT | WindowState::TILED_TOP | WindowState::TILED_BOTTOM,
         );

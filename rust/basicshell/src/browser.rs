@@ -140,6 +140,8 @@ pub struct Browser {
     next_id: Cell<u64>,
     /// The sidebar stays out, the page beside it.
     pinned: Cell<bool>,
+    /// What is kept in state.json, as last written.
+    kept: Cell<state::State>,
     zone: Cell<Zone>,
     update_queued: Cell<bool>,
     /// The field asked for before the interface was there to show it.
@@ -159,6 +161,14 @@ impl Browser {
         if let Some(data) = session.website_data_manager() {
             data.set_favicons_enabled(true);
         }
+        let kept = state::load();
+        // The size it had, before the compositor first says one.
+        if let Some((w, h)) = kept.window {
+            toplevel.resize(w, h);
+        }
+        if kept.maximized {
+            toplevel.maximize();
+        }
         let browser = Rc::new_cyclic(|me: &Weak<Browser>| Browser {
             me: me.clone(),
             display: display.clone(),
@@ -172,7 +182,8 @@ impl Browser {
             recent: RefCell::default(),
             closed: RefCell::default(),
             next_id: Cell::new(1),
-            pinned: Cell::new(state::load().sidebar_pinned),
+            pinned: Cell::new(kept.sidebar_pinned),
+            kept: Cell::new(kept),
             zone: Cell::new(Zone::Away),
             update_queued: Cell::new(false),
             pending_ask: RefCell::default(),
@@ -203,6 +214,7 @@ impl Browser {
         toplevel.connect_resized(move |_, _| {
             if let Some(browser) = me.upgrade() {
                 browser.layout();
+                browser.keep_window();
             }
         });
         let me = browser.me.clone();
@@ -638,9 +650,26 @@ impl Browser {
 
     fn set_pinned(&self, pinned: bool) {
         self.pinned.set(pinned);
-        state::save(&state::State { sidebar_pinned: pinned });
+        self.keep(state::State { sidebar_pinned: pinned, ..self.kept.get() });
         self.layout();
         self.update();
+    }
+
+    /// The window's size and whether it is maximized, kept for next time.
+    fn keep_window(&self) {
+        let maximized = self.toplevel.is_maximized();
+        let mut kept = self.kept.get();
+        kept.maximized = maximized;
+        if !maximized && !self.toplevel.is_fullscreen() {
+            kept.window = Some(self.toplevel.size());
+        }
+        self.keep(kept);
+    }
+
+    fn keep(&self, kept: state::State) {
+        if kept != self.kept.replace(kept) {
+            state::save(&kept);
+        }
     }
 
     // MARK: - the interface

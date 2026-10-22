@@ -158,7 +158,9 @@ generator) from the `.gir` files WebKit's build writes (`rust/gir-files`):
   sidebar-only layout, its sizes and timings: the sidebar, 250 pixels wide,
   comes out when the pointer rests against the left edge and goes once the
   pointer is well past it, or stays out, the page beside it (its pin
-  button, Ctrl+Shift+S; kept in `state.json` in the data folder). At its
+  button, Ctrl+Shift+S; kept in `state.json` in the data folder, with the
+  window's size and whether it was maximized: where it goes is the
+  compositor's to say on Wayland). At its
   top, the window's buttons where the Mac's traffic lights are (the window
   is moved from that row, and zoomed by a double click), back and forward,
   the site with reload, new tab and new private tab; under them the pinned
