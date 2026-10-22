@@ -5,6 +5,7 @@ mod address;
 mod browser;
 mod chrome;
 mod folder;
+mod icon;
 mod platform;
 mod proxy;
 mod session;

@@ -112,6 +112,7 @@ button:disabled { color: var(--faint); }
   width: 16px; height: 16px; border-radius: 50%; flex: none; display: grid; place-items: center;
   font-size: 10px; font-weight: 600; background: var(--fill);
 }
+img.icon { border-radius: 3px; background: none; object-fit: contain; }
 
 /* The field in the middle of the window, over the page. */
 #ask { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.12); display: none; }
@@ -200,6 +201,8 @@ const icons = {
 const escape = text => String(text).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 let state = { tabs: [], page: null, pinned: false };
+// Each tab's icon, as a data: URL, by its id.
+const tabIcons = new Map();
 // Out because the pointer brought it.
 let shown = false;
 // What the field in the middle is up for: "new", "private", "address", or nothing.
@@ -339,9 +342,8 @@ function drawList() {
       line.style.left = "-7px";
       row.append(line);
     }
-    const letter = (tab.name.trim()[0] || "·").toUpperCase();
     row.insertAdjacentHTML("beforeend",
-      `<span class="icon">${escape(letter)}</span><span class="name">${escape(tab.name)}</span>` +
+      iconHTML(tab) + `<span class="name">${escape(tab.name)}</span>` +
       (tab.private ? `<span class="private">${icons.glasses}</span>` : "") +
       `<button class="close" title="Close Tab">${icons.close}</button>`);
     row.addEventListener("click", event => {
@@ -353,6 +355,13 @@ function drawList() {
     list.append(row);
   }
   if (state.tabs.length) list.append(newRow(false));
+}
+
+// The tab's icon, or its first letter until there is one (the macOS app's Favicon).
+function iconHTML(tab) {
+  const url = tabIcons.get(tab.id);
+  if (url) return `<img class="icon" src="${url}" alt="">`;
+  return `<span class="icon">${escape((tab.name.trim()[0] || "·").toUpperCase())}</span>`;
 }
 
 // A New Tab button shaped like a row, above the tabs and below them.
@@ -509,6 +518,20 @@ addEventListener("resize", render);
 window.BasicShell = {
   update(next) { state = next; render(); if (asking) suggest(); },
   ask(what) { ask(what); },
+  // A tab's icon: straight RGBA pixels, base64, drawn to a data: URL here.
+  icon(id, width, height, rgba) {
+    if (!rgba) tabIcons.delete(id);
+    else {
+      const bytes = Uint8ClampedArray.from(atob(rgba), c => c.charCodeAt(0));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext("2d").putImageData(new ImageData(bytes, width, height), 0, 0);
+      tabIcons.set(id, canvas.toDataURL());
+    }
+    lastList = "";
+    render();
+  },
   // Where the pointer is over the page: "edge", "near" or "far".
   pointer(zone) { if (zone === "edge") edge(); else if (zone === "far") away(); else clearTimeout(dwell); },
 };

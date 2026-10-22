@@ -3,7 +3,7 @@
 // from ../gir-files
 // DO NOT EDIT
 
-use crate::{ffi};
+use crate::{ffi,FaviconDatabase};
 use glib::{prelude::*,translate::*};
 
 glib::wrapper! {
@@ -73,11 +73,13 @@ impl WebsiteDataManager {
         }
     }
 
-    //#[doc(alias = "webkit_website_data_manager_get_favicon_database")]
-    //#[doc(alias = "get_favicon_database")]
-    //pub fn favicon_database(&self) -> /*Ignored*/Option<FaviconDatabase> {
-    //    unsafe { TODO: call ffi:webkit_website_data_manager_get_favicon_database() }
-    //}
+    #[doc(alias = "webkit_website_data_manager_get_favicon_database")]
+    #[doc(alias = "get_favicon_database")]
+    pub fn favicon_database(&self) -> Option<FaviconDatabase> {
+        unsafe {
+            from_glib_none(ffi::webkit_website_data_manager_get_favicon_database(self.to_glib_none().0))
+        }
+    }
 
     #[doc(alias = "webkit_website_data_manager_get_favicons_enabled")]
     #[doc(alias = "get_favicons_enabled")]

@@ -12,6 +12,7 @@ use wpe_webkit::prelude::*;
 
 use crate::address;
 use crate::chrome::Chrome;
+use crate::icon::{self, Icon};
 use crate::platform::{Display, Rect, Toplevel};
 use crate::state;
 
@@ -50,6 +51,7 @@ pub struct Tab {
     view: RefCell<Option<wpe_webkit::WebView>>,
     /// What a tab brought back was, until it has its page.
     saved: RefCell<Saved>,
+    icon: RefCell<Option<Icon>>,
 }
 
 #[derive(Default)]
@@ -148,6 +150,9 @@ impl Browser {
     pub fn new(display: &Display, toplevel: &Toplevel, session: wpe_webkit::NetworkSession, quit: impl Fn() + 'static) -> Option<Rc<Browser>> {
         let settings = wpe_webkit::Settings::new();
         settings.set_enable_developer_extras(true);
+        if let Some(data) = session.website_data_manager() {
+            data.set_favicons_enabled(true);
+        }
         let browser = Rc::new_cyclic(|me: &Weak<Browser>| Browser {
             me: me.clone(),
             display: display.clone(),
@@ -203,7 +208,16 @@ impl Browser {
 
     fn make_view(&self, private: bool) -> wpe_webkit::WebView {
         let session = if private {
-            self.private_session.get_or_init(wpe_webkit::NetworkSession::new_ephemeral).clone()
+            self.private_session
+                .get_or_init(|| {
+                    let session = wpe_webkit::NetworkSession::new_ephemeral();
+                    // Kept in memory only, as all of an ephemeral session is.
+                    if let Some(data) = session.website_data_manager() {
+                        data.set_favicons_enabled(true);
+                    }
+                    session
+                })
+                .clone()
         } else {
             self.session.clone()
         };
@@ -217,7 +231,7 @@ impl Browser {
     fn new_tab(&self, private: bool, opener: Option<u64>, saved: Saved) -> Rc<Tab> {
         let id = self.next_id.get();
         self.next_id.set(id + 1);
-        Rc::new(Tab { id, private, opener: Cell::new(opener), view: RefCell::default(), saved: RefCell::new(saved) })
+        Rc::new(Tab { id, private, opener: Cell::new(opener), view: RefCell::default(), saved: RefCell::new(saved), icon: RefCell::default() })
     }
 
     /// A new tab at `uri`, after the tab it came from (or at the end).
@@ -243,6 +257,7 @@ impl Browser {
         for saved in session.tabs {
             let opener = saved.opener.and_then(|i| made.get(i)).map(|t| t.id);
             let tab = self.new_tab(false, opener, Saved { uri: saved.uri, title: saved.title, history: saved.history });
+            *tab.icon.borrow_mut() = saved.icon;
             self.tabs.borrow_mut().push(tab.clone());
             made.push(tab);
         }
@@ -313,7 +328,23 @@ impl Browser {
         view.connect_title_notify(update.clone());
         view.connect_estimated_load_progress_notify(update.clone());
         view.connect_is_loading_notify(update.clone());
-        view.connect_load_changed(move |view, _| update(view));
+        let (me, id) = (self.me.clone(), tab.id);
+        view.connect_load_changed(move |view, event| {
+            update(view);
+            // The page's icon, once it has loaded, and again a little later
+            // for one that comes after.
+            if event == wpe_webkit::LoadEvent::Finished {
+                if let Some(browser) = me.upgrade() {
+                    browser.fetch_icon(id);
+                }
+                let me = me.clone();
+                glib::timeout_add_seconds_local_once(2, move || {
+                    if let Some(browser) = me.upgrade() {
+                        browser.fetch_icon(id);
+                    }
+                });
+            }
+        });
 
         // A link opened in a new tab or window: a tab after this one.
         let (me, id, private) = (self.me.clone(), tab.id, tab.private);
@@ -335,6 +366,30 @@ impl Browser {
                 browser.close(id);
             }
         });
+    }
+
+    fn fetch_icon(&self, id: u64) {
+        let Some(view) = self.tab(id).and_then(|t| t.view()) else { return };
+        let me = self.me.clone();
+        icon::fetch(&view, move |icon| {
+            let Some(browser) = me.upgrade() else { return };
+            let Some(tab) = browser.tab(id) else { return };
+            let same = tab.icon.borrow().as_ref().is_some_and(|old| old.rgba == icon.rgba);
+            if !same {
+                *tab.icon.borrow_mut() = Some(icon);
+                browser.send_icon(&tab);
+                browser.save_soon();
+            }
+        });
+    }
+
+    /// Gives the interface a tab's icon (or tells it there is none).
+    fn send_icon(&self, tab: &Tab) {
+        let script = match tab.icon.borrow().as_ref() {
+            Some(icon) => format!("BasicShell.icon({}, {}, {}, {})", tab.id, icon.width, icon.height, json!(glib::base64_encode(&icon.rgba).as_str())),
+            None => format!("BasicShell.icon({}, 0, 0, null)", tab.id),
+        };
+        self.chrome().run(&script);
     }
 
     fn tab(&self, id: u64) -> Option<Rc<Tab>> {
@@ -500,6 +555,7 @@ impl Browser {
                     uri: t.uri(),
                     title: t.title(),
                     history: t.history(),
+                    icon: t.icon.borrow().clone(),
                     opener: t.opener.get().and_then(position),
                 })
                 .collect(),
@@ -547,6 +603,9 @@ impl Browser {
         match message["type"].as_str().unwrap_or_default() {
             "ready" => {
                 self.push_state();
+                for tab in self.tabs.borrow().iter().filter(|t| t.icon.borrow().is_some()) {
+                    self.send_icon(tab);
+                }
                 if let Some(what) = self.pending_ask.take() {
                     self.ask(&what);
                 }

@@ -8,12 +8,15 @@
 use serde_json::{json, Value};
 
 use crate::folder;
+use crate::icon::Icon;
 
 pub struct SavedTab {
     pub uri: String,
     pub title: String,
     /// WebKit's session state: the tab's back-forward list.
     pub history: Option<Vec<u8>>,
+    /// Its icon, for the sidebar before the page loads.
+    pub icon: Option<Icon>,
     /// The index of the tab it was opened from.
     pub opener: Option<usize>,
 }
@@ -42,12 +45,20 @@ pub fn load() -> Session {
                 uri: tab["uri"].as_str()?.to_owned(),
                 title: tab["title"].as_str().unwrap_or_default().to_owned(),
                 history: tab["history"].as_str().map(|b| glib::base64_decode(b).to_vec()),
+                icon: icon_from(&tab["icon"]),
                 opener: index(&tab["opener"]),
             })
         })
         .collect::<Vec<_>>();
     let selected = index(&value["selected"]).filter(|&i| i < tabs.len());
     Session { tabs, selected }
+}
+
+fn icon_from(value: &Value) -> Option<Icon> {
+    let width = value["width"].as_i64()? as i32;
+    let height = value["height"].as_i64()? as i32;
+    let rgba = glib::base64_decode(value["rgba"].as_str()?).to_vec();
+    (width > 0 && height > 0 && rgba.len() == (width * height * 4) as usize).then_some(Icon { width, height, rgba })
 }
 
 pub fn save(session: &Session) {
@@ -59,6 +70,7 @@ pub fn save(session: &Session) {
                 "uri": tab.uri,
                 "title": tab.title,
                 "history": tab.history.as_deref().map(|h| glib::base64_encode(h).to_string()),
+                "icon": tab.icon.as_ref().map(|i| json!({ "width": i.width, "height": i.height, "rgba": glib::base64_encode(&i.rgba).as_str() })),
                 "opener": tab.opener,
             })
         })

@@ -173,8 +173,10 @@ generator) from the `.gir` files WebKit's build writes (`rust/gir-files`):
   The tabs come back at the next launch, with their history and the one in
   front (`session.rs`: `session.json` in the data folder, written two
   seconds after a change and on quitting; private tabs never), each loaded
-  only once it is shown. Still to come: pinned tabs, icons, history and
-  bookmarks, downloads.
+  only once it is shown. Each tab has the page's icon, from WebKit's favicon
+  database (`icon.rs`; turned on, as it is off unless asked for), kept in
+  the session so it shows before the page loads. Still to come: pinned
+  tabs, history and bookmarks, downloads.
 
 `rust/regenerate.sh` makes the bindings again after WebKit is updated. They
 are built in the Package workflow, against the WebKit build it packs.

@@ -9,8 +9,14 @@ pub use self::back_forward_list::BackForwardList;
 mod back_forward_list_item;
 pub use self::back_forward_list_item::BackForwardListItem;
 
+mod favicon_database;
+pub use self::favicon_database::FaviconDatabase;
+
 mod find_controller;
 pub use self::find_controller::FindController;
+
+mod image;
+pub use self::image::Image;
 
 mod navigation_policy_decision;
 pub use self::navigation_policy_decision::NavigationPolicyDecision;
@@ -50,6 +56,9 @@ pub use self::website_data_manager::WebsiteDataManager;
 
 mod color;
 pub use self::color::Color;
+
+mod image_list;
+pub use self::image_list::ImageList;
 
 mod navigation_action;
 pub use self::navigation_action::NavigationAction;

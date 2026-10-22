@@ -3,7 +3,7 @@
 // from ../gir-files
 // DO NOT EDIT
 
-use crate::{ffi,BackForwardList,BackForwardListItem,Color,FindController,LoadEvent,NavigationAction,NetworkSession,PermissionRequest,PolicyDecision,PolicyDecisionType,Settings,URIRequest,UserContentManager,WebContext,WebProcessTerminationReason,WebViewSessionState};
+use crate::{ffi,BackForwardList,BackForwardListItem,Color,FindController,Image,ImageList,LoadEvent,NavigationAction,NetworkSession,PermissionRequest,PolicyDecision,PolicyDecisionType,Settings,URIRequest,UserContentManager,WebContext,WebProcessTerminationReason,WebViewSessionState};
 use glib::{object::ObjectType as _,prelude::*,signal::{connect_raw, SignalHandlerId},translate::*};
 use std::{boxed::Box as Box_,pin::Pin};
 
@@ -369,12 +369,14 @@ pub trait WebViewExt: IsA<WebView> + 'static {
         }
     }
 
-    //#[doc(alias = "webkit_web_view_get_page_icons")]
-    //#[doc(alias = "get_page_icons")]
-    //#[doc(alias = "page-icons")]
-    //fn page_icons(&self) -> /*Ignored*/Option<ImageList> {
-    //    unsafe { TODO: call ffi:webkit_web_view_get_page_icons() }
-    //}
+    #[doc(alias = "webkit_web_view_get_page_icons")]
+    #[doc(alias = "get_page_icons")]
+    #[doc(alias = "page-icons")]
+    fn page_icons(&self) -> Option<ImageList> {
+        unsafe {
+            from_glib_none(ffi::webkit_web_view_get_page_icons(self.as_ref().to_glib_none().0))
+        }
+    }
 
     #[doc(alias = "webkit_web_view_get_page_id")]
     #[doc(alias = "get_page_id")]
@@ -403,12 +405,12 @@ pub trait WebViewExt: IsA<WebView> + 'static {
 
     //#[doc(alias = "webkit_web_view_get_snapshot")]
     //#[doc(alias = "get_snapshot")]
-    //fn snapshot<P: FnOnce(Result</*Ignored*/Image, glib::Error>) + 'static>(&self, region: /*Ignored*/SnapshotRegion, options: /*Ignored*/SnapshotOptions, cancellable: Option<&impl IsA<gio::Cancellable>>, callback: P) {
+    //fn snapshot<P: FnOnce(Result<Image, glib::Error>) + 'static>(&self, region: /*Ignored*/SnapshotRegion, options: /*Ignored*/SnapshotOptions, cancellable: Option<&impl IsA<gio::Cancellable>>, callback: P) {
     //    unsafe { TODO: call ffi:webkit_web_view_get_snapshot() }
     //}
 
     //
-    //fn snapshot_future(&self, region: /*Ignored*/SnapshotRegion, options: /*Ignored*/SnapshotOptions) -> Pin<Box_<dyn std::future::Future<Output = Result</*Ignored*/Image, glib::Error>> + 'static>> {
+    //fn snapshot_future(&self, region: /*Ignored*/SnapshotRegion, options: /*Ignored*/SnapshotOptions) -> Pin<Box_<dyn std::future::Future<Output = Result<Image, glib::Error>> + 'static>> {
 
         //Box_::pin(gio::GioFuture::new(self, move |obj, cancellable, send| {
         //    obj.snapshot(
