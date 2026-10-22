@@ -47,6 +47,8 @@ pub struct Tab {
     private: bool,
     /// The tab a link in it came from.
     opener: Cell<Option<u64>>,
+    /// A tile above the list; pinned tabs come first.
+    pinned: Cell<bool>,
     /// Its page; none while it hasn't been shown since it was brought back.
     view: RefCell<Option<wpe_webkit::WebView>>,
     /// What a tab brought back was, until it has its page.
@@ -231,7 +233,15 @@ impl Browser {
     fn new_tab(&self, private: bool, opener: Option<u64>, saved: Saved) -> Rc<Tab> {
         let id = self.next_id.get();
         self.next_id.set(id + 1);
-        Rc::new(Tab { id, private, opener: Cell::new(opener), view: RefCell::default(), saved: RefCell::new(saved), icon: RefCell::default() })
+        Rc::new(Tab {
+            id,
+            private,
+            opener: Cell::new(opener),
+            pinned: Cell::new(false),
+            view: RefCell::default(),
+            saved: RefCell::new(saved),
+            icon: RefCell::default(),
+        })
     }
 
     /// A new tab at `uri`, after the tab it came from (or at the end).
@@ -258,6 +268,7 @@ impl Browser {
             let opener = saved.opener.and_then(|i| made.get(i)).map(|t| t.id);
             let tab = self.new_tab(false, opener, Saved { uri: saved.uri, title: saved.title, history: saved.history });
             *tab.icon.borrow_mut() = saved.icon;
+            tab.pinned.set(saved.pinned);
             self.tabs.borrow_mut().push(tab.clone());
             made.push(tab);
         }
@@ -311,10 +322,61 @@ impl Browser {
                 }
                 index
             }
-            None if at_top => 0,
+            // First of the tabs in the list; the pinned ones are tiles above it.
+            None if at_top => tabs.iter().position(|t| !t.pinned.get()).unwrap_or(tabs.len()),
             None => tabs.len(),
         };
         tabs.insert(index, tab.clone());
+    }
+
+    /// Pinned tabs come first; a tab pinned goes to the end of them, one
+    /// unpinned to the start of the rest.
+    fn set_tab_pinned(&self, id: u64, pinned: bool) {
+        {
+            let mut tabs = self.tabs.borrow_mut();
+            let Some(index) = tabs.iter().position(|t| t.id == id) else { return };
+            if tabs[index].pinned.get() == pinned {
+                return;
+            }
+            let tab = tabs.remove(index);
+            tab.pinned.set(pinned);
+            let boundary = tabs.iter().position(|t| !t.pinned.get()).unwrap_or(tabs.len());
+            tabs.insert(boundary, tab);
+        }
+        self.update();
+    }
+
+    /// A tab dragged in the sidebar: put before `before` (none: at the end
+    /// of its group), staying with the pinned tabs or the rest.
+    fn reorder(&self, id: u64, before: Option<u64>) {
+        {
+            let mut tabs = self.tabs.borrow_mut();
+            let Some(index) = tabs.iter().position(|t| t.id == id) else { return };
+            let tab = tabs.remove(index);
+            let pinned = tab.pinned.get();
+            let at = match before.and_then(|b| tabs.iter().position(|t| t.id == b)) {
+                Some(at) if tabs[at].pinned.get() == pinned => at,
+                _ if pinned => tabs.iter().position(|t| !t.pinned.get()).unwrap_or(tabs.len()),
+                _ => tabs.len(),
+            };
+            tabs.insert(at, tab);
+        }
+        self.update();
+    }
+
+    /// The tab's address on the clipboard.
+    fn copy_address(&self, id: u64) {
+        let Some(tab) = self.tab(id) else { return };
+        let uri = tab.uri();
+        if uri.is_empty() {
+            return;
+        }
+        let display = self.display.upcast_ref::<wpe_platform::Display>();
+        if let Some(clipboard) = wpe_platform::prelude::DisplayExt::clipboard(display) {
+            let content = wpe_platform::ClipboardContent::new();
+            content.set_text(&uri);
+            wpe_platform::prelude::ClipboardExt::set_content(&clipboard, Some(&content));
+        }
     }
 
     fn watch(&self, tab: &Rc<Tab>, view: &wpe_webkit::WebView) {
@@ -556,6 +618,7 @@ impl Browser {
                     title: t.title(),
                     history: t.history(),
                     icon: t.icon.borrow().clone(),
+                    pinned: t.pinned.get(),
                     opener: t.opener.get().and_then(position),
                 })
                 .collect(),
@@ -567,6 +630,7 @@ impl Browser {
     fn push_state(&self) {
         let tabs = self.tabs.borrow();
         let selected = self.selected.borrow().clone();
+        let others: Vec<Rc<Tab>> = tabs.iter().filter(|t| !t.pinned.get()).cloned().collect();
         let list: Vec<Value> = tabs
             .iter()
             .map(|t| {
@@ -576,7 +640,8 @@ impl Browser {
                     "uri": t.uri(),
                     "loading": t.loading(),
                     "private": t.private,
-                    "depth": depth(t, &tabs, 2),
+                    "pinned": t.pinned.get(),
+                    "depth": if t.pinned.get() { 0 } else { depth(t, &others, 2) },
                 })
             })
             .collect();
@@ -660,6 +725,21 @@ impl Browser {
             "reload" => self.on_page(|v| v.reload()),
             "stop" => self.on_page(|v| v.stop_loading()),
             "pin" => self.set_pinned(!self.pinned.get()),
+            "pin-tab" => {
+                if let Some(tab) = id.and_then(|id| self.tab(id)) {
+                    self.set_tab_pinned(tab.id, !tab.pinned.get());
+                }
+            }
+            "copy-address" => {
+                if let Some(id) = id {
+                    self.copy_address(id);
+                }
+            }
+            "reorder" => {
+                if let Some(id) = id {
+                    self.reorder(id, message["before"].as_u64());
+                }
+            }
             "focus-page" => self.focus_page(),
             "focus-interface" => self.focus_chrome(),
             "move" => self.toplevel.start_move(),

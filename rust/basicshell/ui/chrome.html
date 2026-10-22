@@ -44,7 +44,7 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
-body { font: 13px/1.25 system-ui, "Noto Sans", sans-serif; color: var(--text); user-select: none; cursor: default; }
+body { font: 13px/1.25 system-ui, "Noto Sans", sans-serif; color: var(--text); -webkit-user-select: none; user-select: none; cursor: default; }
 svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
 /* The sidebar: 250 wide, 6 from the window's edges, out from the left. */
@@ -91,6 +91,32 @@ button:disabled { color: var(--faint); }
 #site-name.none { color: var(--muted); }
 #site button:last-child { border-radius: 14px; }
 
+/* Pinned tabs: three to a row, each a tile with its icon. */
+#pinned { display: none; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 0 2px; }
+#pinned.some { display: grid; }
+#pinned + .divider { display: none; height: 1px; background: var(--line); margin: 4px 6px; }
+#pinned.some + .divider { display: block; }
+.tile {
+  position: relative; height: 40px; border-radius: 10px; display: grid; place-items: center;
+  background: var(--fill);
+}
+.tile:hover { background: var(--hover); filter: brightness(0.97); }
+.tile.selected { background: var(--selected); }
+.tile .icon { transform: scale(1.25); }
+.tile .busy { position: absolute; bottom: 4px; left: 50%; width: 14px; height: 2px; margin-left: -7px; border-radius: 1px; background: var(--accent); }
+.dragging { opacity: 0.85; z-index: 2; pointer-events: none; box-shadow: var(--shadow); background: var(--glass) !important; }
+
+/* A tab's right click. */
+#menu {
+  position: fixed; display: none; min-width: 190px; padding: 5px; border-radius: 10px;
+  background: var(--glass); box-shadow: var(--shadow); z-index: 10;
+}
+body.menu #menu { display: block; }
+#menu div { height: 26px; line-height: 26px; padding: 0 10px; border-radius: 6px; }
+#menu div:hover:not(.off) { background: var(--accent); color: #fff; }
+#menu div.off { color: var(--faint); }
+#menu hr { border: 0; height: 1px; background: var(--line); margin: 4px 6px; }
+
 #list { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 2px; margin: 0 -2px; padding: 0 2px; }
 #list::-webkit-scrollbar { width: 0; }
 .tab, .new {
@@ -123,7 +149,7 @@ body.asking #ask { display: block; }
 }
 #field { display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 18px; }
 #field svg { width: 19px; height: 19px; color: var(--muted); }
-#text { flex: 1; border: 0; outline: none; background: transparent; color: var(--text); font: 20px system-ui, "Noto Sans", sans-serif; user-select: text; }
+#text { flex: 1; border: 0; outline: none; background: transparent; color: var(--text); font: 20px system-ui, "Noto Sans", sans-serif; -webkit-user-select: text; user-select: text; }
 #suggestions { display: none; padding: 6px; border-top: 1px solid var(--line); }
 #suggestions.some { display: block; }
 .suggestion { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 12px; border-radius: 8px; font-size: 14px; }
@@ -172,8 +198,11 @@ body.loading #loading { opacity: 1; }
     <button id="new-private" title="New Private Tab"><svg viewBox="0 0 16 16"><circle cx="4.3" cy="9.5" r="2.6"/><circle cx="11.7" cy="9.5" r="2.6"/><path d="M6.9 9.3c.7-.5 1.5-.5 2.2 0M1.7 9 3 5m11.3 4L13 5"/></svg></button>
     <div class="spacer"></div>
   </div>
+  <div id="pinned"></div>
+  <div class="divider"></div>
   <div id="list"></div>
 </div>
+<div id="menu"></div>
 <button id="empty"><svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></svg>New Tab</button>
 <div id="loading"><div></div></div>
 <div id="ask">
@@ -208,13 +237,15 @@ let shown = false;
 // What the field in the middle is up for: "new", "private", "address", or nothing.
 let asking = null, atTop = false, chosen = 0;
 let dwell = 0, linger = 0;
+// The tab whose menu is open.
+let menuFor = null;
 
 // MARK: - where this layer takes the pointer
 
 let lastRegions = "";
 function regions() {
   const rects = [];
-  if (asking) rects.push([0, 0, innerWidth, innerHeight]);
+  if (asking || menuFor) rects.push([0, 0, innerWidth, innerHeight]);
   else {
     if (out()) rects.push([0, 0, 262, innerHeight]);
     // The left edge, to bring the sidebar out from.
@@ -288,6 +319,7 @@ function render() {
   document.body.classList.toggle("out", out());
   document.body.classList.toggle("pinned", state.pinned);
   document.body.classList.toggle("asking", !!asking);
+  document.body.classList.toggle("menu", !!menuFor);
   document.body.classList.toggle("empty", !state.tabs.length);
   document.body.classList.toggle("loading", !!(page && page.loading));
 
@@ -317,7 +349,7 @@ function render() {
 
   // The list again only when what it shows changed: a row replaced under the
   // pointer loses its click.
-  const list = JSON.stringify([state.tabs.map(t => [t.id, t.name, t.private, t.depth]), page && page.id]);
+  const list = JSON.stringify([state.tabs.map(t => [t.id, t.name, t.private, t.depth, t.pinned, t.pinned && t.loading]), page && page.id]);
   if (list !== lastList) {
     lastList = list;
     drawList();
@@ -326,11 +358,25 @@ function render() {
 }
 
 function drawList() {
+  const selected = state.page && state.page.id;
+  const pinned = $("pinned");
+  pinned.textContent = "";
+  const tiles = state.tabs.filter(t => t.pinned);
+  pinned.classList.toggle("some", tiles.length > 0);
+  for (const tab of tiles) {
+    const tile = document.createElement("div");
+    tile.className = "tile" + (tab.id === selected ? " selected" : "");
+    tile.title = tab.name;
+    tile.innerHTML = iconHTML(tab) + (tab.loading ? `<span class="busy"></span>` : "");
+    handle(tile, tab);
+    pinned.append(tile);
+  }
+
   const list = $("list");
   list.textContent = "";
   list.append(newRow(true));
-  const selected = state.page && state.page.id;
-  for (const tab of state.tabs) {
+  const others = state.tabs.filter(t => !t.pinned);
+  for (const tab of others) {
     const row = document.createElement("div");
     row.className = "tab" + (tab.id === selected ? " selected" : "");
     row.title = tab.name;
@@ -346,16 +392,105 @@ function drawList() {
       iconHTML(tab) + `<span class="name">${escape(tab.name)}</span>` +
       (tab.private ? `<span class="private">${icons.glasses}</span>` : "") +
       `<button class="close" title="Close Tab">${icons.close}</button>`);
-    row.addEventListener("click", event => {
-      if (event.target.closest(".close")) post({ type: "close", id: tab.id });
-      else post({ type: "select", id: tab.id });
-    });
-    // The middle button closes it, as tabs do on Linux.
-    row.addEventListener("auxclick", event => { if (event.button === 1) post({ type: "close", id: tab.id }); });
+    handle(row, tab);
     list.append(row);
   }
-  if (state.tabs.length) list.append(newRow(false));
+  if (others.length) list.append(newRow(false));
 }
+
+// A tab's row or tile: a click selects it (or closes it, on its button), the
+// middle button closes it as tabs do on Linux, the right one opens its
+// menu, and it can be dragged to another place in its group.
+function handle(element, tab) {
+  element.dataset.id = tab.id;
+  element.addEventListener("click", event => {
+    if (dragged) return;
+    if (event.target.closest(".close")) post({ type: "close", id: tab.id });
+    else post({ type: "select", id: tab.id });
+  });
+  element.addEventListener("auxclick", event => { if (event.button === 1) post({ type: "close", id: tab.id }); });
+  element.addEventListener("contextmenu", event => {
+    event.preventDefault();
+    openMenu(tab, event.clientX, event.clientY);
+  });
+  element.addEventListener("mousedown", event => {
+    if (event.button !== 0 || event.target.closest(".close")) return;
+    // No text selected by dragging across the sidebar.
+    event.preventDefault();
+    drag = { element, tab, x: event.clientX, y: event.clientY, moving: false };
+  });
+}
+
+// MARK: - dragging a tab to another place
+
+let drag = null, dragged = false;
+document.addEventListener("mousemove", event => {
+  if (!drag) return;
+  if (!(event.buttons & 1)) { endDrag(null); return; }
+  const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
+  if (!drag.moving && Math.abs(dx) + Math.abs(dy) < 5) return;
+  drag.moving = true;
+  drag.element.classList.add("dragging");
+  // Rows move up and down; tiles anywhere in their grid.
+  drag.element.style.transform = drag.tab.pinned ? `translate(${dx}px, ${dy}px)` : `translateY(${dy}px)`;
+});
+document.addEventListener("mouseup", event => endDrag(event));
+
+function endDrag(event) {
+  const was = drag;
+  drag = null;
+  if (!was || !was.moving) return;
+  was.element.classList.remove("dragging");
+  was.element.style.transform = "";
+  // The click that ends a drag selects nothing.
+  dragged = true;
+  setTimeout(() => { dragged = false; }, 0);
+  if (!event) return;
+  const group = [...(was.tab.pinned ? $("pinned") : $("list")).querySelectorAll("[data-id]")].filter(e => e !== was.element);
+  // Before the first one whose middle is past the pointer (in reading order for tiles).
+  const past = e => {
+    const r = e.getBoundingClientRect();
+    if (!was.tab.pinned) return r.top + r.height / 2 > event.clientY;
+    return r.top > event.clientY || (r.bottom > event.clientY && r.left + r.width / 2 > event.clientX);
+  };
+  const target = group.find(past);
+  post({ type: "reorder", id: was.tab.id, before: target ? +target.dataset.id : null });
+}
+
+// MARK: - a tab's menu
+
+function openMenu(tab, x, y) {
+  menuFor = tab;
+  const menu = $("menu");
+  const item = (label, type, enabled = true) => `<div data-type="${type}" class="${enabled ? "" : "off"}">${label}</div>`;
+  menu.innerHTML =
+    item("Copy Address", "copy-address", !!tab.uri) +
+    item(tab.pinned ? "Unpin Tab" : "Pin Tab", "pin-tab") +
+    "<hr>" +
+    item("Close Tab", "close");
+  render();
+  // Where it was opened, inside the window.
+  const r = menu.getBoundingClientRect();
+  menu.style.left = Math.min(x, innerWidth - r.width - 6) + "px";
+  menu.style.top = Math.min(y, innerHeight - r.height - 6) + "px";
+}
+
+function closeMenu() {
+  if (!menuFor) return;
+  menuFor = null;
+  render();
+}
+
+$("menu").addEventListener("click", event => {
+  const item = event.target.closest("[data-type]");
+  if (!item || item.classList.contains("off")) return;
+  const id = menuFor.id;
+  closeMenu();
+  post({ type: item.dataset.type, id });
+});
+// A press outside the menu puts it away.
+document.addEventListener("mousedown", event => { if (menuFor && !event.target.closest("#menu")) closeMenu(); }, true);
+document.addEventListener("keydown", event => { if (menuFor && event.key === "Escape") closeMenu(); });
 
 // The tab's icon, or its first letter until there is one (the macOS app's Favicon).
 function iconHTML(tab) {

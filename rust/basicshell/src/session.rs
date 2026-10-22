@@ -1,5 +1,5 @@
-//! What comes back at launch: the tabs, their history, which one was in
-//! front, and which tab each was opened from (the macOS app's Session.swift).
+//! What comes back at launch: the tabs, their history and icons, which
+//! were pinned, which one was in front, and which tab each was opened from (the macOS app's Session.swift).
 //!
 //! Kept in the data folder as session.json, written two seconds after
 //! anything changes and again on quitting. Private tabs are never written
@@ -17,6 +17,7 @@ pub struct SavedTab {
     pub history: Option<Vec<u8>>,
     /// Its icon, for the sidebar before the page loads.
     pub icon: Option<Icon>,
+    pub pinned: bool,
     /// The index of the tab it was opened from.
     pub opener: Option<usize>,
 }
@@ -46,6 +47,7 @@ pub fn load() -> Session {
                 title: tab["title"].as_str().unwrap_or_default().to_owned(),
                 history: tab["history"].as_str().map(|b| glib::base64_decode(b).to_vec()),
                 icon: icon_from(&tab["icon"]),
+                pinned: tab["pinned"].as_bool().unwrap_or(false),
                 opener: index(&tab["opener"]),
             })
         })
@@ -72,6 +74,7 @@ pub fn save(session: &Session) {
                 "history": tab.history.as_deref().map(|h| glib::base64_encode(h).to_string()),
                 "icon": tab.icon.as_ref().map(|i| json!({ "width": i.width, "height": i.height, "rgba": glib::base64_encode(&i.rgba).as_str() })),
                 "opener": tab.opener,
+                "pinned": tab.pinned,
             })
         })
         .collect();

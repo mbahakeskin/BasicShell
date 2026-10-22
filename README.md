@@ -161,8 +161,11 @@ generator) from the `.gir` files WebKit's build writes (`rust/gir-files`):
   button, Ctrl+Shift+S; kept in `state.json` in the data folder). At its
   top, the window's buttons where the Mac's traffic lights are (the window
   is moved from that row, and zoomed by a double click), back and forward,
-  the site with reload, new tab and new private tab; under them, the tabs,
-  each set in under the tab it was opened from. The field in the middle
+  the site with reload, new tab and new private tab; under them the pinned
+  tabs, three tiles to a row, then the tabs, each set in under the tab it
+  was opened from. Tabs are dragged to another place in their group,
+  closed with the middle button, and have a menu on the right one: Copy
+  Address, Pin Tab (Unpin Tab), Close Tab. The field in the middle
   of the window takes an address or words to search for (Google, in the
   system's language and region, as on macOS: `address.rs`), for a new tab
   or the tab's own address, and offers the open tabs that match.
@@ -178,8 +181,8 @@ generator) from the `.gir` files WebKit's build writes (`rust/gir-files`):
   seconds after a change and on quitting; private tabs never), each loaded
   only once it is shown. Each tab has the page's icon, from WebKit's favicon
   database (`icon.rs`; turned on, as it is off unless asked for), kept in
-  the session so it shows before the page loads. Still to come: pinned
-  tabs, history and bookmarks, downloads.
+  the session so it shows before the page loads. Still to come: history
+  and bookmarks, downloads, the page's own right-click menu.
 
 `rust/regenerate.sh` makes the bindings again after WebKit is updated. They
 are built in the Package workflow, against the WebKit build it packs.
