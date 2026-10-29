@@ -17,6 +17,11 @@ enum Main {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Writing to a helper that has already ended (a native messaging one
+        // macOS killed at launch, say) would otherwise kill the whole app
+        // with SIGPIPE, leaving no crash report; it is an error to handle
+        // instead (see NativeConnection.send).
+        signal(SIGPIPE, SIG_IGN)
         Debug.start()
         LocationAccess.start()
         WebNotifications.start()

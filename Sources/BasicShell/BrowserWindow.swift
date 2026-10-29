@@ -403,6 +403,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         guard over(window.frame),
               NSApp.orderedWindows.first(where: { $0.windowController is BrowserWindow && $0.isVisible && over($0.frame) }) === window
         else { return }
+        followPointerWithEdges()
         pointer(at: root.convert(window.convertPoint(fromScreen: location), from: nil))
     }
 
@@ -451,6 +452,13 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     private func resetMenuBar() {
         menuBarWatch?.invalidate()
         menuBarWatch = nil
+        edgesAuto = false
+        dockHeld = false
+        edgeSince = nil
+        heldUntil = .distantPast
+        heldTimer?.invalidate()
+        heldTimer = nil
+        dockEdge = UserDefaults(suiteName: "com.apple.dock")?.string(forKey: "orientation") ?? "bottom"
         menuBarDown = false
         menuBarWasDown = false
     }
@@ -479,11 +487,14 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         if down != menuBarDown {
             menuBarDown = down
             if down { menuBarWasDown = true }
+            Debug.log("edges", "menu bar \(down ? "down" : "up")")
             layout(animated: true)
+            if !down { followPointerWithEdges() }
         }
         if !down, NSEvent.mouseLocation.y < screen.frame.maxY - menuBarAllowance - 40 {
             menuBarWatch?.invalidate()
             menuBarWatch = nil
+            followPointerWithEdges()
         }
     }
 
@@ -1483,7 +1494,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             window.edgeToEdge = true
             shell.fullScreen = true
             resetMenuBar()
-            NSApp.presentationOptions = BrowserWindow.autoHideOptions
+            NSApp.presentationOptions = BrowserWindow.hiddenOptions
             window.isMovable = false
             window.setFrame(screen.frame, display: true, animate: true)
         }
@@ -1588,16 +1599,88 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         // menu bar a black strip with nothing in it (measured).
         if edgeToEdge {
             resetMenuBar()
-            NSApp.presentationOptions = BrowserWindow.autoHideOptions
-        } else if NSApp.presentationOptions == BrowserWindow.autoHideOptions {
+            NSApp.presentationOptions = BrowserWindow.hiddenOptions
+        } else if NSApp.presentationOptions == BrowserWindow.autoHideOptions || NSApp.presentationOptions == BrowserWindow.hiddenOptions {
             NSApp.presentationOptions = []
         }
     }
 
-    /// In BasicShell's own full screen the menu bar and the Dock are macOS's
-    /// auto-hiding ones, which come down when the pointer presses against
-    /// their edge. macOS hides the menu bar only with the Dock.
+    // MARK: - the menu bar and the Dock in BasicShell's own full screen
+
+    /// Both hidden outright: macOS hides the menu bar only with the Dock.
+    /// With the auto-hiding kind, macOS keeps a click in the strip the menu
+    /// bar would fill for the menu bar, and the page there never hears of it
+    /// (measured, in a bare window too); hidden outright, the strip is the
+    /// page's.
+    private static let hiddenOptions: NSApplication.PresentationOptions = [.hideMenuBar, .hideDock]
     private static let autoHideOptions: NSApplication.PresentationOptions = [.autoHideMenuBar, .autoHideDock]
+
+    /// The options are the hidden ones, and the auto-hiding ones only while
+    /// the pointer is at the very edge where macOS brings the menu bar down
+    /// (with a few points of play, so a shaking hand doesn't switch them back
+    /// and forth), for a moment after it has pushed there long enough for
+    /// macOS to be bringing the bar down, and while the bar is down; for the
+    /// Dock, from the pointer touching its edge until it has left the zone
+    /// the Dock fills. The switch is made as the pointer arrives: switching
+    /// with it resting at the edge for a while was missed about half the time
+    /// (see tasks/24). A pointer that only brushes the edge on its way to a
+    /// click in the strip leaves the page its click.
+    private var edgesAuto = false
+    private var dockHeld = false
+    private var dockEdge = "bottom"
+    private var edgeSince: Date?
+    private var heldUntil = Date.distantPast
+    private var heldTimer: Timer?
+    private static let dockZone: CGFloat = 120
+    private static let pushTime: TimeInterval = 0.15
+    private static let heldFor: TimeInterval = 0.6
+
+    private func setEdgesAuto(_ auto: Bool, because why: @autoclosure () -> String) {
+        guard auto != edgesAuto else { return }
+        edgesAuto = auto
+        NSApp.presentationOptions = auto ? BrowserWindow.autoHideOptions : BrowserWindow.hiddenOptions
+        Debug.log("edges", "\(auto ? "auto-hiding" : "hidden"): \(why())")
+    }
+
+    private func followPointerWithEdges() {
+        guard edgeToEdge, NSApp.isActive, let screen = window?.screen else { return }
+        let frame = screen.frame
+        let location = NSEvent.mouseLocation
+        let fromTop = frame.maxY - location.y
+        let fromDock: CGFloat
+        switch dockEdge {
+        case "left": fromDock = location.x - frame.minX
+        case "right": fromDock = frame.maxX - location.x
+        default: fromDock = location.y - frame.minY
+        }
+        if fromDock <= 1 {
+            dockHeld = true
+        } else if fromDock > BrowserWindow.dockZone {
+            dockHeld = false
+        }
+        let now = Date()
+        var atTop = false
+        if fromTop <= 1 || (fromTop <= 4 && edgeSince != nil) {
+            atTop = true
+            if edgeSince == nil { edgeSince = now }
+        } else if let since = edgeSince {
+            edgeSince = nil
+            if now.timeIntervalSince(since) >= BrowserWindow.pushTime { holdAuto(for: BrowserWindow.heldFor) }
+        }
+        let held = now < heldUntil
+        setEdgesAuto(atTop || held || dockHeld || menuBarDown,
+                     because: "\(Int(fromTop)) pt from the top\(atTop ? ", at the edge" : "")\(held ? ", held" : "")\(dockHeld ? ", Dock zone" : "")\(menuBarDown ? ", menu bar down" : "")")
+    }
+
+    /// The pointer pushed against the top: macOS may be part of the way
+    /// through bringing the menu bar down, which hiding again would cut off.
+    private func holdAuto(for seconds: TimeInterval) {
+        heldUntil = Date().addingTimeInterval(seconds)
+        heldTimer?.invalidate()
+        heldTimer = Timer.scheduledTimer(withTimeInterval: seconds + 0.02, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.followPointerWithEdges() }
+        }
+    }
 
     func windowWillClose(_ notification: Notification) {
         if edgeToEdge { NSApp.presentationOptions = [] }

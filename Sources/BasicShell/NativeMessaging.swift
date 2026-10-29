@@ -111,6 +111,15 @@ final class NativeConnection {
         process.standardInput = input
         process.standardOutput = output
         process.standardError = errors
+        // One that ends at once (macOS may refuse to run it for this app) is
+        // closed here, so nothing is written to it afterwards.
+        process.terminationHandler = { [weak self] ended in
+            let how = ended.terminationReason == .uncaughtSignal ? "killed by signal \(ended.terminationStatus)" : "exited with status \(ended.terminationStatus)"
+            DispatchQueue.main.async { MainActor.assumeIsolated {
+                Debug.log("native", "\(name): \(how)")
+                self?.close()
+            } }
+        }
         do { try process.run() } catch {
             throw NativeHosts.Refused.failed("\(name) didn't start: \(error.localizedDescription)")
         }

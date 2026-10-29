@@ -15,9 +15,10 @@ newer version, which Settings turns off).
 - Full screen uses every pixel: the same bars, the same edges. On a screen
   with a notch the top bar runs through the strip the menu bar would have,
   the notch in its middle, and the window's corners are the screen's own;
-  the menu bar and the Dock are macOS's own auto-hiding ones, coming down
-  when the pointer presses against the top or the bottom; the menu bar moves
-  the top bar down below it while it is there.
+  the menu bar and the Dock are macOS's own, hidden until the pointer
+  presses against the top or the Dock's edge; a click anywhere else in the
+  strip beside the notch is the page's. The menu bar moves the top bar down
+  below it while it is there.
 - A new tab starts as a field over the current page; the tab exists only
   once you enter an address or a search. Asked for with the New Tab row
   above the sidebar's tabs it goes first in the list, with the one below
