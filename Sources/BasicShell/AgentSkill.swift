@@ -24,15 +24,22 @@ enum AgentSkill {
     - `batch` actions can be `optional` or `repeat: N` (until they fail, e.g. click "Load more" until it is gone). Tool calls you send together run together, so ask for independent things in one turn.
     - For a site's list or search data, `api` (developer tools) shows the calls the page made and gives their JSON as rows (`path: data.items[*]`, `fields: [name, price]`); cheaper and sturdier than scraping the page. `evaluate` with same-site `fetch` and `args` covers loops over many pages in one call.
     - `read_page` with `since_last: true` says only what changed since your last read of the page.
+    - Acting tools take an optional `summary` (a few words on the effect, "Adds the headset to the cart"): it shows in the person's list of what you did. `close` takes `yours: true` or `tabs: [...]` to tidy up in one call.
     - `expect: {text: ...}` on `click`, `type`, `fill` and the like checks the result in the same call and fails if the page is not so.
     - `tabs` takes `from_tab`, `to_tab`, `yours`, `query` to list less. `read_text` takes `selector` or `main` to skip the menu and footer, and `structured: true` for a store page's products (name, price, stock).
 
     ## Reading and looking
 
-    - `read_text` for articles and long text, `find` for one thing, `read_page` for the controls (`filter: all` adds text).
+    - `read_text` for articles and long text, `find` for what you are after (several things at once with `queries`, e.g. a colour, a size and the add button: one call, not one each), `read_page` for the controls (`filter: all` adds text). On a big page `read_page` stops after a size limit and says so; `find` looks through the whole page.
+    - Ask in the page's own words: a page that is not in English says so (`open`, `navigate` and `read_page` give its language), and `find`, a `label` and `search` want what it says ("sepete ekle", not "add to cart"). A `find` that finds nothing lists what the page has in view.
     - `screenshot` is the dearest thing to look at. `max_width: 800` shows a layout; `region` or `ref` shows detail; `marks: true` draws the refs on the picture so you answer with a number; on a long page `full_page` with `tile: 1, 2 …` goes a view at a time, `overview` shows the page in numbered columns. A `region` or `tile` picture can be clicked: give x and y in its pixels with its `picture` number.
     - `wait` with a condition (`text`, `selector`, `network_idle`) rather than a number of seconds.
     - Acting tools wait for what an action started to be over before they answer. If one comes back too early (the page changes right after) or too late, or a page seems to mind the script BasicShell puts in it, try `settle` with `mode: "inspector"`: it puts nothing in the page (about 130 MB for each tab you work in while you work there). Tell the person you switched.
+
+    ## Before you say it is done
+
+    - Say it from what the page you ended on shows, not from a counter or an icon: a cart badge only says something was added. After adding to a cart, read the cart page (`read_text`) and check each item and its choice (size, colour) is in it; after sending a form, read what the site shows back.
+    - Take addresses from what the tools showed you (`find`, `links`, a listing), never from memory or a guess: a made-up address opens some other page.
 
     ## Permission
 

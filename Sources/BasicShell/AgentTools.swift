@@ -1,6 +1,7 @@
 #if AGENT
 import AppKit
 import ImageIO
+import NaturalLanguage
 import UniformTypeIdentifiers
 import WebKit
 
@@ -21,8 +22,8 @@ enum AgentTools {
     /// Said to the agent once, when it connects.
     static let instructions = """
     BasicShell is the person's own web browser, with their tabs and the sites they are signed in to. \
-    Start with `tabs`. A tool that takes `tab` (a number from `tabs`) uses the tab shown in the front window when none is given. `help` gives any tool's whole description. \
-    To act on a page, read it first (`read_page` lists what can be clicked or filled, each with a ref number; `screenshot` shows it), then use the refs. \
+    `tabs` lists what is open already: start with it when the task is about the person's own tabs; to go to an address, `open` it (that gives the tab's number). A tool that takes `tab` (a number from `tabs`) uses the tab shown in the front window when none is given. `help` gives any tool's whole description. \
+    To act on a page: if you know what the control says (the task names it, or a listing just showed it), `click`, `fill` and `type` take a `label` and find it when the call is made, so nothing needs reading first; otherwise read the page (`read_page` lists what can be clicked or filled, each with a ref number; `screenshot` shows it) and use the refs. \
     Unless they turned the asking off, the person is asked, in BasicShell, before you read a site and again before you click or type there; if they say no, don't look for another way. \
     Pages that are files on this Mac (file://) are one site, "files on this Mac", asked about like any other. Private tabs are kept from you, and so is what is in password and card fields: ask the person to sign in or pay themselves. \
     To be quick: an acting tool says what changed afterwards, and `open` says what is on the page, so read the page again only when you need more than that; `search` and `fill_form` do in one call what takes several; `read_pages` reads many addresses in one call; `screenshot` takes `max_width`, `marks` and `tile` so you choose what to look at. \
@@ -36,6 +37,10 @@ enum AgentTools {
         var all = properties
         if all["tab"] == nil, !["tabs", "open", "batch", "history", "bookmarks", "downloads", "clipboard", "extensions", "features", "read_pages", "help", "settle"].contains(name) {
             all["tab"] = ["type": "integer", "description": "The tab's number from `tabs`. Left out: the tab shown in the front window."]
+        }
+        // What the acting tools take besides: a few words on the effect, for the person's list of what the agent did.
+        if all["summary"] == nil, ["click", "hover", "drag", "type", "key", "scroll", "fill", "fill_form", "search", "upload", "dialog", "navigate", "close", "evaluate"].contains(name) {
+            all["summary"] = ["type": "string", "description": "Optional: a few words on what this does and to what (\"Adds the headset to the cart\"), shown in the person's list of what you did. The effect only; nothing secret."]
         }
         return [
             "name": name, "description": description,
@@ -87,7 +92,11 @@ enum AgentTools {
             "front": ["type": "boolean", "description": "Show the new tab to the person. Off unless they want to watch."],
             "observe": observePage,
         ], required: ["url"]),
-        tool("close", "Closes a tab.", ["tab": ["type": "integer", "description": "The tab's number from `tabs`."]], required: ["tab"]),
+        tool("close", "Closes a tab, several tabs (`tabs`), or all the tabs you opened (`yours`).", [
+            "tab": ["type": "integer", "description": "The tab's number from `tabs`."],
+            "tabs": ["type": "array", "items": ["type": "integer"], "maxItems": 30, "description": "Several tabs' numbers, closed in one call."],
+            "yours": ["type": "boolean", "description": "Close every tab you opened or were let into: the tidy-up at the end of a task, in one call."],
+        ]),
         tool("select", "Shows a tab to the person, in its window."),
         tool("navigate", "Takes a tab to an address, or back, forward, or loads it again; waits for the page.", [
             "to": ["type": "string", "description": "An address, or \"back\", \"forward\", \"reload\" or \"hard_reload\" (which asks the site for everything again, the cache left out)."],
@@ -104,12 +113,17 @@ enum AgentTools {
         tool("read_page", "What is on the page, each thing that can be clicked or filled with its ref number, role, name and state. Use the refs with click, fill, type and the rest.", [
             "filter": ["type": "string", "enum": ["interactive", "all"], "description": "\"interactive\" (the default): what can be clicked or filled. \"all\": the text and headings too."],
             "ref": ["type": "integer", "description": "Only what is inside this."],
-            "max_chars": ["type": "integer", "description": "How much to give, 20000 unless said."],
+            "max_chars": ["type": "integer", "description": "How much to give in one answer, 20000 unless said."],
+            "offset": ["type": "integer", "description": "Where to start, as the line number an answer that stopped short gives (\"`offset: 164` continues\"): the lines before it are left out."],
             "since_last": ["type": "boolean", "description": "Only what is new, gone or different since your last `read_page` of this page (the first time, and on a new page, all of it). For watching a page that changes, or a long page you have read."],
         ], reads: true),
-        tool("find", "Things on the page whose name, role, value or text has these words in it, with their refs.", [
+        tool("find", "Things on the page whose name, role, value or text has these words in it, with their refs. Look up everything you need from a page in one call with `queries` (up to 8), each answered under its own heading.", [
             "query": ["type": "string", "description": "What to look for, as it is written on the page."],
-        ], required: ["query"], reads: true),
+            "queries": ["type": "array", "items": ["type": "string"], "maxItems": 8,
+                        "description": "Several things to look for at once, as they are written on the page (say a colour, a size and the add button): one call instead of one for each."],
+            "offset": ["type": "integer", "description": "With one query: how many matches to skip, as an answer that stopped short says."],
+            "regex": ["type": "boolean", "description": "The query (or each of `queries`) is a regular expression, matched without regard to case."],
+        ], reads: true),
         tool("screenshot", "A picture of the page as it is in the tab now. Positions given to click, hover and scroll are in its pixels (for a `region` or a `tile`, give the `picture` number it says). You decide how much to see and at what price: `max_width` and `quality` make it smaller (800 shows a layout; 1440 reads small print), `region` or `ref` take one part, enlarged, `marks` draws the refs on the things that can be clicked, so you answer with a number, and `full_page` goes through a long page one view (`tile`) at a time, or all at once as a small `overview`.", [
             "ref": ["type": "integer", "description": "Only this thing, brought into view first."],
             "region": ["type": "array", "items": ["type": "number"], "minItems": 4, "maxItems": 4,
@@ -341,7 +355,7 @@ enum AgentTools {
         if name != "batch" {
             let quiet = ["tabs", "history", "bookmarks", "downloads", "clipboard", "extensions", "features"].contains(name)
             let site = quiet ? nil : Call(arguments: arguments, client: client).site()
-            AgentAccess.shared.note(name, site: site, client: client, failed: reply.failed, took: took)
+            AgentAccess.shared.note(name, site: site, client: client, failed: reply.failed, took: took, summary: (arguments["summary"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         return reply
     }
@@ -624,8 +638,20 @@ private struct Call {
     /// Until nothing on the page has changed for a moment, `atMost` milliseconds
     /// at most: what a click started has come to rest. It stands in for the
     /// fixed waits there were, which were over a quarter of a second each.
-    private func rest(_ web: WKWebView, idle: Int = 150, atMost: Int = 500) async {
-        _ = try? await script("return __agent.quiet(idle, cap);", ["idle": idle, "cap": atMost], in: web, timeout: Double(atMost) / 1000 + 3)
+    private func rest(_ web: WKWebView, idle: Int = 150, atMost: Int = 500, leaving tab: Tab? = nil) async {
+        let documents = tab?.commits ?? 0
+        for _ in 0..<3 {
+            do {
+                _ = try await script("return __agent.quiet(idle, cap);", ["idle": idle, "cap": atMost], in: web, timeout: Double(atMost) / 1000 + 3, leaving: tab)
+                return
+            } catch is PageLeft {
+                // The document went while it was waited on: the next one is waited for, once it is there (a navigation
+                // that was decided and has not begun yet is waited for to begin).
+                guard let tab else { return }
+                if !web.isLoading, tab.commits == documents { await tab.beginning(atMost: 1) }
+                await tab.settled()
+            } catch { return }
+        }
     }
 
     /// The tracker (AgentPage.tracker) puts code in the pages an agent works in. For the person who wants none
@@ -671,13 +697,13 @@ private struct Call {
     /// in, one that is never quiet, or a document that went meanwhile gets the old window of no change.
     private func effectsOver(_ web: WKWebView, _ tab: Tab, cap: Int = 500, margin: Int = 30, pictures: Bool = false) async {
         if Call.mode == .inspector, let watch = InspectorWatch.existing(tab), await watch.settled(cap: cap, margin: margin) { return }
-        guard await trackerAllowed(web) else { return await rest(web) }
+        guard await trackerAllowed(web) else { return await rest(web, leaving: tab) }
         do {
             _ = try await script(AgentPage.tracker + "\nreturn await window[Symbol.for('basicshell.quiet')].settled({ cap, margin, window: 150, lazy, netBudget: 400 });",
-                                 ["cap": cap, "margin": margin, "lazy": pictures], in: web, world: .page, timeout: Double(cap) / 1000 + 3)
+                                 ["cap": cap, "margin": margin, "lazy": pictures], in: web, world: .page, timeout: Double(cap) / 1000 + 3, leaving: tab)
         } catch {
             await tab.settled()
-            await rest(web)
+            await rest(web, leaving: tab)
         }
     }
 
@@ -701,7 +727,7 @@ private struct Call {
             let count = result["count"] as? Int ?? 0
             guard count > 0 else { return "\nOn the page: nothing to click or fill." }
             let more = count - lines.count
-            return "\nOn the page: \(count) things to click or fill; \(lines.isEmpty ? "none in the view" : "in the view") below\(more > 0 && !lines.isEmpty ? " (`read_page` lists all \(count))" : ""):\n" + lines.joined(separator: "\n")
+            return "\nOn the page: \(count) things to click or fill; \(lines.isEmpty ? "none in the view" : "in the view") below\(more > 0 && !lines.isEmpty ? " (`read_page` goes on with `offset`; `find` looks through all \(count))" : ""):\n" + lines.joined(separator: "\n")
         }
         let added = result["added"] as? Int ?? 0, removed = result["removed"] as? Int ?? 0, changed = result["changed"] as? Int ?? 0
         guard added + removed + changed > 0 else { return since ? "\nNothing that can be clicked or filled has changed since your last `read_page` of this page." : "\nNothing that can be clicked or filled changed on the page." }
@@ -727,21 +753,44 @@ private struct Call {
             _ = try? await hold(condition, for: seconds, in: tab, web)
         } else if navigated {
             // A new document: what it started is not known, only that nothing has changed for a while.
-            await rest(web)
+            await rest(web, leaving: tab)
         } else {
             await effectsOver(web, tab)
         }
         if let dialog = tab.dialog { return "\nThe page now asks (\(dialog.kind)): \"\(dialog.message)\". Answer it with `dialog`." }
         var text = "\nNow at: \(tab.name) — \(tab.url?.absoluteString ?? "")"
+        text += opened(from: tab)
         if marked { text += await changes(web) }
         return text
+    }
+
+
+    /// Tabs this page opened (a link that opens a new tab): said once each, with the number to use, since the
+    /// tab that was clicked in stays where it was and the agent would otherwise read the wrong page.
+    private static var toldOpened = Set<UUID>()
+    private func opened(from tab: Tab) -> String {
+        var lines: [String] = []
+        for window in Windows.all {
+            for other in window.shell.tabs where other.opener === tab && !other.isPrivate && !Call.toldOpened.contains(other.id) {
+                Call.toldOpened.insert(other.id)
+                let number = AgentTools.number(of: other)
+                lines.append("A new tab opened from this page: [\(number)] \(other.name) — \(other.url?.absoluteString ?? "loading")\(other.isLoading ? " (still loading)" : ""). Use tab \(number) to carry on there.")
+            }
+        }
+        return lines.isEmpty ? "" : "\n" + lines.joined(separator: "\n")
     }
 
     // MARK: scripts
 
     /// Runs `body` in the agent's world of the page, with the helper there.
-    private func script(_ body: String, _ values: [String: Any] = [:], in web: WKWebView, world: WKContentWorld = AgentPage.world, timeout: Double = 15) async throws -> Any? {
+    /// The page began to load something else while a script was running in it.
+    private struct PageLeft: Error {}
+
+    /// With `leaving`, a script that is still running when the tab begins another document is given up at that
+    /// moment (PageLeft): WebKit never answers a script whose document went, so only the time-out would end it.
+    private func script(_ body: String, _ values: [String: Any] = [:], in web: WKWebView, world: WKContentWorld = AgentPage.world, timeout: Double = 15, leaving tab: Tab? = nil) async throws -> Any? {
         let source = world === AgentPage.world ? AgentPage.helper + "\n" + body : body
+        let before = tab?.navigationIntents ?? 0, documents = tab?.commits ?? 0
         let result: Result<Any?, any Error>? = await within(timeout) { done in
             web.callAsyncJavaScript(source, arguments: values, in: nil, in: world) { result in
                 switch result {
@@ -749,11 +798,20 @@ private struct Call {
                 case .failure(let error): done(.failure(error))
                 }
             }
+            if let tab {
+                Task { @MainActor in
+                    let left = { @MainActor in web.isLoading || tab.navigationIntents != before || tab.commits != documents }
+                    if left() { return done(.failure(PageLeft())) }
+                    await tab.loadBegun.wait(atMost: timeout)
+                    if left() { done(.failure(PageLeft())) }
+                }
+            }
         }
         guard let result else { throw Refusal(message: "The page didn't answer in \(Int(timeout)) seconds. It may be busy, or have a question up (`dialog`).") }
         switch result {
         case .success(let value): return value
         case .failure(let error):
+            if error is PageLeft { throw error }
             let detail = (error as NSError).userInfo["WKJavaScriptExceptionMessage"] as? String ?? error.localizedDescription
             throw Refusal(message: "The page's script failed: \(detail)")
         }
@@ -849,18 +907,38 @@ private struct Call {
         window.insert(tab, after: nil, select: flag("front"))
         access.hold(tab)
         tab.load(url)
-        var listing = ""
+        var listing = "", languageNote = ""
         if let web = tab.webView {
             await tab.settled()
             await rest(web, idle: 120, atMost: 1500)
+            languageNote = await languageLine(tab, web)
             if string("observe") != "none" { listing = await changes(web, listing: 15) }
         }
         // A load can take longer than the agent is allowed to be quiet: still at work.
         access.hold(tab)
-        return .text("Opened tab [\(AgentTools.number(of: tab))]: \(tab.name) — \(tab.url?.absoluteString ?? url.absoluteString)" + listing)
+        return .text("Opened tab [\(AgentTools.number(of: tab))]: \(tab.name) — \(tab.url?.absoluteString ?? url.absoluteString)" + languageNote + listing)
     }
 
     func close() async throws -> Reply {
+        if flag("yours") || arguments["tabs"] != nil {
+            var chosen: [Tab] = []
+            if flag("yours") {
+                for window in Windows.all { for tab in window.shell.tabs where !tab.isPrivate && access.holds(tab) { chosen.append(tab) } }
+            }
+            for number in (arguments["tabs"] as? [Any] ?? []).compactMap({ ($0 as? NSNumber)?.intValue ?? ($0 as? String).flatMap(Int.init) }) {
+                guard let tab = AgentTools.tab(numbered: number) else { throw Refusal(message: "There is no tab \(number) now; `tabs` lists the ones there are.") }
+                if !chosen.contains(where: { $0 === tab }) { chosen.append(tab) }
+            }
+            guard !chosen.isEmpty else { return .text("No tab to close: none is yours yet.") }
+            var names: [String] = []
+            for tab in chosen {
+                guard let window = tab.host as? BrowserWindow else { continue }
+                if !access.holds(tab) { try await access.permit(.act, in: tab, for: client) }
+                names.append(tab.name)
+                window.close(tab)
+            }
+            return .text("Closed \(names.count) tab\(names.count == 1 ? "" : "s"): " + names.map { String($0.prefix(40)) }.joined(separator: "; ") + ".")
+        }
         let tab = try target()
         guard let window = tab.host as? BrowserWindow else { throw Refusal(message: "That tab is in no window.") }
         // Its own, or one it was let into.
@@ -909,8 +987,9 @@ private struct Call {
         guard let web = tab.webView else { throw Refusal(message: "That tab has no page.") }
         await tab.settled()
         await rest(web, idle: 120, atMost: 1500)
+        let languageNote = await languageLine(tab, web)
         let listing = string("observe") == "none" ? "" : await changes(web, listing: 15)
-        return .text("Tab [\(AgentTools.number(of: tab))] is at: \(tab.name) — \(tab.url?.absoluteString ?? "")" + listing)
+        return .text("Tab [\(AgentTools.number(of: tab))] is at: \(tab.name) — \(tab.url?.absoluteString ?? "")" + languageNote + listing)
     }
 
     // MARK: reading
@@ -928,25 +1007,67 @@ private struct Call {
     }
 
     func readPage() async throws -> Reply {
-        let (_, web) = try await page(.read)
+        let (tab, web) = try await page(.read)
         // Only what is different from the last time: the same listing the actions give.
         if flag("since_last"), integer("ref") == nil, string("filter") != "all",
            let said = try await script("return __agent.since(limit);", ["limit": 60], in: web) as? [String: Any] {
             let header = try await script("return __agent.header();", in: web) as? String ?? ""
             return .text(header + "\n" + changeLines(said, since: true))
         }
-        var options: [String: Any] = ["filter": string("filter") ?? "interactive", "max": min(max(integer("max_chars") ?? 20000, 500), 200_000)]
+        var options: [String: Any] = ["filter": string("filter") ?? "interactive", "max": min(max(integer("max_chars") ?? 20000, 500), 200_000), "offset": max(integer("offset") ?? 0, 0)]
         if let ref = integer("ref") { options["ref"] = ref }
-        let text = try await script("return __agent.tree(options);", ["options": options], in: web)
-        return .text(text as? String ?? "")
+        var text = (try await script("return __agent.tree(options);", ["options": options], in: web)) as? String ?? ""
+        // The language, on the view line, when the page is not in English.
+        if options["ref"] == nil, let name = await language(of: tab, web), let view = text.range(of: "\nView: "), let end = text[view.upperBound...].firstIndex(of: "\n") {
+            text.insert(contentsOf: ", language \(name)", at: end)
+        }
+        return .text(text)
     }
 
     func find() async throws -> Reply {
-        let (_, web) = try await page(.read)
-        let query = (string("query") ?? "").trimmingCharacters(in: .whitespaces)
-        guard !query.isEmpty else { throw Refusal(message: "`find` wants something to look for.") }
-        let text = try await script("return __agent.find(query, 25);", ["query": query], in: web)
-        return .text(text as? String ?? "")
+        let (tab, web) = try await page(.read)
+        var queries = (arguments["queries"] as? [Any] ?? []).compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        if let one = string("query")?.trimmingCharacters(in: .whitespaces), !one.isEmpty { queries.insert(one, at: 0) }
+        guard !queries.isEmpty else { throw Refusal(message: "`find` wants something to look for: `query`, or `queries` for several things at once.") }
+        guard queries.count <= 8 else { throw Refusal(message: "`find` takes 8 queries at most; this has \(queries.count).") }
+        let skip = max(integer("offset") ?? 0, 0)
+        guard skip == 0 || queries.count == 1 else { throw Refusal(message: "`offset` goes with one query; with several, ask again for the one that has more.") }
+        // One thing: as it always was. Several: each under its own heading, fewer lines each so the answer stays small.
+        let text = queries.count == 1
+            ? try await script("return __agent.find(query, 25, offset, regex);", ["query": queries[0], "offset": skip, "regex": flag("regex")], in: web)
+            : try await script("return __agent.findMany(queries, 12, regex);", ["queries": queries, "regex": flag("regex")], in: web)
+        var answer = text as? String ?? ""
+        // Nothing found: the page's language and what it has in view, so the next ask is in its words (only on this path).
+        if answer.contains("Nothing on the page matches") {
+            if let name = await language(of: tab, web) { answer += "\nThe page is in \(name): ask for what it says, in \(name)." }
+            if let words = (try? await script("return __agent.vocabulary();", in: web)) as? String, !words.isEmpty { answer += "\nOn the page, by name (in view first) — " + words + "." }
+        }
+        return .text(answer)
+    }
+
+    /// The language the page is in when it is not English, by its name ("Turkish"): what the page says itself, and the
+    /// recognizer's reading of a sample of its text only where that is missing or says English over accented text.
+    /// Worked out once for each document (about 2 ms of the recognizer, only for the pages that need it).
+    private func language(of tab: Tab, _ web: WKWebView) async -> String? {
+        if let known = tab.language, known.documents == tab.commits { return known.name }
+        guard let said = (try? await script("return __agent.language();", in: web)) as? [String: Any] else { return nil }
+        let base = said["base"] as? String ?? "", sample = said["sample"] as? String ?? ""
+        var code: String? = base.isEmpty || base == "en" ? nil : base
+        if code == nil, !sample.isEmpty {
+            let recognizer = NLLanguageRecognizer()
+            recognizer.processString(sample)
+            if let top = recognizer.languageHypotheses(withMaximum: 1).first, top.value >= 0.8 { code = top.key.rawValue }
+        }
+        // Nothing known yet (a document still being made): not kept.
+        if base.isEmpty, sample.isEmpty { return nil }
+        var name: String?
+        if let code, code != "en", !code.hasPrefix("en-") { name = Locale(identifier: "en").localizedString(forLanguageCode: code) }
+        tab.language = (tab.commits, name)
+        return name
+    }
+
+    private func languageLine(_ tab: Tab, _ web: WKWebView) async -> String {
+        await language(of: tab, web).map { "\nPage language: \($0)." } ?? ""
     }
 
     func screenshot() async throws -> Reply {
@@ -1149,8 +1270,11 @@ private struct Call {
     /// Where the keyboard is in the page, refused when that is a secret
     /// field: as the page's own script sees it, and, when it is inside a
     /// frame from another site, as that frame says itself.
-    private func keyboard(in tab: Tab, _ web: WKWebView) async throws -> [String: Any] {
-        guard let focus = try await script("return __agent.focus();", in: web) as? [String: Any] else {
+    /// `settle`: seconds to let the page finish moving the keyboard after a click (a site that hands a
+    /// clicked field's focus to an element of its own a moment later); it answers as soon as the keyboard is in a field.
+    private func keyboard(in tab: Tab, _ web: WKWebView, settle: Double = 0) async throws -> [String: Any] {
+        let asked = settle > 0 ? "return __agent.settleFocus(ms);" : "return __agent.focus();"
+        guard let focus = try await script(asked, ["ms": settle * 1000], in: web, timeout: settle + 5) as? [String: Any] else {
             throw Refusal(message: "The page didn't say where the keyboard is.")
         }
         if focus["secret"] as? Bool == true { throw Refusal(message: secretRefusal) }
@@ -1181,13 +1305,23 @@ private struct Call {
         return flags
     }
 
+    /// What the person allowed was for the site the page was on when the call began: if it has gone to another
+    /// since (a redirect while the target was being found), nothing is clicked or typed there.
+    private func stillOn(_ tab: Tab, _ site: String?) throws {
+        guard AgentAccess.site(tab.url) == site else {
+            throw Refusal(message: "The page went to another site while this was being done, so nothing was clicked or typed. Read the page again.")
+        }
+    }
+
     func click() async throws -> Reply {
         let (tab, web) = try await page(.act)
+        let site = AgentAccess.site(tab.url)
         let place = try await place(in: tab, web)
         if place.file { throw Refusal(message: "That is a file field; give it files with `upload`.") }
         let count = min(max(integer("count") ?? 1, 1), 3)
         let marked = await mark(web)
         let right = string("button") == "right", keys = modifiers(string("modifiers"))
+        try stillOn(tab, site)
         await delivered(web, ["mouseup"], count: count) { AgentInput.click(web, at: place.point, right: right, count: count, modifiers: keys) }
         AgentRecorder.note(tab)
         return .text("Clicked \(place.what)." + (await after(tab, web, observing: marked)))
@@ -1195,8 +1329,10 @@ private struct Call {
 
     func hover() async throws -> Reply {
         let (tab, web) = try await page(.act)
+        let site = AgentAccess.site(tab.url)
         let marked = await mark(web)
         let place = try await place(in: tab, web)
+        try stillOn(tab, site)
         await delivered(web, ["mousemove"], limit: 0.15) { AgentInput.move(web, to: place.point) }
         // What a menu or a hint put up, found among the things that can be clicked.
         await effectsOver(web, tab, cap: 400)
@@ -1207,6 +1343,7 @@ private struct Call {
 
     func drag() async throws -> Reply {
         let (tab, web) = try await page(.act)
+        let site = AgentAccess.site(tab.url)
         let from = try await place(in: tab, web)
         if from.file { throw Refusal(message: "That is a file field; give it files with `upload`.") }
         // The place where it lets go, asked for the same way.
@@ -1220,6 +1357,7 @@ private struct Call {
         let to = try await Call(arguments: end, client: client).place(in: tab, web)
         guard hypot(to.point.x - from.point.x, to.point.y - from.point.y) >= 1 else { throw Refusal(message: "Both ends are the same place.") }
         let marked = await mark(web)
+        try stillOn(tab, site)
         await arming(web, ["mouseup"], count: 1, limit: 3)
         await AgentInput.drag(web, from: from.point, to: to.point, modifiers: modifiers(string("modifiers")))
         await landed(web, limit: 3)
@@ -1229,16 +1367,19 @@ private struct Call {
 
     func type() async throws -> Reply {
         let (tab, web) = try await page(.act)
+        let site = AgentAccess.site(tab.url)
         let text = string("text") ?? ""
         let marked = await mark(web)
         if hasTarget {
             let place = try await place(in: tab, web, typing: true)
+            try stillOn(tab, site)
             await delivered(web, ["mouseup"]) { AgentInput.click(web, at: place.point, right: false, count: 1, modifiers: []) }
         }
-        let focus = try await keyboard(in: tab, web)
+        let focus = try await keyboard(in: tab, web, settle: hasTarget ? 1.5 : 0)
         guard focus["typable"] as? Bool == true || focus["frame"] as? Bool == true else {
             throw Refusal(message: "The keyboard isn't in a field. Click the field first, or give its ref.")
         }
+        try stillOn(tab, site)
         if !text.isEmpty {
             let done = try await script("return __agent.insert(text);", ["text": text], in: web) as? String
             if done == "refused" { throw Refusal(message: secretRefusal) }
@@ -1360,12 +1501,18 @@ private struct Call {
             await effectsOver(web, tab, cap: 600)
             found = try await script("return __agent.searchField();", in: web) as? [String: Any]
         }
-        guard let ref = (found?["ref"] as? NSNumber)?.intValue else {
+        guard var ref = (found?["ref"] as? NSNumber)?.intValue else {
             throw Refusal(message: "There is no search field on this page that BasicShell can find. `find` \"search\" lists what is there; or `type` into the field you pick.")
         }
-        let place = try await Call(arguments: ["ref": ref], client: client).place(in: tab, web, typing: true)
-        await delivered(web, ["mouseup"]) { AgentInput.click(web, at: place.point, right: false, count: 1, modifiers: []) }
-        let focus = try await keyboard(in: tab, web)
+        var focus: [String: Any] = [:]
+        for attempt in 0..<2 {
+            let place = try await Call(arguments: ["ref": ref], client: client).place(in: tab, web, typing: true)
+            await delivered(web, ["mouseup"]) { AgentInput.click(web, at: place.point, right: false, count: 1, modifiers: []) }
+            focus = try await keyboard(in: tab, web, settle: 1.5)
+            if focus["typable"] as? Bool == true || focus["frame"] as? Bool == true { break }
+            // Once more, and only after a miss: the page may have swapped the field, or put something over it, as it was clicked.
+            if attempt == 0, let again = ((try? await script("return __agent.searchField();", in: web)) as? [String: Any])?["ref"] as? NSNumber { ref = again.intValue }
+        }
         guard focus["typable"] as? Bool == true || focus["frame"] as? Bool == true else {
             throw Refusal(message: "The keyboard didn't get into the search field (\(found?["what"] as? String ?? "it")). Click it, then `type`.")
         }
@@ -1573,9 +1720,15 @@ private struct Call {
         var lastLook = Date.distantPast
         let check = """
         const t = (document.body && document.body.innerText || "").toLowerCase();
+        // What a control is called (aria-label, title, alt, value) counts as being on the page: a button that becomes
+        // "Selected colour Black" has said so, in the listing, in words the page does not show as text.
+        let named = null;
+        const names = () => named === null ? (named = [...document.querySelectorAll("[aria-label],[title],img[alt],input[value],input[placeholder]")]
+          .map((e) => [e.getAttribute("aria-label"), e.getAttribute("title"), e.getAttribute("alt"), e.value, e.getAttribute("placeholder")].filter(Boolean).join(" ")).join("\\n").toLowerCase()) : named;
+        const there = (x) => { x = x.toLowerCase(); return t.includes(x) || names().includes(x); };
         let found = null;
         if (selector) { try { found = !!document.querySelector(selector); } catch (e) { found = "bad"; } }
-        return { text: text ? t.includes(text.toLowerCase()) : null, gone: gone ? !t.includes(gone.toLowerCase()) : null, selector: found,
+        return { text: text ? there(text) : null, gone: gone ? !there(gone) : null, selector: found,
                  ready: document.readyState, resources: performance.getEntriesByType("resource").length };
         """
         while true {
@@ -1584,7 +1737,7 @@ private struct Call {
             if gap > 0 { try? await Task.sleep(for: .milliseconds(Int(gap * 1000) + 1)) }
             lastLook = Date()
             var said: [String: Any] = [:]
-            if let result = try? await script(check, ["text": condition.text ?? "", "gone": condition.gone ?? "", "selector": condition.selector ?? ""], in: web, timeout: 5) as? [String: Any] { said = result }
+            if let result = try? await script(check, ["text": condition.text ?? "", "gone": condition.gone ?? "", "selector": condition.selector ?? ""], in: web, timeout: 5, leaving: tab) as? [String: Any] { said = result }
             var holding: [String] = [], missing: [String] = []
             func note(_ label: String, _ holds: Bool) { if holds { holding.append(label) } else { missing.append(label) } }
             if let text = condition.text { note("\"\(text)\" is on the page", said["text"] as? Bool == true) }
@@ -1607,7 +1760,7 @@ private struct Call {
             var wake = remaining
             if condition.idle { wake = min(wake, max(0.05, 0.7 - Date().timeIntervalSince(steady))) }
             do {
-                _ = try await script("return await __agent.changed(ms);", ["ms": wake * 1000], in: web, timeout: wake + 5)
+                _ = try await script("return await __agent.changed(ms);", ["ms": wake * 1000], in: web, timeout: wake + 5, leaving: tab)
             } catch {
                 // The document went (a navigation): look again in the next one, once it is there.
                 await tab.settled(atMost: min(remaining, 10))

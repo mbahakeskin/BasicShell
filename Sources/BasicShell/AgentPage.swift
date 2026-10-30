@@ -25,15 +25,19 @@ enum AgentPage {
       const aliases = new Map();
       const byRef = (r) => {
         r = Number(r);
+        const first = r;
         for (let i = 0; i < 4; i++) {
           const w = refs.get(r), e = w && w.deref();
           if (e && e.isConnected) return e;
-          if (!aliases.has(r)) return null;
+          if (!aliases.has(r)) break;
           r = aliases.get(r);
         }
-        return null;
+        return reresolve(first);
       };
       const clean = (s, n) => { s = String(s == null ? "" : s).replace(/\s+/g, " ").trim(); return n && s.length > n ? s.slice(0, n - 1) + "…" : s; };
+      // An address cut in the middle, not at the end: what tells one page from
+      // another (a product's number) is mostly at the end.
+      const elide = (s, n) => { s = clean(s); return s.length > n ? s.slice(0, n - 30) + "…" + s.slice(-29) : s; };
 
       // A field whose contents are nobody's to read or fill but the person's.
       const secret = (e) => {
@@ -58,9 +62,11 @@ enum AgentPage {
       };
       const acting = new Set(["link", "button", "checkbox", "radio", "slider", "searchbox", "textbox", "combobox", "file", "tab", "menuitem",
         "menuitemcheckbox", "menuitemradio", "option", "switch", "treeitem", "spinbutton", "listbox", "video", "audio"]);
-      // What is named by what it holds, and so isn't looked into.
+      // What is named by what it holds, and so isn't looked into. Not a heading: a shop's card title is often
+      // a heading that can be clicked itself (tabindex, a pointer) with the real link inside it, and a heading
+      // taken as a leaf hid that link from every list, `find` and label.
       const leaf = new Set(["link", "button", "checkbox", "radio", "slider", "searchbox", "textbox", "combobox", "file", "tab", "menuitem",
-        "menuitemcheckbox", "menuitemradio", "option", "switch", "spinbutton", "img", "heading", "video", "audio"]);
+        "menuitemcheckbox", "menuitemradio", "option", "switch", "spinbutton", "img", "video", "audio"]);
       const landmark = new Set(["navigation", "main", "banner", "contentinfo", "complementary", "form", "dialog", "alertdialog", "search", "region", "menu", "tablist", "alert"]);
       const skipped = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "HEAD", "META", "LINK", "TITLE", "BASE", "SVG", "svg", "PATH", "BR", "HR", "WBR", "SOURCE", "TRACK", "PARAM"]);
 
@@ -114,7 +120,7 @@ enum AgentPage {
 
       const state = (e, r) => {
         const out = [], tag = e.tagName;
-        if (tag === "A" && e.hasAttribute("href")) out.push("href=" + clean(e.getAttribute("href"), 80));
+        if (tag === "A" && e.hasAttribute("href")) out.push("href=" + elide(e.getAttribute("href"), 90));
         if (tag === "INPUT" || tag === "TEXTAREA") {
           if (r === "checkbox" || r === "radio") out.push(e.checked ? "checked" : "unchecked");
           else if (r !== "button" && r !== "file") out.push("value=" + JSON.stringify(secret(e) ? (e.value ? "(hidden)" : "") : clean(e.value, 80)));
@@ -163,12 +169,61 @@ enum AgentPage {
       };
       const onScreen = (b) => b.y + b.h > 0 && b.y < innerHeight && b.x + b.w > 0 && b.x < innerWidth;
 
+      // What each number was said to be when it was handed out, to find the element again if the page
+      // rebuilds it before anything has noted that (a site that swaps a field as it is focused).
+      const prints = new Map();
+      // The dialog that is open over the page and takes it (a <dialog> shown as a modal, or one that says aria-modal),
+      // if there is one; looked for again only after a moment, for the many lines of one answer.
+      let modalSeen = null;
+      const modalNow = () => {
+        const now = performance.now();
+        if (modalSeen && now - modalSeen.at < 50) return modalSeen.dialog;
+        let dialog = null;
+        for (const d of document.querySelectorAll('dialog[open], [aria-modal="true"]')) {
+          let modal = d.getAttribute("aria-modal") === "true";
+          try { modal = modal || d.matches(":modal"); } catch (error) {}
+          if (modal && shown(d)) { dialog = d; break; }
+        }
+        modalSeen = { at: now, dialog };
+        return dialog;
+      };
+
       const line = (e, r) => {
-        const parts = ["[" + refOf(e) + "]", r || "clickable"];
+        const ref = refOf(e);
+        const parts = ["[" + ref + "]", r || "clickable"];
         const n = name(e, r);
         if (n) parts.push(JSON.stringify(n));
+        prints.set(ref, { key: (r || "clickable") + "|" + n, href: e.tagName === "A" ? e.getAttribute("href") : "" });
         parts.push(...state(e, r));
+        // Under an open dialog the page cannot be reached: said, so that it is not tried.
+        const dialog = modalNow();
+        if (dialog && !dialog.contains(e) && !e.contains(dialog)) parts.push("(behind the open dialog)");
         return parts;
+      };
+
+      // A number whose element is gone and was never aliased: the one element now that says the same
+      // (same kind, same name, same address for a link). Only when there is exactly one.
+      const reresolve = (r) => {
+        const p = prints.get(r);
+        if (!p) return null;
+        const hits = [];
+        const walk = (node) => {
+          for (const c of kids(node)) {
+            if (c.nodeType !== 1 || skipped.has(c.tagName) || c.getAttribute("aria-hidden") === "true") continue;
+            if (c.tagName === "INPUT" && c.type === "hidden") continue;
+            if (!shown(c)) continue;
+            const rl = role(c);
+            if (clickable(c, rl, getComputedStyle(c))) {
+              if ((rl || "clickable") + "|" + name(c, rl) === p.key && (!p.href || (c.tagName === "A" && c.getAttribute("href") === p.href))) hits.push(c);
+              if (leaf.has(rl)) continue;
+            }
+            walk(c);
+          }
+        };
+        walk(document.documentElement);
+        if (hits.length !== 1) return null;
+        aliases.set(r, refOf(hits[0]));
+        return hits[0];
       };
 
       const header = () => {
@@ -177,15 +232,57 @@ enum AgentPage {
           "View: " + innerWidth + "×" + innerHeight + ", scrolled to " + Math.round(scrollY) + " of " + Math.max(0, Math.round(d.scrollHeight - innerHeight));
       };
 
+      // The language the page is in: what it says itself (<html lang>). Where that is missing, or says English over text
+      // full of accented letters, a sample of its text too, for the recognizer to read (see Call.language); the rest of
+      // the pages are not looked into.
+      const language = () => {
+        const base = (document.documentElement.getAttribute("lang") || "").trim().toLowerCase().split(/[-_]/)[0];
+        let sample = "";
+        if (!base || base === "en") {
+          const t = (document.body ? document.body.innerText : "").replace(/\s+/g, " ").trim().slice(0, 700);
+          const accented = (t.match(/[^\x00-\x7F]/g) || []).length;
+          if (t.length > 40 && (!base || accented / t.length > 0.04)) sample = t;
+        }
+        return { base, sample };
+      };
+
+      // When a search finds nothing: what the page has, by the names its controls carry (what is in view first, then the
+      // rest of the page), so that the next ask can use them. Short names only: a long one is a sentence, not a word to ask for.
+      const vocabulary = () => {
+        const found = [], seen = new Set();
+        const walk = (node) => {
+          for (const c of kids(node)) {
+            if (c.nodeType !== 1 || skipped.has(c.tagName) || c.getAttribute("aria-hidden") === "true") continue;
+            if (c.tagName === "INPUT" && c.type === "hidden") continue;
+            if (!shown(c)) continue;
+            const r = role(c);
+            if (clickable(c, r, getComputedStyle(c))) {
+              const n = clean(name(c, r), 40);
+              const g = ["textbox", "searchbox", "combobox"].includes(r) ? "fields" : r === "link" ? "links" : "buttons";
+              // "24 comments", "155 comments": one kind of label, said once.
+              const kind = g + n.toLowerCase().replace(/\d+/g, "#");
+              if (n && !n.endsWith("…") && !seen.has(kind)) { seen.add(kind); found.push({ n, g, on: onScreen(box(c)), at: found.length }); }
+              if (leaf.has(r)) continue;
+            }
+            walk(c);
+          }
+        };
+        walk(document.documentElement);
+        // Labels first (short names: what a button or a menu says), then what is in view, then the page's own order:
+        // a page's long names are its content, which are asked for by their words, not by their kind.
+        found.sort((a, b) => ((a.n.length > 24) - (b.n.length > 24)) || (b.on - a.on) || a.at - b.at);
+        const cap = { buttons: 15, fields: 6, links: 30 }, taken = { buttons: [], links: [], fields: [] };
+        for (const f of found) if (taken[f.g].length < cap[f.g]) taken[f.g].push(f.n);
+        return Object.keys(taken).filter((k) => taken[k].length).map((k) => k + ": " + taken[k].map((n) => JSON.stringify(n)).join(", ")).join("; ");
+      };
+
       const tree = (options) => {
         const all = options.filter === "all", max = options.max || 20000, lines = [];
+        const offset = Math.max(0, Math.floor(options.offset || 0));
         if (!options.ref && !all) noteRead();
-        let total = 0, cut = 0;
-        const emit = (depth, text) => {
-          const s = "  ".repeat(Math.min(depth, 8)) + text;
-          if (cut || total + s.length + 1 > max) { cut++; return; }
-          total += s.length + 1; lines.push(s);
-        };
+        // Every line is made, and the answer is a window of them (from `offset`, as many as `max` characters hold),
+        // so nothing is dropped without saying where the rest is and how to get it.
+        const emit = (depth, text) => { lines.push("  ".repeat(Math.min(depth, 8)) + text); };
         // `said`: what this holds has been said already, as something's name.
         const walk = (node, depth, said) => {
           for (const c of kids(node)) {
@@ -199,28 +296,38 @@ enum AgentPage {
             if (c.tagName === "INPUT" && c.type === "hidden") continue;
             if (!file && !shown(c)) continue;
             const r = role(c);
-            let deeper = depth, inner = said;
+            // A part of the page that scrolls by itself (a cart panel, a menu, a list): said where it is, with a point inside it
+            // to scroll from, so that what is below its edge is not taken for all there is.
+            let level = depth;
+            const own = getComputedStyle(c);
+            if (c !== document.body && c !== document.documentElement && /auto|scroll/.test(own.overflowY) && !leaf.has(r) && c.clientHeight > 80 && c.scrollHeight > c.clientHeight + 40) {
+              const b = c.getBoundingClientRect(), label = clean(c.getAttribute("aria-label"), 40);
+              emit(depth, "scrolling area" + (label ? " " + JSON.stringify(label) : "") + " at " + Math.round(b.x + b.width / 2) + "," + Math.round(b.y + b.height / 2) +
+                " (scrolled " + Math.round(c.scrollTop) + " of " + Math.round(c.scrollHeight - c.clientHeight) + " px; `scroll` with x, y there)");
+              level = depth + 1;
+            }
+            let deeper = level, inner = said;
             if (file || clickable(c, r, getComputedStyle(c))) {
               const parts = line(c, r);
               if (!file && !onScreen(box(c))) parts.push("(off screen)");
-              emit(depth, parts.join(" "));
+              emit(level, parts.join(" "));
               if (leaf.has(r)) continue;
-              deeper = depth + 1;
+              deeper = level + 1;
             } else if (r === "heading") {
-              if (all) emit(depth, "heading " + JSON.stringify(clean(c.innerText || c.textContent, 160)));
+              if (all) emit(level, "heading " + JSON.stringify(clean(c.innerText || c.textContent, 160)));
               inner = true;
             } else if (r === "img") {
-              if (all) { const n = name(c, r); if (n) emit(depth, "img " + JSON.stringify(n)); }
+              if (all) { const n = name(c, r); if (n) emit(level, "img " + JSON.stringify(n)); }
               continue;
             } else if (r === "frame") {
               let own = false;
               try { own = !!c.contentDocument; } catch (error) {}
-              emit(depth, "[" + refOf(c) + "] frame " + JSON.stringify(name(c, r)) + (own ? "" : " (another site's: only the picture, and clicks and typing by position, reach inside)"));
-              deeper = depth + 1;
+              emit(level, "[" + refOf(c) + "] frame " + JSON.stringify(name(c, r)) + (own ? "" : " (another site's: only the picture, and clicks and typing by position, reach inside)"));
+              deeper = level + 1;
             } else if (landmark.has(r) && (all || r === "dialog" || r === "alertdialog" || r === "alert")) {
               const n = clean(c.getAttribute("aria-label"), 60);
-              emit(depth, r + (n ? " " + JSON.stringify(n) : ""));
-              deeper = depth + 1;
+              emit(level, r + (n ? " " + JSON.stringify(n) : ""));
+              deeper = level + 1;
             }
             walk(c, deeper, inner);
           }
@@ -228,9 +335,19 @@ enum AgentPage {
         const start = options.ref ? byRef(options.ref) : document.documentElement;
         if (!start) return "That ref is no longer on the page; read the page again.";
         walk(start, 0, false);
-        if (cut) lines.push("… " + cut + " more lines not shown: ask for more with max_chars, or for one part of the page with ref.");
         if (!lines.length) lines.push(all ? "(nothing to show)" : "(nothing to click or fill; filter \"all\" shows the text too)");
-        return header() + "\n\n" + lines.join("\n");
+        let end = Math.min(offset, lines.length), size = 0;
+        const from = end;
+        while (end < lines.length && (end === from || size + lines[end].length + 1 <= max)) { size += lines[end].length + 1; end++; }
+        const body = lines.slice(from, end), more = lines.length - end;
+        // Said at the top, where it is read first, and again at the end: which lines these are, how many are left, and how to get them.
+        const how = "`offset: " + end + "` continues from here; `find` reaches one thing by its words from anywhere on the page; `ref` reads one part.";
+        const summary = (from > 0 || more > 0)
+          ? "Lines " + (body.length ? (from + 1) + "–" + end : "none") + " of " + lines.length + (more > 0 ? "; " + more + " more below: " + how : (from >= lines.length ? " (offset " + offset + " is past the end)" : "")) + "\n"
+          : "";
+        const open = options.ref ? null : modalNow();
+        const modalNote = open ? "A dialog is open (" + (clean(open.getAttribute("aria-label") || (open.querySelector("h1,h2,h3") || {}).textContent, 60) || "untitled") + "): what is behind it is marked.\n" : "";
+        return header() + "\n" + modalNote + summary + "\n" + body.join("\n") + (more > 0 ? "\n… " + more + " more lines: " + how : "");
       };
 
       // The page's text; `options.selector` takes only what matches it, `options.main`
@@ -373,33 +490,89 @@ enum AgentPage {
           others: tier.filter((f, i) => i !== index).slice(0, 4).map((f) => describe(f.c)) };
       };
 
-      const find = (query, limit) => {
-        const q = query.toLowerCase(), out = [];
+      // A link's address as words: what a shop's product card has instead of a name on its link ("Delivery:
+      // today"), the product's own name being in the address only (…/havit-gamenote-fuxi-h7-…), whole and not cut.
+      // (Accents and the dotless i are dropped, as addresses are written without them.)
+      const words = (s) => String(s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/ı/g, "i").replace(/[-_.\/+%?&=]+/g, " ").replace(/\s+/g, " ").trim();
+      const addressWords = (c) => {
+        if (c.tagName !== "A" || !c.hasAttribute("href")) return "";
+        let h = c.getAttribute("href") || "";
+        try { h = decodeURIComponent(h); } catch (error) {}
+        return words(h.split("?")[0]);
+      };
+
+      // Where a control is: the text of the nearest thing around it that holds something besides its own name (the card a
+      // button is on, the row), for telling apart controls that are called the same.
+      const scopeOf = (c, own) => {
+        let p = c.parentElement;
+        for (let i = 0; p && i < 7 && p !== document.body; i++, p = p.parentElement) {
+          const t = clean(p.innerText || "", 400);
+          if (t.length > 300) return "";
+          if (t.length > own.length + 15) {
+            const rest = clean(t.split(own).join(" "), 90);
+            return rest ? " — in: " + JSON.stringify(rest) : "";
+          }
+        }
+        return "";
+      };
+
+      const find = (query, limit, offset, regex) => {
+        let re = null;
+        if (regex) { try { re = new RegExp(query, "i"); } catch (error) { return "That isn't a regular expression: " + query; } }
+        const q = query.toLowerCase().trim(), out = [];
+        const hit = (said) => re ? re.test(said) : said.toLowerCase().includes(q);
+        // The closest words first: a control that is called what was asked for, then one that starts with it, then one
+        // that has it among its words, then the rest; what is in view before what is not; the page's own order otherwise.
+        const closeness = (said) => {
+          if (re) return 3;
+          const n = clean(said, 200).toLowerCase();
+          if (n === q) return 0;
+          if (n.startsWith(q)) return 1;
+          return new RegExp("(^|[^\\p{L}\\p{N}])" + q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "($|[^\\p{L}\\p{N}])", "u").test(n) ? 2 : 3;
+        };
+        // Only a phrase (two words or more) is also looked for in addresses: one word would match too many of them.
+        const need = words(query).split(" ").filter((w) => w.length > 1), inAddress = !re && need.length >= 2;
+        const inAddr = (c) => { const a = " " + addressWords(c); return a.length > 1 && need.every((w) => a.includes(" " + w)); };
         const walk = (node) => {
           for (const c of kids(node)) {
-            if (out.length >= limit) return;
             if (c.nodeType !== 1 || skipped.has(c.tagName) || c.getAttribute("aria-hidden") === "true") continue;
             const file = c.tagName === "INPUT" && c.type === "file";
             if ((c.tagName === "INPUT" && c.type === "hidden") || (!file && !shown(c))) continue;
             const r = role(c);
             if (file || clickable(c, r, getComputedStyle(c))) {
               const parts = line(c, r);
-              if (parts.join(" ").toLowerCase().includes(q) || (c.id && c.id.toLowerCase().includes(q))) {
-                if (!file && !onScreen(box(c))) parts.push("(off screen)");
-                out.push(parts.join(" "));
+              if (hit(parts.join(" ")) || (re && hit(name(c, r))) || (c.id && hit(c.id)) || (inAddress && inAddr(c))) {
+                const seen = file || onScreen(box(c));
+                if (!seen) parts.push("(off screen)");
+                out.push({ text: parts.join(" "), rank: closeness(name(c, r)), seen, at: out.length, c, name: name(c, r).toLowerCase() });
               }
               if (leaf.has(r)) continue;
             } else {
               // Text of its own, not its children's.
               const own = clean([...c.childNodes].filter((n) => n.nodeType === 3).map((n) => n.nodeValue).join(" "), 200);
-              if (own && own.toLowerCase().includes(q)) out.push("[" + refOf(c) + "] text " + JSON.stringify(own) + (onScreen(box(c)) ? "" : " (off screen)"));
+              if (own && hit(own)) {
+                const seen = onScreen(box(c));
+                out.push({ text: "[" + refOf(c) + "] text " + JSON.stringify(own) + (seen ? "" : " (off screen)"), rank: closeness(own), seen, at: out.length });
+              }
             }
             walk(c);
           }
         };
         walk(document.documentElement);
-        return out.length ? out.join("\n") : "Nothing on the page matches " + JSON.stringify(query) + ".";
+        if (!out.length) return "Nothing on the page matches " + JSON.stringify(query) + ".";
+        // All of them are counted: a list that stops at `limit` says how many are left and where to go on.
+        out.sort((a, b) => a.rank - b.rank || (b.seen - a.seen) || a.at - b.at);
+        // Controls that are called the same (a shop's "Add to cart" for each product) say where they are.
+        const called = new Map();
+        for (const m of out) if (m.name) called.set(m.name, (called.get(m.name) || 0) + 1);
+        const start = Math.max(0, Math.floor(offset || 0));
+        const page = out.slice(start, start + limit).map((m) => m.text + (m.c && called.get(m.name) > 1 ? scopeOf(m.c, clean(name(m.c, role(m.c)), 100)) : ""));
+        if (!page.length) return "Only " + out.length + " match" + (out.length === 1 ? "" : "es") + " for " + JSON.stringify(query) + "; offset " + start + " is past the end.";
+        const left = out.length - start - page.length;
+        return page.join("\n") + (left > 0 ? "\n… " + left + " more matches (" + out.length + " in all): `offset: " + (start + page.length) + "` gives the next ones, or use more words." : "");
       };
+      // Several things at once, each under its own heading: what a page offers for a task is mostly looked up together.
+      const findMany = (queries, limit, regex) => queries.map((q) => JSON.stringify(q) + ":\n" + find(q, limit, 0, regex)).join("\n\n");
 
       // The element at a point, through shadow trees and this site's own frames.
       const at = (x, y) => {
@@ -819,8 +992,23 @@ enum AgentPage {
       // A page with a password or card field on it: the pages that look hardest at what runs in them.
       const guarded = () => [...document.querySelectorAll("input")].some(secret);
 
-      return { tree, text, structured, resolve, guarded, find, spot, fill, insert, scroll, header, byRef, selection, inspect, quiet, mark, diff, searchField, markUp, markDown, links, since, arm, armed, frames, changed,
-        focus: () => { const e = focused(); return { typable: typable(e), secret: secret(e), frame: !!e && e.tagName === "IFRAME", what: e && e !== document.body ? describe(e) : "" }; },
+
+      const focusNow = () => { const e = focused(); return { typable: typable(e), secret: secret(e), frame: !!e && e.tagName === "IFRAME", what: e && e !== document.body ? describe(e) : "" }; };
+      // Where the keyboard is once the page has finished moving it: a site may hand a clicked field's focus
+      // to another element of its own a moment later. Answers at once when it is in a field already; else
+      // at the first focus that lands in one, or after `ms` (the watchdog).
+      const settleFocus = (ms) => new Promise((resolve) => {
+        const first = focusNow();
+        if (first.typable || first.frame) { resolve(first); return; }
+        let timer = 0;
+        const finish = () => { document.removeEventListener("focusin", on, true); clearTimeout(timer); resolve(focusNow()); };
+        const on = () => { const f = focusNow(); if (f.typable || f.frame) finish(); };
+        document.addEventListener("focusin", on, true);
+        timer = setTimeout(finish, ms);
+      });
+
+      return { tree, text, structured, resolve, guarded, find, findMany, spot, fill, insert, scroll, header, byRef, selection, inspect, quiet, language, vocabulary, mark, diff, searchField, markUp, markDown, links, since, arm, armed, frames, changed, settleFocus,
+        focus: focusNow,
         boxOf: (r) => { const e = byRef(r); return e ? box(e) : null; },
         show: (r) => { const e = byRef(r); if (!e) return false; e.scrollIntoView({ block: "center", inline: "center", behavior: "instant" }); return true; } };
     })();

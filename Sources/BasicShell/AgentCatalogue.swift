@@ -17,7 +17,7 @@ extension AgentTools {
         "navigate": "Go to an address, or back, forward, reload, hard_reload. Lists the page's controls.",
         "read_text": "The page's text. Long page: offset. selector or main for a part; structured for products (name, price, stock).",
         "read_page": "The page's controls with refs, to click or fill by ref. filter all: text too. since_last: only what changed.",
-        "find": "Controls or text by words, with refs.",
+        "find": "Controls or text by words, with refs; `queries` looks up several at once.",
         "screenshot": "Picture of the tab. max_width, quality, region or ref, marks (refs drawn on it), full_page with tile or overview.",
         "click": "Click a ref, a label (what it says), a selector, or x y in a screenshot. Says what changed; expect checks the result.",
         "hover": "Pointer over a ref, label, selector or x y. Says what appeared.",

@@ -355,6 +355,7 @@ struct AgentSettings: View {
                                 .font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
                             Text(entry.tool).font(.callout.monospaced())
                             if let site = entry.site { Text(site).foregroundStyle(.secondary) }
+                            if let summary = entry.summary { Text(summary).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                             Spacer()
                             if entry.took > 0 {
                                 Text(entry.took >= 1000 ? String(format: "%.1f s", Double(entry.took) / 1000) : "\(entry.took) ms")

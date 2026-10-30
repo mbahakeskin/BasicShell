@@ -125,6 +125,8 @@ struct AgentActivity: Identifiable {
     let failed: Bool
     /// How long the call took, in milliseconds.
     var took = 0
+    /// What the agent said the call was for, when it said (the `summary` argument).
+    var summary: String?
 }
 
 /// Who may, and what is going on.
@@ -526,8 +528,8 @@ final class AgentAccess {
     /// memory only, and gone when BasicShell quits.
     private(set) var activity: [AgentActivity] = []
 
-    func note(_ tool: String, site: String?, client: String, failed: Bool, took: Int = 0) {
-        activity.insert(AgentActivity(date: Date(), client: client, tool: tool, site: site, failed: failed, took: took), at: 0)
+    func note(_ tool: String, site: String?, client: String, failed: Bool, took: Int = 0, summary: String? = nil) {
+        activity.insert(AgentActivity(date: Date(), client: client, tool: tool, site: site, failed: failed, took: took, summary: (summary?.isEmpty ?? true) ? nil : String(summary!.prefix(120))), at: 0)
         if activity.count > 100 { activity.removeLast(activity.count - 100) }
     }
 

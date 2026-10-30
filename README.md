@@ -214,7 +214,14 @@ The tools:
   Settings with the sites; with bypass on, any file opens, unasked.
 - `read_text`, `read_page`, `find`, `screenshot`: a page's text, what on it
   can be clicked or filled (each with a number to refer to it by), and a
-  picture of it.
+  picture of it. A long page is read in windows (`offset`): the answer says
+  which lines it has and where the rest is, so nothing is cut unsaid. `find`
+  takes several things at once, puts the closest names first, says where
+  controls that are called the same are (the card a button is on), and takes
+  a regular expression; when it finds nothing it lists what the page has. A
+  page that is not in English says what language it is in. Under an open
+  dialog the controls behind it are marked, and a part of the page that
+  scrolls by itself is said, with a point to scroll from.
 - `click`, `hover`, `type`, `key`, `scroll`, `fill`: made as AppKit's own
   events and handed to the page's view, so the page takes them for real
   ones, the pointer stays where you have it, and it all works in a tab

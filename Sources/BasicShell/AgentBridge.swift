@@ -107,11 +107,56 @@ nonisolated enum AgentLink {
     static func start(id: Any, tool: String, arguments: [String: Any], enabled: Bool, client: String, socketPath: String, appPath: String) {
         let carried = Carried(id: id, arguments: arguments)
         gate.wait()
+        // Handed to the browser here, in the order the agent sent the calls (this runs on the thread that reads
+        // them): calls sent together, such as three clicks in one turn, would otherwise reach it in whatever order
+        // their threads happened to run, and be done in that order.
+        let sent = enabled ? submit(tool, carried.arguments, client: client, socketPath: socketPath, appPath: appPath) : nil
         DispatchQueue.global().async {
-            let reply = call(tool, carried.arguments, enabled: enabled, client: client, socketPath: socketPath, appPath: appPath)
+            var reply: (parts: [[String: Any]], failed: Bool)
+            if let sent, let answered = answer(to: sent) {
+                reply = answered
+            } else {
+                reply = call(tool, carried.arguments, enabled: enabled, client: client, socketPath: socketPath, appPath: appPath)
+            }
             emit(["jsonrpc": "2.0", "id": carried.id, "result": ["content": reply.parts, "isError": reply.failed]])
             gate.signal()
         }
+    }
+
+    /// A call written to the browser, and what its answer is waited on.
+    private struct Sent: @unchecked Sendable { let waiter: Waiter; let fd: Int32; let id: Int }
+
+    /// The call written to the browser's socket now; nil when that wasn't possible (`call` then does it, with its retries).
+    private static func submit(_ tool: String, _ arguments: [String: Any], client: String, socketPath: String, appPath: String) -> Sent? {
+        guard connect(launching: true, socketPath: socketPath, appPath: appPath) else { return nil }
+        lock.lock()
+        let id = next
+        next += 1
+        let fd = socket
+        let waiter = Waiter(fd: fd)
+        waiting[id] = waiter
+        lock.unlock()
+        let request: [String: Any] = ["id": id, "tool": tool, "args": arguments, "client": client]
+        guard let data = try? JSONSerialization.data(withJSONObject: request) else {
+            lock.lock(); waiting[id] = nil; lock.unlock()
+            return nil
+        }
+        writing.lock()
+        let sent = AgentWire.write(data, to: fd)
+        writing.unlock()
+        guard sent else {
+            lock.lock(); waiting[id] = nil; lock.unlock()
+            drop(fd)
+            return nil
+        }
+        return Sent(waiter: waiter, fd: fd, id: id)
+    }
+
+    /// The browser's answer to a call written by `submit`; nil when the socket went before it came.
+    private static func answer(to sent: Sent) -> (parts: [[String: Any]], failed: Bool)? {
+        sent.waiter.semaphore.wait()
+        guard let reply = sent.waiter.reply else { return nil }
+        return (reply["content"] as? [[String: Any]] ?? [], reply["error"] as? Bool ?? false)
     }
 
     private static func failure(_ text: String) -> (parts: [[String: Any]], failed: Bool) {

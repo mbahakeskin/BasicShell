@@ -107,6 +107,10 @@ final class Tab: NSObject, Identifiable {
     @ObservationIgnored var agentIntents = 0
     @ObservationIgnored let loadEnded = Waiters()
     @ObservationIgnored let loadBegun = Waiters()
+    /// How many documents have come to be in this tab: a script that began in one is lost when it goes (see Call.script).
+    @ObservationIgnored var commits = 0
+    /// The language its document is in, when it is not English (see Call.language), said once for each document.
+    @ObservationIgnored var language: (documents: Int, name: String?)?
     @ObservationIgnored let dialogEnded = Waiters()
     @ObservationIgnored let offerTaken = Waiters()
 
@@ -413,6 +417,7 @@ extension Tab: WKNavigationDelegate {
         #if AGENT
         // Another page: the frames noted were the last one's.
         frames = []
+        commits += 1
         #endif
         applySiteZoom(webView)
     }
