@@ -99,9 +99,12 @@ final class MediaDownload: NSObject, WKScriptMessageHandler {
             else { return }
             let window = tab.host as? BrowserWindow
             if said["stream"] as? Bool == true {
+                Debug.log("media", "pressed on a streamed video (\(web.url?.host() ?? "?")), runs \((said["duration"] as? NSNumber)?.doubleValue ?? 0) s, \((said["w"] as? NSNumber)?.intValue ?? 0)x\((said["h"] as? NSNumber)?.intValue ?? 0); the page has loaded \(tab.sniffer?.seen.count ?? -1) video-like things")
                 // Sent in pieces: what the page has been loading says where they are.
-                if let plan = tab.sniffer?.plan() {
-                    StreamSaver.save(plan, from: tab, in: window)
+                if let candidates = tab.sniffer?.candidates() {
+                    let hint = MediaSniffer.Hint(duration: (said["duration"] as? NSNumber)?.doubleValue,
+                                                 width: (said["w"] as? NSNumber)?.intValue ?? 0, height: (said["h"] as? NSNumber)?.intValue ?? 0)
+                    StreamSaver.save(.match(candidates, hint), from: tab, in: window)
                 } else {
                     window?.say("Play the video for a moment, then press the button again")
                 }
@@ -174,9 +177,21 @@ final class MediaDownload: NSObject, WKScriptMessageHandler {
       // What is under the pointer, even beneath a transparent layer a site
       // puts over its pictures.
       var find = function (px, py) {
-        var list = document.elementsFromPoint(px, py);
-        for (var i = 0; i < list.length; i++) if (media(list[i])) return list[i];
-        return null;
+        // Players are often a web component (Reddit's, for one): the video is
+        // in its open shadow root, which the document's own answer stops at.
+        var seen = new Set(), found = null;
+        var visit = function (root) {
+          var list = root.elementsFromPoint(px, py);
+          for (var i = 0; i < list.length && !found; i++) {
+            var el = list[i];
+            if (seen.has(el)) continue;
+            seen.add(el);
+            if (media(el)) { found = el; return; }
+            if (el.shadowRoot) visit(el.shadowRoot);
+          }
+        };
+        visit(document);
+        return found;
       };
       var place = function (el) {
         // Only now is there anything of ours in the page.
@@ -230,7 +245,7 @@ final class MediaDownload: NSObject, WKScriptMessageHandler {
         if (!el) return;
         if (el.tagName === 'VIDEO') {
           var src = el.currentSrc || el.src || ((el.querySelector('source') || {}).src) || '';
-          if (!src || src.indexOf('blob:') === 0) return post({ stream: true, page: location.href });
+          if (!src || src.indexOf('blob:') === 0) return post({ stream: true, page: location.href, duration: el.duration, w: el.videoWidth, h: el.videoHeight });
           return post({ url: absolute(src), page: location.href, video: true });
         }
         post({ url: largest(el), page: location.href });

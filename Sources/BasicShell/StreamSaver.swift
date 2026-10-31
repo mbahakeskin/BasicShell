@@ -17,7 +17,7 @@ import WebKit
 @MainActor
 final class StreamSaver {
     enum Failure: Error, LocalizedError {
-        case nothing, live, drm, parts, cancelled, format(String)
+        case nothing, live, drm, parts, cancelled, which, format(String)
 
         var errorDescription: String? {
             switch self {
@@ -25,6 +25,7 @@ final class StreamSaver {
             case .live: "A live stream has no end to save"
             case .drm: "This video is protected and can't be saved"
             case .parts: "Some of the video's pieces couldn't be fetched"
+            case .which: "Couldn't tell which of the page's videos this is: play it for a moment, then try again"
             case .cancelled: "Cancelled"
             case .format(let why): "Couldn't put the video together (\(why))"
             }
@@ -56,6 +57,7 @@ final class StreamSaver {
         let referer: URL?
         switch plan {
         case .playlist(_, let r), .files(_, let r): referer = r
+        case .match(let c, _): referer = c.referer
         }
         let saver = StreamSaver(web: web, page: referer ?? web.url, name: Self.fileName(for: tab), isPrivate: tab.isPrivate)
         let item = Downloads.shared.track(name: saver.name, source: web.url, isPrivate: tab.isPrivate)
@@ -112,6 +114,7 @@ final class StreamSaver {
         switch plan {
         case .playlist(let url, _): files = try await fetchPlaylist(url)
         case .files(let urls, _): files = try await fetchFiles(urls)
+        case .match(let candidates, let hint): files = try await resolve(candidates, hint)
         }
         try Task.checkCancellation()
         let output = try await Mux.join(files, in: directory)
@@ -188,6 +191,104 @@ final class StreamSaver {
         } onCancel: { box.task?.cancel() }
         try? FileManager.default.removeItem(at: file)
         try FileManager.default.moveItem(at: temporary, to: file)
+    }
+
+    // MARK: which video is it
+
+    private struct Probed {
+        let url: URL
+        let size: Int64
+        let info: MP4Probe.Info
+    }
+
+    /// The video that was pressed, among all the page has loaded: a page holds
+    /// several (the ones above and below, loaded ahead), so the one that runs
+    /// as long as this one is looked for, by what each file says of itself in
+    /// its first bytes, then the sound that runs as long. Else a playlist of
+    /// that length. Else, only when there is nothing to choose between, what there is.
+    private func resolve(_ c: MediaSniffer.Candidates, _ hint: MediaSniffer.Hint) async throws -> [URL] {
+        Debug.log("media", "looking for a video of \(hint.duration ?? 0) s among \(c.files.count) files and \(c.playlists.count) playlists")
+        if let d = hint.duration, d.isFinite, d > 0 {
+            let probed = await probe(c.files)
+            for p in probed { Debug.log("media", "  file \(StreamSaver.short(p.url)): \(p.info.kind)\(p.info.kind == .video && p.info.hasAudio ? "+sound" : ""), \(p.info.duration.map { String(format: "%.2f", $0) } ?? "?") s, \(p.info.width)x\(p.info.height), \(p.size) bytes") }
+            let videos = probed.filter { $0.info.kind == .video && abs(($0.info.duration ?? -1000) - d) <= max(0.3, d * 0.01) }
+            // Of those that are the same video, the picture sized as shown first, then the biggest (the best quality).
+            let sized = videos.filter { hint.width > 0 && abs($0.info.width - hint.width) <= 1 && abs($0.info.height - hint.height) <= 1 }
+            if let video = (sized.isEmpty ? videos : sized).max(by: { $0.size < $1.size }) {
+                var wanted = [video.url]
+                // Sound of its own only for a picture that has none in it.
+                let sounds = video.info.hasAudio ? [] : probed.filter { $0.info.kind == .audio && abs(($0.info.duration ?? -1000) - d) <= max(1.0, d * 0.03) }
+                if let sound = sounds.min(by: { abs(($0.info.duration ?? 0) - d) < abs(($1.info.duration ?? 0) - d) || (abs(($0.info.duration ?? 0) - d) == abs(($1.info.duration ?? 0) - d) && $0.size > $1.size) }) {
+                    wanted.append(sound.url)
+                }
+                return try await fetchFiles(wanted)
+            }
+            if let list = await playlist(runningFor: d, in: c.playlists) { return try await fetchPlaylist(list) }
+        }
+        Debug.log("media", "no match by length")
+        // Nothing to tell them apart by: only when there is little to choose from.
+        if c.playlists.count == 1, c.files.count <= 2 { return try await fetchPlaylist(c.playlists[0]) }
+        if c.playlists.isEmpty, c.files.count <= 2 { return try await fetchFiles(c.files.map(\.url)) }
+        throw Failure.which
+    }
+
+    /// The first bytes of each file, six at a time, read for what they say.
+    private func probe(_ files: [(url: URL, size: Int64)]) async -> [Probed] {
+        var found: [Probed] = []
+        var start = 0
+        while start < files.count {
+            let end = min(start + 6, files.count)
+            let tasks = files[start..<end].map { file in
+                Task { @MainActor in await self.head(file.url).map { Probed(url: file.url, size: file.size, info: $0) } }
+            }
+            for task in tasks { if let probed = await task.value { found.append(probed) } }
+            start = end
+        }
+        return found
+    }
+
+    private func head(_ url: URL) async -> MP4Probe.Info? {
+        do {
+            let (bytes, response) = try await session.bytes(for: await request(url, range: (0, 8191)))
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard [200, 206].contains(status) else {
+                Debug.log("media", "  file \(StreamSaver.short(url)): the first bytes were refused (\(status))")
+                return nil
+            }
+            var data = Data()
+            do { for try await byte in bytes { data.append(byte); if data.count >= 8192 { break } } } catch {}
+            // A long movie's moov is bigger than that, and its second track is past the first bytes.
+            if let wanted = MP4Probe.bytesWanted(data), wanted > data.count, wanted <= 1_500_000,
+               let (more, answer) = try? await session.data(for: await request(url, range: (Int64(data.count), Int64(wanted - 1)))),
+               (answer as? HTTPURLResponse).map({ [200, 206].contains($0.statusCode) }) ?? false, more.count <= wanted {
+                data.append(more)
+            }
+            let info = MP4Probe.read(data)
+            if info == nil { Debug.log("media", "  file \(StreamSaver.short(url)): not an mp4 at its start (\(data.count) bytes read)") }
+            return info
+        } catch {
+            Debug.log("media", "  file \(StreamSaver.short(url)): couldn't be asked (\(error.localizedDescription))")
+            return nil
+        }
+    }
+
+    /// Host and the end of the path: enough to tell files apart in the log, nothing that signs one.
+    static func short(_ url: URL) -> String { (url.host() ?? "?") + "/…" + String(url.path.suffix(24)) }
+
+    /// The playlist, among those the page asked for, whose pieces add up to this many seconds.
+    private func playlist(runningFor d: Double, in lists: [URL]) async -> URL? {
+        var best: (URL, Double)?
+        for url in lists {
+            guard let text = try? await get(url) else { continue }
+            var list = HLS.parse(String(decoding: text, as: UTF8.self), at: url)
+            if list.isMaster, let variant = list.variants.max(by: { $0.bandwidth < $1.bandwidth }),
+               let more = try? await get(variant.url) {
+                list = HLS.parse(String(decoding: more, as: UTF8.self), at: variant.url)
+            }
+            let difference = abs(list.duration - d)
+            if difference <= max(1.0, d * 0.02), best == nil || difference < best!.1 { best = (url, difference) }
+        }
+        return best?.0
     }
 
     // MARK: files

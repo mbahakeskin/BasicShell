@@ -11,6 +11,17 @@ import WebKit
 // signed in where the page behind it is. Links inside it open in it; a window
 // it opens by script becomes a tab as anywhere.
 
+/// Keeps its one subview, a single line of text, in the middle (the glass it
+/// sits in sizes it, but a label draws at the top of whatever height it is given).
+private final class CenteredBox: NSView {
+    override func layout() {
+        super.layout()
+        guard let label = subviews.first else { return }
+        let height: CGFloat = 16
+        label.frame = NSRect(x: 12, y: (bounds.height - height) / 2, width: max(0, bounds.width - 24), height: height)
+    }
+}
+
 /// The panel over the page: the page dimmed around it, and the card.
 final class PeekView: NSView {
     let tab: Tab
@@ -18,7 +29,12 @@ final class PeekView: NSView {
     var onKeep: (() -> Void)?
 
     private let card = NSView()
-    private let bar = NSView()
+    // The title and the two buttons float over the dimmed page above the card,
+    // each on a piece of glass, as the rest of the window is: no bar across the page.
+    private let titlePill = NSGlassEffectView()
+    private let controlsPill = NSGlassEffectView()
+    private let controls = NSView()
+    private let titleBox = CenteredBox()
     private let name = NSTextField(labelWithString: "")
     private let web: WKWebView
     private var titleWatch: NSKeyValueObservation?
@@ -39,15 +55,19 @@ final class PeekView: NSView {
         card.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         addSubview(card)
 
-        bar.wantsLayer = true
-        bar.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
-        card.addSubview(bar)
         name.font = .systemFont(ofSize: 12, weight: .medium)
         name.lineBreakMode = .byTruncatingTail
         name.alignment = .center
-        bar.addSubview(name)
-        bar.addSubview(button("arrow.up.left.and.arrow.down.right", #selector(keep), "Open as a Tab"))
-        bar.addSubview(button("xmark", #selector(close), "Close (Esc)"))
+        name.textColor = .labelColor
+        titlePill.cornerRadius = Self.pillHeight / 2
+        titleBox.addSubview(name)
+        titlePill.contentView = titleBox
+        addSubview(titlePill)
+        controls.addSubview(button("arrow.up.left.and.arrow.down.right", #selector(keep), "Open as a Tab"))
+        controls.addSubview(button("xmark", #selector(close), "Close (Esc)"))
+        controlsPill.cornerRadius = Self.pillHeight / 2
+        controlsPill.contentView = controls
+        addSubview(controlsPill)
 
         web.autoresizingMask = []
         card.addSubview(web)
@@ -66,9 +86,12 @@ final class PeekView: NSView {
         return button
     }
 
+    private static let pillHeight: CGFloat = 28
+
     private func retitle() {
         let title = web.title ?? ""
         name.stringValue = title.isEmpty ? (web.url?.host() ?? "Loading…") : title
+        needsLayout = true
     }
 
     @objc private func keep() { onKeep?() }
@@ -77,21 +100,30 @@ final class PeekView: NSView {
     override func layout() {
         super.layout()
         let inset = NSSize(width: max(24, bounds.width * 0.08), height: max(18, bounds.height * 0.06))
-        card.frame = bounds.insetBy(dx: inset.width, dy: inset.height)
-        let barHeight: CGFloat = 34
-        bar.frame = NSRect(x: 0, y: card.bounds.height - barHeight, width: card.bounds.width, height: barHeight)
-        web.frame = NSRect(x: 0, y: 0, width: card.bounds.width, height: card.bounds.height - barHeight)
-        for case let button as NSButton in bar.subviews {
-            // The cross at the right end, the expand button beside it.
-            let slot: CGFloat = button.tag == 2 ? 1 : 2
-            button.frame = NSRect(x: bar.bounds.width - 30 * slot - 6, y: 5, width: 26, height: 24)
+        let band = Self.pillHeight + 8
+        // The page takes the whole card; the pills sit in the dimmed band above it.
+        card.frame = NSRect(x: inset.width, y: inset.height, width: bounds.width - 2 * inset.width,
+                            height: bounds.height - 2 * inset.height - band)
+        web.frame = card.bounds
+        let y = card.frame.maxY + 8
+        // The two buttons at the card's right end.
+        let controlsWidth: CGFloat = 2 * 28 + 8
+        controlsPill.frame = NSRect(x: card.frame.maxX - controlsWidth, y: y, width: controlsWidth, height: Self.pillHeight)
+        controls.frame = controlsPill.bounds
+        for case let button as NSButton in controls.subviews {
+            button.frame = NSRect(x: button.tag == 2 ? controls.bounds.width - 32 : 4, y: 2, width: 28, height: Self.pillHeight - 4)
         }
-        name.frame = NSRect(x: 70, y: 8, width: max(0, bar.bounds.width - 140), height: 18)
+        // The title, as wide as it is, centred over the card, never into the buttons.
+        let room = max(0, card.frame.width - 2 * (controlsWidth + 12))
+        let wanted = name.attributedStringValue.size().width + 32
+        let width = min(max(120, wanted), room)
+        titlePill.frame = NSRect(x: card.frame.midX - width / 2, y: y, width: width, height: Self.pillHeight)
     }
 
     /// A click beside the card puts the peek away; inside it goes to the page.
     override func mouseDown(with event: NSEvent) {
-        if !card.frame.contains(convert(event.locationInWindow, from: nil)) { onClose?() }
+        let point = convert(event.locationInWindow, from: nil)
+        if !card.frame.contains(point), !titlePill.frame.contains(point), !controlsPill.frame.contains(point) { onClose?() }
     }
 }
 

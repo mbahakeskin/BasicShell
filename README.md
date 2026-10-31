@@ -28,11 +28,15 @@ newer version, which Settings turns off).
   kept only in memory, never on disk, and goes when the app quits; they are
   never saved in the session.
 - Several windows, each with its own tabs.
+- BasicShell menu › Keyboard Shortcuts…: every key the menus answer to, read off
+  the menus as they are, with a search field, and what the pointer does with a
+  key held.
 - Tab groups: right click a tab › Add to Group (or drop it between a group's
   tabs). A group has a coloured name, which a click folds away, a line of its
   colour down its tabs and a small New Tab row at its end. They come back with
   the session.
-- Profiles: a row of coloured dots above the pinned tabs. Each profile has its
+- Profiles: a row of coloured dots above the pinned tabs, with the name of the
+  one shown, in its colour, at the end of the row. Each profile has its
   own cookies and sign-ins, tabs, pinned tabs, groups, history and bookmarks;
   extensions, zoom and what sites may do are shared. The agent lists every
   profile's tabs, can open a page in another profile and show one.
@@ -110,7 +114,11 @@ newer version, which Settings turns off).
   the release's version and that its signature holds together, then quits; a
   script puts the old app in the Trash and the new one in its place, and opens
   it. Nothing is installed without your say.
-- `⇧⌘C` copies the address, and the pill that says so holds two buttons for
+- `⇧⌘C` copies the address without what only tracks you (utm_…, fbclid,
+  gclid, a site's share codes such as Instagram's igsh or YouTube's si; a
+  video's `t`, a search's `q` and the like are never touched), unless Settings ›
+  Privacy turns that off; `⌥⇧⌘C` (⌥ held in the Edit menu) copies it as it is,
+  and the pill says how many parameters came off. The pill that says so holds two buttons for
   a moment: a QR code of the address (a card under the pill, "Copy Image" for
   the code as a picture) and AirDrop.
 - `⇧⌘R` copies the whole page, top to bottom, as one picture. Pictures that
@@ -139,7 +147,7 @@ newer version, which Settings turns off).
 - Download button (Settings › General, no sites until you add some): on a
   listed site (and its subdomains) a small button comes up over a large photo or
   video while the pointer is on it, even under a transparent layer the site puts
-  over its pictures, in the page or in a player's frame (most players are
+  over its pictures and inside a web component's open shadow root (Reddit's player is one), in the page or in a player's frame (most players are
   in one). It saves the largest picture the page offers for it, or the video's
   file, through the Downloads panel, on the page's own session. A video a site
   sends in pieces (a `blob:` address, as most do) is put together from what the
@@ -148,8 +156,14 @@ newer version, which Settings turns off).
   addresses, kinds and sizes, nothing put into the page), and the button then
   fetches an HLS playlist's pieces (its best quality, AES-128 ones decrypted)
   or the picture's and the sound's files, as the page would, and joins them
-  into one mp4 with the Mac's own AVFoundation. Play the video for a moment
-  first. Live streams, DRM-protected video and DASH described by an .mpd are
+  into one mp4 with the Mac's own AVFoundation. A page keeps several videos
+  loaded ahead (Instagram's reels hold nine at once), so the files are matched
+  to the one you pressed by its length and picture size, which each file says
+  in its first kilobytes (its ftyp, moov and sidx boxes; MP4Probe.swift), and
+  its sound by its length (a file that holds both, as TikTok's do with the sound's
+  track first, is read to its last track); a playlist of that length is looked for
+  the same way.
+  Play the video for a moment first. Live streams, DRM-protected video and DASH described by an .mpd are
   not saved.
 - A speaker on a tab that makes sound, in the sidebar and the top bar, turns
   it off; Tab › Mute This Site keeps a site quiet (Settings › Tabs lists them).

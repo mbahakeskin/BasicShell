@@ -251,9 +251,8 @@ struct ProfileStrip: View {
             .buttonStyle(.plain)
             .help("New Profile")
             Spacer(minLength: 0)
-            if shell.profile !== Profiles.main {
-                Text(shell.profile.name).font(.system(size: 10, weight: .medium)).foregroundStyle(shell.profile.tint).lineLimit(1)
-            }
+            // The profile shown, by name in its own colour (the main one too).
+            Text(shell.profile.name).font(.system(size: 11, weight: .medium)).foregroundStyle(shell.profile.tint).lineLimit(1)
         }
         .padding(.horizontal, 6)
         .frame(height: 18)

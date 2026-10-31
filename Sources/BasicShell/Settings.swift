@@ -203,6 +203,7 @@ private struct TabSettings: View {
 private struct PrivacySettings: View {
     @AppStorage(Extensions.blockerWanted) private var blocker = false
     @AppStorage(DiskUse.limitKey) private var cacheLimit = 250
+    @AppStorage(LinkCleaner.key) private var cleanLinks = true
     // `@State` is a macro in the macOS 27 SDK whose plugin ships only with
     // Xcode, so the State it would expand to is stored by hand.
     private var _cacheSize = State<Int64?>(initialValue: nil)
@@ -230,6 +231,14 @@ private struct PrivacySettings: View {
             } footer: {
                 Text("Its button in the top bar turns it off for a site; Settings › Extensions removes it.")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Toggle(isOn: $cleanLinks) {
+                    Text("Copy addresses without tracking")
+                    Text("⇧⌘C and Copy Address leave out the parameters that only follow you (utm_…, fbclid, gclid, a site's share codes); the page is the same. ⌥⇧⌘C, with ⌥ held in the Edit menu, copies the address as it is.")
+                }
+            } header: {
+                Text("Copied links")
             }
             Section("Location") {
                 let sites = Permissions.shared.location.sorted { $0.key < $1.key }

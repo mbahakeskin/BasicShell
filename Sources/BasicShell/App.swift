@@ -119,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc func showSettings(_ sender: Any?) { SettingsWindow.show() }
+    @objc func showShortcuts(_ sender: Any?) { ShortcutsWindow.show() }
     @objc func showImport(_ sender: Any?) { SettingsWindow.show("import") }
     #if AGENT
     @objc func checkForUpdates(_ sender: Any?) { Task { await Updater.shared.check(manually: true) } }

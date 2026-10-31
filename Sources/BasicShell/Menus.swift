@@ -34,6 +34,7 @@ enum Menus {
         #endif
         menu.addItem(.separator())
         menu.addItem(item("Settings…", #selector(AppDelegate.showSettings(_:)), ","))
+        menu.addItem(item("Keyboard Shortcuts…", #selector(AppDelegate.showShortcuts(_:))))
         menu.addItem(.separator())
         let services = item("Services", nil)
         services.submenu = NSMenu(title: "Services")
@@ -78,6 +79,10 @@ enum Menus {
         menu.addItem(item("Select All", #selector(NSText.selectAll(_:)), "a"))
         menu.addItem(.separator())
         menu.addItem(item("Copy Address", #selector(BrowserWindow.copyAddress(_:)), "c", [.command, .shift]))
+        // Held ⌥ in the menu: the address with its tracking left on.
+        let asIs = item("Copy Address as It Is", #selector(BrowserWindow.copyAddressAsIs(_:)), "c", [.command, .shift, .option])
+        asIs.isAlternate = true
+        menu.addItem(asIs)
         menu.addItem(item("Copy Page Screenshot", #selector(BrowserWindow.copyPageScreenshot(_:)), "r", [.command, .shift]))
         menu.addItem(.separator())
         let find = item("Find", nil)

@@ -86,29 +86,45 @@ final class MediaSniffer: NSObject {
         case playlist(URL, referer: URL?)
         /// Files that are the video and the sound, or one of them, or both in one.
         case files([URL], referer: URL?)
+        /// Whatever the page has loaded, and what is known of the video that was
+        /// pressed, to find the one it plays (a page holds several at once).
+        case match(Candidates, Hint)
+    }
+
+    /// The video the button was pressed on, as the page says: how long it runs
+    /// and how big its picture is (0 when it doesn't know).
+    struct Hint {
+        let duration: Double?
+        let width: Int
+        let height: Int
+    }
+
+    struct Candidates {
+        /// Playlists, newest first.
+        let playlists: [URL]
+        /// Whole files, newest first, with their size.
+        let files: [(url: URL, size: Int64)]
+        let referer: URL?
     }
 
     func forget() { seen.removeAll(); requests.removeAll() }
 
-    /// What the page last asked for that could be saved: its latest playlist,
-    /// or the files it has been reading lately (a video's and a sound's, which
-    /// come apart on most sites that stream), whichever is newer.
-    func plan() -> Plan? {
-        let recent = seen.filter { Date().timeIntervalSince($0.at) < 20 * 60 }
-        guard let last = recent.last(where: { !$0.isManifest }) else { return nil }
-        if last.isPlaylist {
-            // The first of the playlists asked for in the last couple of minutes: the master, with every
-            // quality in it, rather than the one the player went on to ask for.
-            let first = recent.first { $0.isPlaylist && last.at.timeIntervalSince($0.at) < 120 } ?? last
-            return .playlist(first.url, referer: first.referer)
+    /// Everything the page has asked for lately that could be saved: playlists
+    /// and files, each once. Which of them is the video on screen is for
+    /// StreamSaver to find out (a page keeps several, loaded ahead).
+    func candidates() -> Candidates? {
+        let recent = seen.filter { Date().timeIntervalSince($0.at) < 30 * 60 }
+        var playlists: [URL] = []
+        var files: [(url: URL, size: Int64)] = []
+        for item in recent.reversed() where !item.isManifest {
+            if item.isPlaylist {
+                if !playlists.contains(item.url) { playlists.append(item.url) }
+            } else if !files.contains(where: { $0.url == item.whole }) {
+                files.append((item.whole, item.size))
+            }
         }
-        // The files read in the minute around the last one, each once: the
-        // video's and the sound's. The biggest come first.
-        let near = recent.filter { !$0.isPlaylist && !$0.isManifest && abs($0.at.timeIntervalSince(last.at)) < 60 }
-        var files: [Seen] = []
-        for item in near.reversed() where !files.contains(where: { $0.whole == item.whole }) { files.append(item) }
-        let chosen = files.sorted { $0.size > $1.size }.prefix(4).map(\.whole)
-        return chosen.isEmpty ? nil : .files(Array(chosen), referer: last.referer)
+        guard !playlists.isEmpty || !files.isEmpty else { return nil }
+        return Candidates(playlists: Array(playlists.prefix(8)), files: Array(files.prefix(40)), referer: recent.last?.referer)
     }
 }
 

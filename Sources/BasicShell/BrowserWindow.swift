@@ -1330,13 +1330,21 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         if let tab = shell.selected { close(tab) } else { window?.performClose(nil) }
     }
 
-    @objc func copyAddress(_ sender: Any?) {
-        guard let url = shell.selected?.url else { return }
+    /// ⇧⌘C: the address, without what only tracks (LinkCleaner) unless Settings › Privacy says not to.
+    @objc func copyAddress(_ sender: Any?) { copy(shell.selected?.url, cleaned: LinkCleaner.enabled) }
+
+    /// ⌥⇧⌘C: the address as it is.
+    @objc func copyAddressAsIs(_ sender: Any?) { copy(shell.selected?.url, cleaned: false) }
+
+    private func copy(_ address: URL?, cleaned: Bool) {
+        guard let address else { return }
+        let (url, removed) = cleaned ? LinkCleaner.clean(address) : (address, 0)
         let board = NSPasteboard.general
         board.clearContents()
         board.writeObjects([url as NSURL])
         board.setString(url.absoluteString, forType: .string)
-        say("Link copied", actions: Share.actions(url, title: shell.selected?.title, in: self))
+        say(removed > 0 ? "Link copied, \(removed) tracking parameter\(removed == 1 ? "" : "s") removed" : "Link copied",
+            actions: Share.actions(url, title: shell.selected?.title, in: self))
     }
 
     /// ⇧⌘R: the whole page, top to bottom, as a picture on the clipboard (PageShot.swift).
@@ -1513,7 +1521,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             let name = item.action == #selector(actualSize(_:)) ? "Actual Size" : item.action == #selector(zoomIn(_:)) ? "Zoom In" : "Zoom Out"
             item.title = percent == 100 ? name : "\(name) (\(percent)%)"
             return tab?.url != nil
-        case #selector(copyAddress(_:)), #selector(reload(_:)),
+        case #selector(copyAddress(_:)), #selector(copyAddressAsIs(_:)), #selector(reload(_:)),
              #selector(duplicateTab(_:)), #selector(printPage(_:)):
             return tab?.url != nil
         case #selector(closeSplit(_:)): return shell.split != nil
