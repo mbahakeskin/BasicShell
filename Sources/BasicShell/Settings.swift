@@ -49,6 +49,8 @@ private struct GeneralSettings: View {
     @AppStorage("engine.region") private var region = true
     @AppStorage("debug.enabled") private var debug = false
     @AppStorage("fullscreen.notch") private var notch = true
+    @AppStorage(Features.highRefreshKey) private var highRefresh = true
+    @AppStorage(Dusk.onKey) private var dusk = false
     @AppStorage("layout.sidebarOnly") private var sidebarOnly = false
     @AppStorage("translate.engine") private var translateEngine = TranslateEngine.online.rawValue
     @AppStorage(Develop.developKey) private var develop = false
@@ -73,6 +75,28 @@ private struct GeneralSettings: View {
                 Text("Adds hl=\(Engine.language)\(Engine.region.map { ", gl=\($0)" } ?? "") to Google searches, so results don't follow a VPN's country.")
             }
             .disabled(engine != Engine.google.rawValue)
+            Toggle(isOn: $highRefresh) {
+                Text("Let pages draw as fast as the screen")
+                Text("WebKit holds a page's animations and scripted scrolling to about 60 frames a second even on a 120 Hz screen. Off, they are held to that again, which costs the battery less.")
+            }
+            .onChange(of: highRefresh) { _, _ in Features.forEachPage { Features.applyRefresh(to: $0) } }
+            if Dusk.available {
+                Toggle(isOn: $dusk) {
+                    Text("Darken light pages")
+                    Text("A page that stays white while the app is dark is given dark colours of its own, pictures untouched; a site that already has a dark look is left alone. Some pages break (a hero over a picture, say): the button in the site's tools, or ⇧⌘D, takes it off for that site, ⌥⇧⌘D for all of them. Only while macOS is dark.")
+                }
+                .onChange(of: dusk) { _, _ in Dusk.shared.changed() }
+            }
+            if Dusk.available, !Dusk.shared.sites.isEmpty {
+                Section("Dark pages set by hand") {
+                    SiteList(sites: Dusk.shared.sites.keys.sorted(), empty: "", detail: {
+                        Dusk.shared.sites[$0] == true ? "Darkened" : "Left as it is"
+                    }) {
+                        Dusk.shared.forget($0)
+                    }
+                }
+            }
+            MediaDownloadSettings()
             Section {
                 Toggle(isOn: $notch) {
                     Text("Full screen uses the space beside the notch")
@@ -290,6 +314,36 @@ private struct PrivacySettings: View {
         alert.addButton(withTitle: "Remove")
         alert.addButton(withTitle: "Cancel")
         if alert.runModal() == .alertFirstButtonReturn { action() }
+    }
+}
+
+/// The sites that get a download button over their photos and videos.
+private struct MediaDownloadSettings: View {
+    // `@State` is a macro in the macOS 27 SDK whose plugin ships only with
+    // Xcode, so the State it would expand to is stored by hand.
+    private var _site = State(initialValue: "")
+    private var site: String {
+        get { _site.wrappedValue }
+        nonmutating set { _site.wrappedValue = newValue }
+    }
+
+    private func add() {
+        if MediaDownload.shared.add(site) { site = "" }
+    }
+
+    var body: some View {
+        Section("Download button on photos and videos") {
+            Text("A site listed here gets a small button over each large photo and video when the pointer is on it, which saves the largest picture the page has, or the video's file. None until you add a site. Videos a site sends in pieces can't be saved.")
+                .foregroundStyle(.secondary)
+            HStack {
+                TextField("Site", text: _site.projectedValue, prompt: Text("example.com"))
+                    .labelsHidden()
+                    .onSubmit { add() }
+                Button("Add") { add() }
+                    .disabled(MediaDownload.normalized(site) == nil)
+            }
+            SiteList(sites: MediaDownload.shared.sites, empty: "None.") { MediaDownload.shared.remove($0) }
+        }
     }
 }
 

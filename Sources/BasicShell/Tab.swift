@@ -52,6 +52,16 @@ final class Tab: NSObject, Identifiable {
     /// Its page was let go to give the memory back (see Sleep.swift); it
     /// comes back where it was when the tab is next shown.
     private(set) var isUnloaded = false
+    /// Darkened by Dusk, as its page last said (see Dusk.swift).
+    var dusked = false
+    /// What the page measured: true, dark by itself; nil, not yet measured.
+    @ObservationIgnored var duskNative: Bool?
+    /// The page's frames that asked whether it is darkened, to be told when
+    /// that changes; let go of with the page.
+    @ObservationIgnored var duskFrames: [WKFrameInfo] = []
+    /// What the page loads that looks like video, on a site listed for the
+    /// download button (see MediaSniffer.swift).
+    @ObservationIgnored var sniffer: MediaSniffer?
 
     /// Location answers given in this tab, by site (see Permissions.swift).
     @ObservationIgnored var locationAnswers: [String: Bool] = [:]
@@ -217,6 +227,8 @@ final class Tab: NSObject, Identifiable {
         web.allowsMagnification = true
         web.isInspectable = true
         webView = web
+        Dusk.shared.arm(self, for: url)
+        MediaDownload.shared.arm(self, for: url)
         Viewport.apply(to: self, web)
         Develop.apply(to: self, web)
         // Clear until the page first draws something, over the window's own
@@ -417,6 +429,13 @@ extension Tab: WKNavigationDelegate {
         let there = url.absoluteString.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).first
         if action.targetFrame?.isMainFrame ?? true, !(url.fragment != nil && here == there) { navigationIntents += 1 }
         #endif
+        // The next document gets the dark pages' script and the download
+        // button's, or none: decided
+        // here because here is the last moment before it loads.
+        if action.targetFrame?.isMainFrame ?? true, ["http", "https"].contains(scheme) {
+            Dusk.shared.arm(self, for: url)
+            MediaDownload.shared.arm(self, for: url)
+        }
         decisionHandler(.allow, preferences)
     }
 
@@ -435,8 +454,11 @@ extension Tab: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        // A new document has its own text again.
+        // A new document has its own text again, and its own colours.
         isTranslated = false
+        dusked = false
+        duskNative = nil
+        duskFrames = []
         applyMute()
         readerPageChanged()
         #if AGENT
@@ -471,6 +493,8 @@ extension Tab: WKNavigationDelegate {
             }
         }
         host?.painted(self)
+        // Dark pages: once it has all come in, for a page that drew its look late.
+        Dusk.shared.look(self)
         refreshAudio()
         if (host as? BrowserWindow)?.shell.selected === self { probeReader() }
         // Not BasicShell's own page saying it couldn't be opened.
@@ -496,6 +520,8 @@ extension Tab: WKNavigationDelegate {
     func renderingProgressDidChange(_ webView: WKWebView, _ events: UInt) {
         guard events & Tab.firstVisuallyNonEmptyLayout != 0 else { return }
         Tab.drawsBackground(webView, true)
+        // Dark pages: a page's first frame is what it looks like.
+        Dusk.shared.look(self)
     }
 
     // A page that couldn't be reached left the tab blank, with nothing for

@@ -48,6 +48,9 @@ final class Downloads: NSObject, WKDownloadDelegate {
         @ObservationIgnored weak var web: WKWebView?
         @ObservationIgnored var request: URLRequest?
         @ObservationIgnored var resumeData: Data?
+        /// For one that isn't a WKDownload (a video saved piece by piece,
+        /// see StreamSaver): what Cancel does.
+        @ObservationIgnored var onCancel: (() -> Void)?
         @ObservationIgnored var intent: Intent = .none
         /// Resumed, and nothing has arrived yet: a failure now is the site
         /// refusing to go on from the middle.
@@ -122,6 +125,44 @@ final class Downloads: NSObject, WKDownloadDelegate {
         attach(download, to: item)
         items.insert(item, at: 0)
         Dock.update()
+    }
+
+    // MARK: - what isn't a WKDownload
+
+    /// A row for a save that is made piece by piece (StreamSaver).
+    func track(name: String, source: URL?, isPrivate: Bool) -> Item {
+        let item = Item(source: source, name: name, isPrivate: isPrivate)
+        items.insert(item, at: 0)
+        Dock.update()
+        changed()
+        return item
+    }
+
+    /// Its row shows more bytes.
+    func touch() { changed() }
+
+    func finish(_ item: Item, file: URL) {
+        item.file = file
+        item.name = file.lastPathComponent
+        item.state = .finished
+        item.speed = 0
+        item.date = Date()
+        item.onCancel = nil
+        let size = (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int64) ?? nil
+        if let size { item.received = size; item.total = size }
+        DistributedNotificationCenter.default().post(name: .init("com.apple.DownloadFileFinished"), object: file.path)
+        item.ended.wake()
+        changed()
+    }
+
+    /// `problem` nil: it was cancelled.
+    func fail(_ item: Item, problem: String?) {
+        item.state = problem == nil ? .cancelled : .failed
+        item.problem = problem
+        item.speed = 0
+        item.onCancel = nil
+        item.ended.wake()
+        changed()
     }
 
     private func attach(_ download: WKDownload, to item: Item) {
@@ -297,6 +338,10 @@ final class Downloads: NSObject, WKDownloadDelegate {
     }
 
     func cancel(_ item: Item) {
+        if let onCancel = item.onCancel, item.state == .running {
+            onCancel()
+            return
+        }
         switch item.state {
         case .running:
             guard let download = item.download else { return }

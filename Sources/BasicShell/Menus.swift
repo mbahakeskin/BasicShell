@@ -116,6 +116,8 @@ enum Menus {
         menu.addItem(item("Keep Top Bar Open", #selector(BrowserWindow.toggleTopBarPinned(_:)), "b", [.command, .control]))
         menu.addItem(.separator())
         menu.addItem(item("Show Reader", #selector(BrowserWindow.toggleReader(_:)), "r", [.command, .option]))
+        menu.addItem(item("Darken This Site", #selector(BrowserWindow.toggleDusk(_:)), "d", [.command, .shift]))
+        menu.addItem(item("Pause Dark Pages", #selector(BrowserWindow.pauseDusk(_:)), "d", [.command, .shift, .option]))
         menu.addItem(item("Picture in Picture", #selector(BrowserWindow.pictureInPicture(_:)), "p", [.command, .shift]))
         menu.addItem(item("Downloads", #selector(BrowserWindow.showDownloads(_:)), "l", [.command, .option]))
         menu.addItem(.separator())

@@ -41,6 +41,8 @@ enum Web {
         WebNotifications.attach(to: config)
         LinkPreview.attach(to: config)
         Debug.attach(to: config)
+        config.userContentController.add(DuskRelay.shared, contentWorld: Dusk.world, name: DuskRelay.name)
+        config.userContentController.add(MediaDownload.shared, contentWorld: MediaDownload.world, name: MediaDownload.name)
         #if AGENT
         AgentPage.attach(to: config)
         #endif
@@ -59,6 +61,9 @@ enum Web {
         // Inspect Element in a page's right-click menu (WebKit's private
         // `_setDeveloperExtrasEnabled:`); nothing runs until it is chosen.
         enableDeveloperExtras(in: config.preferences)
+        // Pages draw as often as the screen does (Settings › General); before
+        // what was chosen in the Develop and Debug menus, which wins.
+        Features.applyRefresh(to: config.preferences)
         // What was chosen in the Develop and Debug menus.
         Features.applySaved(to: config.preferences)
         return config

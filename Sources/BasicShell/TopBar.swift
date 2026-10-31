@@ -151,6 +151,9 @@ struct SiteTools: View {
                 .foregroundStyle(tab.isReading ? Color.accentColor : Color.primary)
                 .help(tab.isReading ? "Hide Reader (⌥⌘R)" : "Show Reader (⌥⌘R)")
         }
+        if let tab, Dusk.shared.offered(tab.url) {
+            DuskButton(tab: tab, window: window)
+        }
         if tab?.url?.host() != nil {
             let awake = Awake.shared.contains(tab?.url)
             IconButton(symbol: awake ? "sun.max.fill" : "moon.zzz") { window.toggleAwake(nil) }
@@ -171,6 +174,34 @@ struct SiteTools: View {
                 .foregroundStyle(kept ? Color.yellow : Color.primary)
                 .help(kept ? "Remove Bookmark (⌘D)" : "Bookmark This Page (⌘D)")
         }
+    }
+}
+
+/// Dark pages, from where the site's tools are: this site darkened or left
+/// as it is, and every site's pages as they are made, until brought back.
+struct DuskButton: View {
+    let tab: Tab
+    let window: BrowserWindow
+
+    var body: some View {
+        let paused = Dusk.shared.paused
+        let site = tab.url?.host() ?? "this site"
+        Menu {
+            if !paused {
+                Button(tab.dusked ? "Leave \(site) as it is  ⇧⌘D" : "Darken \(site)  ⇧⌘D") { window.toggleDusk(nil) }
+            }
+            Button(paused ? "Darken light pages again  ⌥⇧⌘D" : "Pause dark pages everywhere  ⌥⇧⌘D") { window.pauseDusk(nil) }
+        } label: {
+            Image(systemName: "circle.lefthalf.filled")
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .foregroundStyle(paused ? Color.secondary : tab.dusked ? Color.accentColor : Color.primary)
+        .help(paused ? "Dark pages are paused" : tab.dusked ? "This page is darkened" : "Dark pages")
     }
 }
 

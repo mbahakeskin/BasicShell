@@ -127,6 +127,30 @@ newer version, which Settings turns off).
   (a front page, a list, a bot check do not), found once the page has loaded,
   in a few milliseconds. Esc closes it; Find, links (`⌘`-click for a new tab)
   and `⇧⌘R` work in it.
+- Dark pages (Settings › General, off until turned on): a page that stays
+  white while macOS is dark gets dark colours of its own, pictures untouched;
+  a site that already has a dark look is left alone, which is measured, not
+  read off what the site says. Some pages break (a hero over a picture, say):
+  the button in the site's tools, or `⇧⌘D`, takes it off for that site, `⌥⇧⌘D`
+  pauses it for all of them until pressed again or BasicShell quits. Settings
+  lists the sites set by hand. Needs the private WebKit call that takes one
+  world's scripts out of a page (`_removeAllUserScriptsAssociatedWithContentWorld:`),
+  so it touches no extension's script; without it the setting isn't offered.
+- Download button (Settings › General, no sites until you add some): on a
+  listed site (and its subdomains) a small button comes up over a large photo or
+  video while the pointer is on it, even under a transparent layer the site puts
+  over its pictures, in the page or in a player's frame (most players are
+  in one). It saves the largest picture the page offers for it, or the video's
+  file, through the Downloads panel, on the page's own session. A video a site
+  sends in pieces (a `blob:` address, as most do) is put together from what the
+  page loaded: on a listed site BasicShell notes the playlists and video files
+  the page asks for (WebKit's private `_resourceLoadDelegate`; only their
+  addresses, kinds and sizes, nothing put into the page), and the button then
+  fetches an HLS playlist's pieces (its best quality, AES-128 ones decrypted)
+  or the picture's and the sound's files, as the page would, and joins them
+  into one mp4 with the Mac's own AVFoundation. Play the video for a moment
+  first. Live streams, DRM-protected video and DASH described by an .mpd are
+  not saved.
 - A speaker on a tab that makes sound, in the sidebar and the top bar, turns
   it off; Tab › Mute This Site keeps a site quiet (Settings › Tabs lists them).
 - Downloads can be paused, resumed, cancelled and restarted, with the speed and
@@ -174,7 +198,9 @@ start again after macOS ended its process, `_backgroundWebView`,
 `_webProcessIdentifier` and `_terminateServiceWorkers` let BasicShell end
 the broken processes and start it afresh; and `_features` with
 `_setEnabled:forFeature:` turn on `requestIdleCallback`, HTTPS first and
-the removal of tracking parameters, which WebKit has but keeps off; `_setDeveloperExtrasEnabled:` puts Inspect Element in a
+the removal of tracking parameters, which WebKit has but keeps off, and turn
+off the holding of a page's animations to about 60 frames a second
+(Settings › General); `_setDeveloperExtrasEnabled:` puts Inspect Element in a
 page's right-click menu, which `_webView:contextMenu:forElement:` lets
 BasicShell arrange; `_setPageMuted:` and a key-value observer on `_isPlayingAudio` for the speaker
 and its mute; `WKDownload`'s resume data for a paused download;
@@ -524,7 +550,8 @@ with Xcode, so views here store `State` by hand instead of using the attribute.
 ## Credits
 
 Parts of BasicShell (the address parser, the traffic-light
-placement, the Safari user-agent handling and the WebSocket an extension's
-worker gets) are adapted from
+placement, the Safari user-agent handling, the WebSocket an extension's
+worker gets, and the page script and colour engine of dark pages, in
+`Dusk.swift` and `DuskColours.swift`) are adapted from
 [Search](https://github.com/driceroland/Search) by Office Commun, under the
 MIT license. See [LICENSE](LICENSE).

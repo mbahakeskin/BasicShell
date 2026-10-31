@@ -34,6 +34,8 @@ struct SidebarView: View {
 
             let items = shell.sidebarItems()
             let others = shell.tabs.filter { !$0.pinned }
+            // The tabs as listed (a folded group's are left out), for how far in each sits.
+            let shown = items.compactMap { item -> Tab? in if case .tab(let tab) = item { tab } else { nil } }
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: 0) {
@@ -45,7 +47,7 @@ struct SidebarView: View {
                                     .dragTarget(group.id, .header(group), in: shell)
                                     .padding(.top, 2)
                                     .id(item.id)
-                            case .tab(let tab): row(tab, in: others).id(item.id)
+                            case .tab(let tab): row(tab, in: shown).id(item.id)
                             }
                         }
                     }
@@ -141,12 +143,14 @@ struct SidebarView: View {
     }
 
     /// How far in a tab sits: one step under the tab a link in it came from,
-    /// as long as the two are together in the list; two at most.
+    /// as long as the two are together in the list (and in the same group, or
+    /// both in none); two at most.
     private func depth(of tab: Tab, in group: [Tab], limit: Int = 2) -> Int {
-        guard limit > 0, let opener = tab.opener, let index = group.firstIndex(of: tab) else { return 0 }
+        guard limit > 0, let opener = tab.opener, opener.group === tab.group, let index = group.firstIndex(of: tab) else { return 0 }
         var above = index - 1
         while above >= 0 {
             let candidate = group[above]
+            guard candidate.group === tab.group else { return 0 }
             if candidate === opener { return 1 + depth(of: opener, in: group, limit: limit - 1) }
             // Siblings and their own children may sit between a tab and its opener.
             guard candidate.opener === opener || isDescendant(candidate, of: opener) else { return 0 }
@@ -176,7 +180,7 @@ struct SidebarView: View {
     }
 
     private func row(_ tab: Tab, in group: [Tab]) -> some View {
-        TabRow(tab: tab, selected: tab === shell.selected, inSplit: shell.split?.contains(tab) == true, depth: tab.group == nil ? depth(of: tab, in: group) : 0, window: window)
+        TabRow(tab: tab, selected: tab === shell.selected, inSplit: shell.split?.contains(tab) == true, depth: depth(of: tab, in: group), window: window)
             .padding(.vertical, 1)
             .dragTarget(tab.id, .row, in: shell)
             .carriedTab(tab, in: window)
@@ -401,21 +405,23 @@ struct TabRow: View {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(Color.primary.opacity(selected ? 0.13 : hovering ? 0.06 : 0))
         )
-        // In a group: set in a little, with the group's line down the left.
-        .padding(.leading, tab.group == nil ? 0 : 8)
-        .overlay(alignment: .leading) {
-            if let group = tab.group {
-                Capsule().fill(group.tint).frame(width: 2, height: 22).padding(.leading, 1)
-            }
-        }
         // Opened from the tab above: set in, with a line back to it.
         .padding(.leading, CGFloat(depth) * 14)
         .overlay(alignment: .leading) {
             if depth > 0 {
+                // In the group's colour (a little fainter than the group's own line) when in a group.
                 Capsule()
-                    .fill(Color.primary.opacity(0.18))
+                    .fill(tab.group.map { $0.tint.opacity(0.5) } ?? Color.primary.opacity(0.18))
                     .frame(width: 2, height: 22)
                     .padding(.leading, CGFloat(depth) * 14 - 7)
+            }
+        }
+        // In a group: set in a little, with the group's line down the left
+        // (outside the above, so the line stays straight down the group).
+        .padding(.leading, tab.group == nil ? 0 : 8)
+        .overlay(alignment: .leading) {
+            if let group = tab.group {
+                Capsule().fill(group.tint).frame(width: 2, height: 22).padding(.leading, 1)
             }
         }
         .opacity(window.shell.drag.dragging == tab.id ? 0.25 : tab.isUnloaded ? 0.55 : 1)

@@ -1379,6 +1379,23 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         say(on ? "\(url.host() ?? "This site") stays awake" : "\(url.host() ?? "This site") can sleep")
     }
 
+    /// ⇧⌘D: the site shown, darkened or left as it is, the other way from
+    /// now. Kept for the site; in a private tab, for this page alone.
+    @objc func toggleDusk(_ sender: Any?) {
+        guard let tab = shell.selected, Dusk.shared.can(tab.url) else { return }
+        let darken = !tab.dusked
+        Dusk.shared.toggle(tab)
+        say(darken ? "\(tab.url?.host() ?? "This site") darkened" : "\(tab.url?.host() ?? "This site") as its site made it")
+    }
+
+    /// ⌥⇧⌘D: every page as its site made it, until pressed again or
+    /// BasicShell quits. For showing someone a site the way they see it.
+    @objc func pauseDusk(_ sender: Any?) {
+        guard Dusk.shared.on, Dusk.available else { return }
+        Dusk.shared.pause(!Dusk.shared.paused)
+        say(Dusk.shared.paused ? "Pages as their sites made them, until ⌥⇧⌘D" : "Light pages darkened again")
+    }
+
     @objc func reload(_ sender: Any?) {
         guard let tab = shell.selected, let web = tab.webView else { return }
         if web.isLoading { web.stopLoading() }
@@ -1529,6 +1546,12 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         case #selector(toggleAwake(_:)):
             item.title = Awake.shared.contains(tab?.url) ? "Let This Site Sleep" : "Keep This Site Awake"
             return tab?.url?.host() != nil
+        case #selector(toggleDusk(_:)):
+            item.state = tab?.dusked == true ? .on : .off
+            return Dusk.shared.can(tab?.url)
+        case #selector(pauseDusk(_:)):
+            item.state = Dusk.shared.paused ? .on : .off
+            return Dusk.shared.on && Dusk.available
         case #selector(nextTab(_:)), #selector(previousTab(_:)): return shell.tabs.count > 1
         case #selector(toggleSidebarPinned(_:)):
             item.state = shell.sidebarPinned ? .on : .off

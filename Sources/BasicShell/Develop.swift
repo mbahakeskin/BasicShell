@@ -228,6 +228,22 @@ enum Features {
         }
     }
 
+    /// WebKit lets a page's own drawing (requestAnimationFrame, CSS animations
+    /// and scripted scrolling) run near 60 times a second even on a faster
+    /// screen. Settings › General takes that limit off; the Develop menu's
+    /// own choice for this feature, if there is one, wins.
+    static let near60Key = "PreferPageRenderingUpdatesNear60FPSEnabled"
+    static let highRefreshKey = "web.highRefresh"
+
+    static var highRefresh: Bool {
+        UserDefaults.standard.object(forKey: highRefreshKey) as? Bool ?? true
+    }
+
+    static func applyRefresh(to preferences: WKPreferences) {
+        guard saved[near60Key] == nil, transient[near60Key] == nil, let feature = byKey[near60Key] else { return }
+        write(!highRefresh && ((feature.value(forKey: "defaultValue") as? Bool) ?? true), feature, in: preferences)
+    }
+
     /// Whether it is on now, as a page in front has it, or as chosen.
     static func isOn(_ feature: NSObject) -> Bool {
         if let on = transient[key(of: feature)] ?? saved[key(of: feature)] { return on }
