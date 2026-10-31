@@ -5,7 +5,8 @@ import Observation
 /// bookmarks.json. ⌘D keeps the page you are on, or lets it go again.
 @Observable
 final class Bookmarks {
-    static let shared = Bookmarks()
+    /// The bookmarks of the profile in front.
+    static var shared: Bookmarks { Profiles.active.bookmarks }
 
     struct Mark: Codable, Identifiable, Hashable {
         var id = UUID()
@@ -14,9 +15,17 @@ final class Bookmarks {
         var added = Date()
     }
 
-    private(set) var marks: [Mark] = Store.read("bookmarks.json", as: [Mark].self) ?? []
+    private(set) var marks: [Mark]
+    @ObservationIgnored private let file: String
 
-    private func save() { Store.write(marks, to: "bookmarks.json") }
+    init(file: String) {
+        self.file = file
+        marks = Store.read(file, as: [Mark].self) ?? []
+    }
+
+    private func save() { Store.write(marks, to: file) }
+    func appendImported(_ mark: Mark) { marks.append(mark) }
+    func saveImported() { save() }
 
     func contains(_ url: URL?) -> Bool {
         guard let url else { return false }

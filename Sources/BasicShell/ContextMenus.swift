@@ -50,6 +50,12 @@ extension Tab {
         if let link {
             menu.addItem(action("Open Link in New Tab") { [weak self] in self?.host?.open(link, from: self, select: true) })
             menu.addItem(action("Open Link in Background Tab") { [weak self] in self?.host?.open(link, from: self, select: false) })
+            if let window = host as? BrowserWindow {
+                menu.addItem(action("Peek at Link") { [weak self] in window.peek(link, from: self) })
+            }
+            if let window = host as? BrowserWindow, !isPrivate {
+                menu.addItem(action("Open Link Side by Side") { [weak self] in window.openSideBySide(link, from: self) })
+            }
             if !isPrivate {
                 menu.addItem(action("Open Link in Private Tab") { [weak self] in (self?.host as? BrowserWindow)?.openPrivately(link) })
             }
@@ -78,6 +84,16 @@ extension Tab {
             menu.addItem(forward)
             menu.addItem(action(isLoading ? "Stop" : "Reload") { window?.reload(nil) })
             if url != nil {
+                if let window {
+                    menu.addItem(.separator())
+                    let row = NSMenuItem()
+                    row.view = ZoomRow(window: window)
+                    menu.addItem(row)
+                    menu.addItem(action("Actual Size") { window.actualSize(nil) })
+                    if ["http", "https"].contains(url?.scheme ?? "") {
+                        menu.addItem(action(isTranslated ? "Show Original Page" : "Translate Page") { window.translatePage(nil) })
+                    }
+                }
                 menu.addItem(.separator())
                 menu.addItem(action("Copy Address") { window?.copyAddress(nil) })
                 if !isPrivate {
@@ -90,6 +106,12 @@ extension Tab {
                 }
             }
         }
+        #if AGENT
+        if AgentAccess.enabled, url != nil {
+            menu.addItem(.separator())
+            menu.addItem(action("Pick Element for the Agent") { [weak self] in if let self { AgentPick.ask(self) } })
+        }
+        #endif
         if let inspect { menu.addItem(.separator()); menu.addItem(inspect) }
         return tidy(menu)
     }
@@ -136,4 +158,45 @@ final class MenuAction: NSObject {
     private let run: () -> Void
     init(_ run: @escaping () -> Void) { self.run = run }
     @objc func fire() { run() }
+}
+
+/// "Zoom  −  120%  +" as one row of a page's menu. Its buttons don't close the
+/// menu, so the percentage follows each press.
+final class ZoomRow: NSView {
+    private let owner: BrowserWindow
+    private let percent = NSTextField(labelWithString: "")
+
+    init(window: BrowserWindow) {
+        owner = window
+        super.init(frame: NSRect(x: 0, y: 0, width: 220, height: 28))
+        let title = NSTextField(labelWithString: "Zoom")
+        title.font = .menuFont(ofSize: 0)
+        title.frame = NSRect(x: 14, y: 5, width: 60, height: 17)
+        percent.font = .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+        percent.alignment = .center
+        percent.frame = NSRect(x: 112, y: 5, width: 54, height: 17)
+        addSubview(title)
+        addSubview(percent)
+        addSubview(button("minus", #selector(smaller), x: 84, help: "Zoom Out"))
+        addSubview(button("plus", #selector(larger), x: 170, help: "Zoom In"))
+        refresh()
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    private func button(_ symbol: String, _ action: Selector, x: CGFloat, help: String) -> NSButton {
+        let button = NSButton(image: NSImage(systemSymbolName: symbol, accessibilityDescription: help) ?? NSImage(), target: self, action: action)
+        button.isBordered = false
+        button.toolTip = help
+        button.frame = NSRect(x: x, y: 2, width: 28, height: 24)
+        return button
+    }
+
+    private func refresh() {
+        let zoom = owner.shell.selected?.webView?.pageZoom ?? 1
+        percent.stringValue = "\(Int((zoom * 100).rounded()))%"
+    }
+
+    @objc private func smaller() { owner.zoomOut(nil); refresh() }
+    @objc private func larger() { owner.zoomIn(nil); refresh() }
 }

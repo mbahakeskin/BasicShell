@@ -15,6 +15,16 @@ enum Ask: Equatable {
 final class Shell {
     var tabs: [Tab] = []
     var selected: Tab?
+    /// The profile whose tabs are in `tabs`; the others' are parked (Profiles.swift).
+    var profile: Profile = Profiles.main
+    @ObservationIgnored var parked: [UUID: ParkedTabs] = [:]
+    /// Two tabs side by side (Split.swift); the one with the keyboard is `selected`.
+    var split: SplitPair?
+    /// Where a tab being dragged in the sidebar would land, for the bar or frame that shows it; kept here, one for
+    /// the whole sidebar, so a row that never hears the drag end can't be left drawing one.
+    var dropMark: DropMark?
+    /// A tab being carried in the sidebar (SidebarDrag.swift).
+    let drag = TabDragModel()
     /// Out because the pointer brought them out.
     var sidebarShown = false
     var topBarShown = false
@@ -49,6 +59,15 @@ final class Shell {
     /// General).
     var sidebarOnly = UserDefaults.standard.bool(forKey: "layout.sidebarOnly")
 
+    /// A tab dragged over this one, or leaving it (only the one that holds the mark can clear it).
+    func mark(_ id: UUID, _ zone: DropZone) {
+        if zone == .none {
+            if dropMark?.id == id { dropMark = nil }
+        } else if dropMark != DropMark(id: id, zone: zone) {
+            dropMark = DropMark(id: id, zone: zone)
+        }
+    }
+
     var sidebarOut: Bool { sidebarPinned || sidebarShown || (sidebarOnly && (popupOpen || downloadsOpen || siteInfoOpen)) }
     var topBarKept: Bool { topBarPinned && !sidebarOnly }
     var topBarOut: Bool { !sidebarOnly && (topBarPinned || topBarShown || editingAddress || popupOpen || downloadsOpen || siteInfoOpen) }
@@ -69,6 +88,12 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     let root = RootView()
     private let page = NSView()
+    /// The view the tabs' pages are in, for Split.swift.
+    var pageView: NSView { page }
+    // Split view (Split.swift).
+    var splitDivider: SplitDivider?
+    var splitFocus: SplitFocusFrame?
+    var splitMonitor: Any?
     /// A full-page screenshot is being made (⇧⌘R): one at a time.
     private var shooting = false
     private var empty: NSHostingView<EmptyPage>!
@@ -238,6 +263,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             self.sidebar.frame = sideFrame
             self.sidebar.alphaValue = self.shell.sidebarOut ? 1 : 0
             self.page.frame = pageFrame
+            self.peekView?.frame = pageFrame
             #if AGENT
             self.agentFrame?.frame = pageFrame
             #endif
@@ -256,6 +282,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         } else {
             change()
         }
+        applySplit()
         omnibox?.frame = bounds
         panelHost?.frame = bounds
         toastView?.frame = NSRect(x: 0, y: bounds.maxY - 120, width: bounds.width, height: 60)
@@ -352,6 +379,10 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     /// Esc: the field over the page, else the address being edited.
     private func escape() -> Bool {
+        if peekView != nil {
+            closePeek()
+            return true
+        }
         if panelHost != nil {
             closePanel()
             return true
@@ -586,6 +617,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     func insert(_ tab: Tab, after opener: Tab?, select: Bool, atTop: Bool) {
         tab.host = self
+        tab.profile = shell.profile
         tab.opener = opener
         if let opener, let at = shell.tabs.firstIndex(of: opener) {
             // After the opener and whatever it already opened, in order.
@@ -598,6 +630,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         } else {
             shell.tabs.append(tab)
         }
+        if let group = opener?.group, tab.group == nil, !tab.isPrivate { tab.group = group }
         Extensions.shared.opened(tab)
         if select { self.select(tab) }
         Session.touch()
@@ -636,6 +669,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         open.activates = true
         NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: open)
         window?.makeKeyAndOrderFront(nil)
+        if !shell.tabs.contains(tab) { switchProfile(to: tab.profile) }
         if tab !== shell.selected { select(tab) }
     }
 
@@ -653,7 +687,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     /// it had been let go, and in the window behind the one shown, where it
     /// goes on running and can be pictured and clicked.
     func keepRunning(_ tab: Tab) {
-        guard shell.tabs.contains(tab) else { return }
+        guard shell.allTabs.contains(tab) else { return }
         Freeze.thaw(tab)
         let web = tab.makeWebView()
         PiP.keepAwake(web, true)
@@ -699,8 +733,23 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     }
     #endif
 
+    /// What `select` notes about a tab coming to the front.
+    func recordSeen(_ tab: Tab) {
+        recent.removeAll { $0 == tab.id }
+        recent.append(tab.id)
+        if recent.count > 100 { recent.removeFirst(recent.count - 100) }
+        tab.lastSeen = Date()
+    }
+
     func select(_ tab: Tab?) {
         guard let window else { return }
+        // Going to another tab puts a peek away (keeping one has let go of it first).
+        closePeek()
+        // Split view: the other half is the same page shown; any other tab ends it.
+        if let split = shell.split {
+            if let tab, split.contains(tab) { return focusSplit(on: tab) }
+            endSplit()
+        }
         let previous = shell.selected
         defer { if previous !== tab { Extensions.shared.activated(tab, previous: previous) } }
         if let current = shell.selected, current !== tab {
@@ -814,6 +863,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         guard tab.pinned != pinned, let index = shell.tabs.firstIndex(of: tab) else { return }
         shell.tabs.remove(at: index)
         tab.pinned = pinned
+        if pinned { tab.group = nil }
         // Pinned tabs come first; a tab pinned goes to the end of them, one
         // unpinned to the start of the rest.
         let boundary = shell.tabs.firstIndex { !$0.pinned } ?? shell.tabs.count
@@ -841,7 +891,17 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     }
 
     func close(_ tab: Tab) {
+        // A tab of a profile that isn't shown (the agent's reach): gone from where it is parked.
+        if !shell.tabs.contains(tab), let parked = shell.parked.values.first(where: { $0.tabs.contains(tab) }) {
+            parked.tabs.removeAll { $0 === tab }
+            if parked.selected === tab { parked.selected = parked.tabs.last }
+            Extensions.shared.closed(tab)
+            tab.discard()
+            Session.touch()
+            return
+        }
         guard let index = shell.tabs.firstIndex(of: tab) else { return }
+        if shell.split?.contains(tab) == true { endSplit() }
         PiP.forget(tab)
         Extensions.shared.closed(tab)
         Closed.add(tab)
@@ -857,7 +917,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     /// Puts a tab away in the archive, from where it comes back as it was.
     func archive(_ tab: Tab) {
-        guard !tab.isPrivate, let index = shell.tabs.firstIndex(of: tab) else { return }
+        guard !tab.isPrivate, tab.profile.isMain, let index = shell.tabs.firstIndex(of: tab) else { return }
         Archive.shared.add(tab)
         shell.tabs.remove(at: index)
         if shell.selected === tab {
@@ -939,12 +999,18 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     /// The tab being asked for goes above the others, not below them: asked
     /// for with the sidebar's New Tab row at the top of the list.
     private var newTabAtTop = false
+    /// The new tab the omnibox is about to make joins this group (see Groups.swift).
+    var pendingGroup: TabGroup?
+    /// A link's page peeked at over the one shown (Peek.swift), and the tab it was opened from.
+    var peekView: PeekView?
+    weak var peekOpener: Tab?
 
     func dismissOmnibox() {
         omnibox?.removeFromSuperview()
         omnibox = nil
         shell.asking = nil
         newTabAtTop = false
+        pendingGroup = nil
         if let web = shell.selected?.webView { window?.makeFirstResponder(web) }
     }
 
@@ -957,9 +1023,11 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         }
         let privately = if case .newTab(let p)? = shell.asking { p } else { false }
         let atTop = newTabAtTop
+        let group = pendingGroup
         dismissOmnibox()
         let tab = Tab(privately: privately)
         insert(tab, after: nil, select: true, atTop: atTop)
+        if let group, !privately { add(tab, to: group) }
         tab.load(url)
     }
 
@@ -1257,6 +1325,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     }
 
     @objc func closeTab(_ sender: Any?) {
+        if peekView != nil { return closePeek() }
         if omnibox != nil { return dismissOmnibox() }
         if let tab = shell.selected { close(tab) } else { window?.performClose(nil) }
     }
@@ -1321,6 +1390,13 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     @objc func goBack(_ sender: Any?) { shell.selected?.webView?.goBack() }
     @objc func goForward(_ sender: Any?) { shell.selected?.webView?.goForward() }
 
+    @objc func closeSplit(_ sender: Any?) { endSplit() }
+
+    @objc func translatePage(_ sender: Any?) {
+        guard let tab = shell.selected else { return }
+        Translate.toggle(tab, in: self)
+    }
+
     @objc func actualSize(_ sender: Any?) { zoom(to: 1) }
     @objc func zoomIn(_ sender: Any?) { zoom(by: 0.1) }
     @objc func zoomOut(_ sender: Any?) { zoom(by: -0.1) }
@@ -1351,6 +1427,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         guard let tab = shell.selected, shell.tabs.count > 1 else { return }
         detach(tab)
         let other = Windows.open(empty: true)
+        // The tab's page keeps its profile's cookies, so the window it goes to shows that profile.
+        other.shell.profile = tab.profile
         other.insert(tab, after: nil, select: true)
     }
 
@@ -1412,10 +1490,19 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         case #selector(goForward(_:)): return tab?.canGoForward ?? false
         case #selector(findInPage(_:)), #selector(findNext(_:)), #selector(findPrevious(_:)), #selector(useSelectionForFind(_:)):
             return tab?.webView != nil
+        case #selector(actualSize(_:)), #selector(zoomIn(_:)), #selector(zoomOut(_:)):
+            // The page's zoom is said where it is changed: "Zoom In (120%)".
+            let percent = Int(((tab?.webView?.pageZoom ?? 1) * 100).rounded())
+            let name = item.action == #selector(actualSize(_:)) ? "Actual Size" : item.action == #selector(zoomIn(_:)) ? "Zoom In" : "Zoom Out"
+            item.title = percent == 100 ? name : "\(name) (\(percent)%)"
+            return tab?.url != nil
         case #selector(copyAddress(_:)), #selector(reload(_:)),
-             #selector(actualSize(_:)), #selector(zoomIn(_:)), #selector(zoomOut(_:)),
              #selector(duplicateTab(_:)), #selector(printPage(_:)):
             return tab?.url != nil
+        case #selector(closeSplit(_:)): return shell.split != nil
+        case #selector(translatePage(_:)):
+            item.title = tab?.isTranslated == true ? "Show Original Page" : "Translate Page"
+            return tab?.url.map { ["http", "https"].contains($0.scheme ?? "") } ?? false
         case #selector(pictureInPicture(_:)):
             item.title = tab.map(PiP.isActive) == true ? "Exit Picture in Picture" : "Picture in Picture"
             return tab?.url != nil
@@ -1688,11 +1775,12 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
         menuBarWatch?.invalidate()
-        for tab in shell.tabs {
+        for tab in shell.allTabs {
             Extensions.shared.closed(tab, windowClosing: true)
             tab.discard()
         }
         shell.tabs = []
+        shell.parked = [:]
         Windows.closed(self)
         Session.touch()
     }

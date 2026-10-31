@@ -34,7 +34,7 @@ final class MutedSites {
     private func save() {
         UserDefaults.standard.set(sites.sorted(), forKey: "mute.sites")
         // The tabs of every window take it up at once.
-        for window in Windows.all { for tab in window.shell.tabs { tab.applyMute() } }
+        for window in Windows.all { for tab in window.shell.allTabs { tab.applyMute() } }
     }
 
     private static func site(_ host: String) -> String {

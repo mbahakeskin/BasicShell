@@ -32,7 +32,7 @@ enum WebNotifications {
     /// A site's answer changed: every page of it hears at once.
     static func tell(_ site: String, _ state: String) {
         for window in Windows.all {
-            for tab in window.shell.tabs where tab.webView?.url?.host() == site {
+            for tab in window.shell.allTabs where tab.webView?.url?.host() == site {
                 tab.webView?.evaluateJavaScript("window.__basicShellNotify && __basicShellNotify('state', 0, '\(state)')") { _, _ in }
             }
         }

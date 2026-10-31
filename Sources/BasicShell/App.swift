@@ -22,12 +22,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // with SIGPIPE, leaving no crash report; it is an error to handle
         // instead (see NativeConnection.send).
         signal(SIGPIPE, SIG_IGN)
+        // The layout with no top bar is where a new install starts; someone who has used BasicShell
+        // keeps what they have (the setting is written once, so it is never taken from them later).
+        if UserDefaults.standard.object(forKey: "layout.sidebarOnly") == nil {
+            let used = ["session.json", "history.json", "bookmarks.json"].contains { FileManager.default.fileExists(atPath: Store.folder.appendingPathComponent($0).path) }
+            UserDefaults.standard.set(!used, forKey: "layout.sidebarOnly")
+        }
         Debug.start()
         LocationAccess.start()
         WebNotifications.start()
         Freeze.guardScripts()
         Sleep.start()
         DiskUse.start()
+        Profiles.shared.removePendingStores()
         #if AGENT
         AgentAccess.migrateSettings()
         AgentAccess.shared.start()
@@ -112,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     @objc func showSettings(_ sender: Any?) { SettingsWindow.show() }
+    @objc func showImport(_ sender: Any?) { SettingsWindow.show("import") }
     #if AGENT
     @objc func checkForUpdates(_ sender: Any?) { Task { await Updater.shared.check(manually: true) } }
     #endif

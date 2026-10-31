@@ -3,7 +3,7 @@ import Foundation
 /// The app's own files: small JSON documents in
 /// ~/Library/Application Support/BasicShell, each written whole and atomically.
 enum Store {
-    static var folder: URL {
+    nonisolated static var folder: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("BasicShell", isDirectory: true)
     }
@@ -15,7 +15,7 @@ enum Store {
         return try? decoder.decode(type, from: data)
     }
 
-    static func write<T: Encodable>(_ value: T, to name: String) {
+    nonisolated static func write<T: Encodable>(_ value: T, to name: String) {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         do {
@@ -63,7 +63,7 @@ func matches(_ query: String, title: String, url: URL) -> Bool {
 /// other; and now a word also fits when its letters are there in order with
 /// little between them ("gthub" for GitHub, "gh bs" for GitHub – BasicShell),
 /// counted for less than a word found whole.
-enum Fuzzy {
+nonisolated enum Fuzzy {
     /// What a word found whole counts for; anything under it was found
     /// letter by letter.
     static let whole = 1000

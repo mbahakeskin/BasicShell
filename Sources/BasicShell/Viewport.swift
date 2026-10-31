@@ -116,6 +116,7 @@ enum Viewport {
     static func setAgent(_ agent: String?, for tab: Tab) {
         tab.userAgent = agent
         tab.webView?.customUserAgent = agent
+        SiteDevelop.shared.changed(tab)
     }
 
     /// The look the page is told of (`prefers-color-scheme`); `nil` is the
@@ -123,6 +124,7 @@ enum Viewport {
     static func setLook(_ look: NSAppearance.Name?, for tab: Tab) {
         tab.look = look
         tab.webView?.appearance = look.flatMap { NSAppearance(named: $0) }
+        SiteDevelop.shared.changed(tab)
     }
 
     /// Put on a web view when it is made, for what the tab was set to.

@@ -119,6 +119,7 @@ struct TopBarView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                TranslateButton(tab: tab, window: window)
                 reload
             }
             .background(Capsule().fill(Color.primary.opacity(0.05)))
@@ -198,6 +199,7 @@ struct SiteField: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            TranslateButton(tab: tab, window: window)
             IconButton(symbol: tab?.isLoading == true ? "xmark" : "arrow.clockwise", enabled: tab?.url != nil) { window.reload(nil) }
                 .help(tab?.isLoading == true ? "Stop Loading" : "Reload This Page (⌘R)")
         }

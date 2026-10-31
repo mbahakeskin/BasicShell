@@ -39,6 +39,7 @@ enum Web {
         config.userContentController.addUserScript(Sleep.typingWatch)
         Geolocation.attach(to: config)
         WebNotifications.attach(to: config)
+        LinkPreview.attach(to: config)
         Debug.attach(to: config)
         #if AGENT
         AgentPage.attach(to: config)
@@ -178,6 +179,7 @@ extension Tab: WKUIDelegate {
         let tab = Tab(configuration: configuration)
         let foreground = !(action.modifierFlags.contains(.command) && !action.modifierFlags.contains(.shift))
         host.insert(tab, after: self, select: foreground)
+        Sleep.noteScriptWindow(tab, opener: self)
         return tab.webView
     }
 

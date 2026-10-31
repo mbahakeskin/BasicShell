@@ -136,6 +136,7 @@ private struct Ability: View {
 struct AgentSettings: View {
     @AppStorage(AgentAccess.enabledKey) private var enabled = false
     @AppStorage(AgentAccess.bypassKey) private var bypass = false
+    @AppStorage(AgentAccess.profileKey) private var agentProfile = "choose"
     // `@State` is a macro in the macOS 27 SDK whose plugin ships only with
     // Xcode, so the State it would expand to is stored by hand.
     private var _status = State(initialValue: "")
@@ -166,7 +167,7 @@ struct AgentSettings: View {
             Section {
                 Toggle(isOn: $enabled) {
                     Text("Let an agent use this browser")
-                    Text("AI agents (Claude Code, the Claude app, Antigravity, or any other that speaks the Model Context Protocol) get tools for BasicShell: they can see your tabs, read pages and act in them, as you and signed in as you. Nothing is on until you say so here, and what is allowed is chosen below.")
+                    Text("AI agents (Claude Code, Codex, the Claude app, Antigravity, or any other that speaks the Model Context Protocol) get tools for BasicShell: they can see your tabs, read pages and act in them, as you and signed in as you. Nothing is on until you say so here, and what is allowed is chosen below.")
                 }
                 .onChange(of: enabled) { _, _ in access.start() }
                 if enabled {
@@ -198,6 +199,13 @@ struct AgentSettings: View {
                     } label: {
                         Text("Claude Code")
                         Text(AgentConnect.code == nil ? "Not found on this Mac; the command adds it wherever it is." : "For every project. Sessions started after have it.")
+                    }
+                    LabeledContent {
+                        Button("Add") { status = "Adding…"; AgentConnect.addToCodex { status = $0 } }
+                            .disabled(AgentConnect.codex == nil)
+                    } label: {
+                        Text("Codex")
+                        Text(AgentConnect.codex == nil ? "Not found on this Mac." : "The Codex command line and app. Written into ~/.codex/config.toml; start a new session after.")
                     }
                     LabeledContent {
                         Button("Add") { status = AgentConnect.addToApp() }
@@ -236,10 +244,21 @@ struct AgentSettings: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
+                Section {
+                    Picker("Pages the agent opens go in", selection: $agentProfile) {
+                        Text("Whatever the agent decides, task by task").tag("choose")
+                        Text("Always the profile shown, with your sign-ins").tag("shown")
+                        Text("Always a profile of its own, “Agent”, with none").tag("own")
+                    }
+                } footer: {
+                    Text("Left to the agent it uses your sign-ins when the task needs them, and the signed-out “Agent” profile for reading public pages. Either way its tabs stay open when it is done unless it closes them, and it can look at a tab of yours that you ask it to.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+
                 Section("On a web page") {
                     Ability(title: "Read it",
                             detail: "A page's text, what is on it, a picture of it (the view, a part, or the whole page), what you have selected there, how its connection and certificate stand and what you have allowed the site, saving it as a PDF, recording it as a GIF, opening and closing tabs, reading many pages in one go, and opening files on this Mac (all of them are one site, \"files on this Mac\"). Needs your \"read\" for the site.",
-                            tools: ["open", "close", "select", "navigate", "read_text", "read_page", "find", "screenshot", "selection", "site_info", "wait", "save_page", "record", "read_pages"])
+                            tools: ["open", "close", "select", "navigate", "read_text", "read_page", "find", "screenshot", "selection", "pick", "site_info", "wait", "save_page", "record", "read_pages"])
                     Ability(title: "Click and type in it",
                             detail: "Click, drag, type, press keys, scroll, fill in forms (a whole form, or the site's search, in one call), answer the page's alerts, change the window's size, look and user agent to try a layout, download a file into Downloads (asked each time) or give the page a file from this Mac (asked each time). Needs your \"click and type\" for the site, which includes reading.",
                             tools: ["click", "hover", "drag", "type", "key", "scroll", "fill", "fill_form", "search", "dialog", "resize", "upload", "download", "batch"])
@@ -407,15 +426,31 @@ enum AgentConnect {
             .first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
+    /// Codex's own program, where its installers put it.
+    static var codex: String? {
+        let home = NSHomeDirectory()
+        return ["/opt/homebrew/bin/codex", "/usr/local/bin/codex", "\(home)/.local/bin/codex", "\(home)/.npm-global/bin/codex", "\(home)/.bun/bin/codex"]
+            .first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
     /// Asks Claude Code to add it (taking out an older entry first, which
     /// may point at where BasicShell used to be).
     static func addToCode(_ done: @escaping @MainActor (String) -> Void) {
-        guard let code else { return done("Claude Code wasn't found.") }
+        addThroughCommandLine(code, name: "Claude Code", added: "Added to Claude Code. Sessions started from now on have BasicShell's tools.", done)
+    }
+
+    /// The same for Codex, whose `mcp` commands take the same words.
+    static func addToCodex(_ done: @escaping @MainActor (String) -> Void) {
+        addThroughCommandLine(codex, name: "Codex", added: "Added to Codex. Sessions started from now on have BasicShell's tools.", done)
+    }
+
+    private static func addThroughCommandLine(_ tool: String?, name: String, added: String, _ done: @escaping @MainActor (String) -> Void) {
+        guard let tool else { return done("\(name) wasn't found.") }
         let program = program
         DispatchQueue.global(qos: .userInitiated).async {
             func run(_ arguments: [String]) -> (Int32, String) {
                 let process = Process()
-                process.executableURL = URL(fileURLWithPath: code)
+                process.executableURL = URL(fileURLWithPath: tool)
                 process.arguments = arguments
                 var environment = ProcessInfo.processInfo.environment
                 environment["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:" + (environment["PATH"] ?? "")
@@ -429,9 +464,11 @@ enum AgentConnect {
                 process.waitUntilExit()
                 return (process.terminationStatus, String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
             }
-            _ = run(["mcp", "remove", "--scope", "user", "basicshell"])
-            let (status, said) = run(["mcp", "add", "--scope", "user", "basicshell", "--", program, "--mcp"])
-            let message = status == 0 ? "Added to Claude Code. Sessions started from now on have BasicShell's tools." : "Claude Code said: \(said.suffix(200))"
+            // Claude Code takes the scope; Codex has one list and no such flag.
+            let scope = name == "Claude Code" ? ["--scope", "user"] : []
+            _ = run(["mcp", "remove"] + scope + ["basicshell"])
+            let (status, said) = run(["mcp", "add"] + scope + ["basicshell", "--", program, "--mcp"])
+            let message = status == 0 ? added : "\(name) said: \(said.suffix(200))"
             DispatchQueue.main.async { MainActor.assumeIsolated { done(message) } }
         }
     }

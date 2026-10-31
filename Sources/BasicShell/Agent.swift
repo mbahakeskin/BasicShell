@@ -149,6 +149,16 @@ final class AgentAccess {
     /// Nothing is asked: every site but those refused for good is open.
     static var bypass: Bool { UserDefaults.standard.bool(forKey: bypassKey) }
 
+    /// Where the pages the agent opens go: left to the agent, task by task (the default: the profile shown, with the
+    /// person's sign-ins, unless it asks for a profile of its own with none), or always one or the other (Settings › Agents).
+    /// Either way the person can ask for a tab of their own to be looked at.
+    static let profileKey = "agent.profile"
+    static let ownProfileName = "Agent"
+    /// "choose" (the default): the agent says, per task, with `open`'s `profile`; left out, the profile shown.
+    /// "shown": always the profile shown. "own": always its own.
+    static var profileMode: String { UserDefaults.standard.string(forKey: profileKey) ?? "choose" }
+    static var ownProfile: Bool { profileMode == "own" }
+
     /// The line around a tab an agent works in: the system's own accent, so
     /// it looks like the Mac, not like any agent.
     static var color: NSColor { .controlAccentColor }
@@ -360,7 +370,7 @@ final class AgentAccess {
             presence[id] = nil
         }
         for window in Windows.all {
-            if let tab = window.shell.tabs.first(where: { $0.id == id }) {
+            if let tab = window.shell.allTabs.first(where: { $0.id == id }) {
                 AgentRecorder.stop(tab)
                 // Whatever it switched off to look at the page is back on.
                 if tab.agentRendered { tab.agentRendered = false; Develop.restoreRendering(tab) }
@@ -382,11 +392,23 @@ final class AgentAccess {
         guard let site = AgentAccess.site(tab.url) else {
             throw Refusal(message: "BasicShell lets the agent into web pages (http and https) and files on this Mac (file) only; this tab shows \(tab.url?.scheme ?? "nothing").")
         }
-        try await permit(kind, site: site, for: client, over: (tab.host as? BrowserWindow)?.window)
+        // A site is allowed per profile (another profile may be signed in as someone else); "Never" on the site holds for all of them.
+        try await permit(kind, site: AgentAccess.site(site, in: tab.profile), for: client, over: (tab.host as? BrowserWindow)?.window)
+    }
+
+    /// How a site is known to the agent's permissions in a profile: by its name in the main one, with the profile's after it elsewhere.
+    static func site(_ site: String, in profile: Profile) -> String { profile.isMain ? site : "\(site) (\(profile.name))" }
+
+    /// The site without the profile it was asked about in.
+    static func baseSite(_ key: String) -> String {
+        guard key.hasSuffix(")"), let open = key.range(of: " (", options: .backwards) else { return key }
+        return String(key[..<open.lowerBound])
     }
 
     func permit(_ kind: Kind, site: String, for client: String, over window: NSWindow?) async throws {
         try await carryOn(over: window)
+        let plain = AgentAccess.baseSite(site)
+        if plain != site, answer(kind, plain) == false { throw Refusal(message: denied(kind, plain)) }
         switch answer(kind, site) {
         case true?: return
         case false?: throw Refusal(message: denied(kind, site))

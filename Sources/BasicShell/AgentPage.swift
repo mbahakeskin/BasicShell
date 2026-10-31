@@ -14,6 +14,10 @@ import WebKit
 enum AgentPage {
     static let world = WKContentWorld.world(name: "BasicShellAgent")
 
+    /// The helper, behind a call the compiler won't look through: with the text itself in sight, it
+    /// was copied into every tool that runs a script (some forty copies of 57 KB each, 2.4 MB of the app).
+    @inline(never) static func helperSource() -> String { helper }
+
     /// Defines `__agent` once in a document.
     static let helper = #"""
     if (!globalThis.__agent) globalThis.__agent = (() => {

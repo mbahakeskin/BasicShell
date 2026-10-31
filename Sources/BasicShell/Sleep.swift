@@ -30,6 +30,36 @@ enum Sleep {
 
     static func keepsAwake(_ url: URL?) -> Bool { Awake.shared.contains(url) }
 
+    /// How long a tab out of sight is left running before it is frozen: none by default, as it always was; or
+    /// `sleep.freezeAfter` seconds (Settings › Tabs), which keeps a page you flip back to ready.
+    static var freezeAfter: TimeInterval { UserDefaults.standard.double(forKey: "sleep.freezeAfter") }
+
+    /// Windows a page opened by script (window.open, target=_blank), to the
+    /// page that opened them, and when. A sign-in in a window of its own
+    /// (Google's, from Claude's) answers the page that opened it by script when
+    /// it is done; frozen, that page missed the answer and went back to its
+    /// sign-in screen. So a page is not frozen while a window it opened is
+    /// young: a sign-in doesn't take longer than that, and a tab opened from a
+    /// link and left there lets the page rest after it.
+    static let scriptOpened = NSMapTable<Tab, Tab>.weakToWeakObjects()
+    private static var scriptOpenedAt: [ObjectIdentifier: Date] = [:]
+    private static let popupGrace: TimeInterval = 300
+
+    static func noteScriptWindow(_ child: Tab, opener: Tab) {
+        scriptOpened.setObject(opener, forKey: child)
+        scriptOpenedAt[ObjectIdentifier(child)] = Date()
+        // What is gone from the table is gone from here.
+        let alive = Set((scriptOpened.keyEnumerator().allObjects as? [Tab] ?? []).map(ObjectIdentifier.init))
+        scriptOpenedAt = scriptOpenedAt.filter { alive.contains($0.key) }
+    }
+
+    static func hasScriptWindow(_ tab: Tab) -> Bool {
+        for case let child as Tab in scriptOpened.keyEnumerator().allObjects where scriptOpened.object(forKey: child) === tab {
+            if Date().timeIntervalSince(scriptOpenedAt[ObjectIdentifier(child)] ?? .distantPast) < popupGrace { return true }
+        }
+        return false
+    }
+
     // MARK: - watching the clock and the memory
 
     private static var timer: Timer?
@@ -44,7 +74,7 @@ enum Sleep {
                 if let after = unloadAfter { unloadIdle(olderThan: after) }
                 // Tabs left running because they were playing: frozen once they stop.
                 for window in Windows.all {
-                    for tab in window.shell.tabs where tab !== window.shell.selected && !tab.isOnScreen {
+                    for tab in window.shell.allTabs where tab !== window.shell.selected && !tab.isOnScreen {
                         freezeIfIdle(tab)
                     }
                 }
@@ -65,7 +95,7 @@ enum Sleep {
         guard let after = Archive.after else { return }
         let now = Date()
         for window in Windows.all {
-            for tab in window.shell.tabs where tab !== window.shell.selected && !tab.pinned && !tab.isPrivate
+            for tab in window.shell.tabs where tab !== window.shell.selected && !tab.pinned && !tab.isPrivate && tab.profile.isMain
                 && !tab.hasTypedInput && !keepsAwake(tab.url) && !tab.isWorkedIn && now.timeIntervalSince(tab.lastSeen) > after {
                 window.archive(tab)
             }
@@ -76,7 +106,7 @@ enum Sleep {
     static func unloadIdle(olderThan age: TimeInterval) {
         let now = Date()
         let tabs = Windows.all.flatMap { window in
-            window.shell.tabs.filter { $0 !== window.shell.selected }
+            window.shell.allTabs.filter { $0 !== window.shell.selected }
         }
         .filter { $0.webView != nil && now.timeIntervalSince($0.lastSeen) > age }
         .sorted { $0.lastSeen < $1.lastSeen }
@@ -111,9 +141,17 @@ enum Sleep {
     /// until the page was reloaded.
     static func freezeIfIdle(_ tab: Tab) {
         // Never mid-load: the page would still report its loads, frozen.
-        guard Freeze.enabled, let web = tab.webView, !tab.isFrozen, !tab.isOnScreen, !web.isLoading, !keepsAwake(tab.url), !PiP.holds(tab), !tab.isWorkedIn,
+        guard Freeze.enabled, let web = tab.webView, !tab.isFrozen, !tab.isOnScreen, !web.isLoading, !keepsAwake(tab.url), !PiP.holds(tab), !tab.isWorkedIn, !hasScriptWindow(tab),
               web.cameraCaptureState == .none, web.microphoneCaptureState == .none
         else { return }
+        // Not yet: asked again when the time is up (it counts from when the tab left the screen).
+        let wait = freezeAfter - Date().timeIntervalSince(tab.lastSeen)
+        if wait > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + wait + 0.5) { [weak tab] in
+                if let tab { freezeIfIdle(tab) }
+            }
+            return
+        }
         var answered = false
         web.requestMediaPlaybackState { state in
             MainActor.assumeIsolated {
@@ -246,7 +284,7 @@ enum Freeze {
         guard let web = view as? WKWebView else { return }
         MainActor.assumeIsolated {
             for window in Windows.all {
-                for tab in window.shell.tabs where tab.isFrozen && tab.webView === web {
+                for tab in window.shell.allTabs where tab.isFrozen && tab.webView === web {
                     Debug.log("sleep", "waking \(tab.name) for \(reason)")
                     thaw(tab)
                 }

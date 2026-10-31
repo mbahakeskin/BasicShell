@@ -56,6 +56,7 @@ enum Menus {
         menu.addItem(.separator())
         menu.addItem(item("Open Location…", #selector(BrowserWindow.openLocation(_:)), "l"))
         menu.addItem(item("Open File…", #selector(BrowserWindow.openFile(_:)), "o"))
+        menu.addItem(item("Import From Another Browser…", #selector(AppDelegate.showImport(_:))))
         menu.addItem(.separator())
         menu.addItem(item("Close Tab", #selector(BrowserWindow.closeTab(_:)), "w"))
         menu.addItem(item("Close Window", #selector(NSWindow.performClose(_:)), "w", [.command, .shift]))
@@ -107,6 +108,9 @@ enum Menus {
         zoomIn.allowsKeyEquivalentWhenHidden = true
         menu.addItem(zoomIn)
         menu.addItem(item("Zoom Out", #selector(BrowserWindow.zoomOut(_:)), "-"))
+        menu.addItem(.separator())
+        menu.addItem(item("Translate Page", #selector(BrowserWindow.translatePage(_:))))
+        menu.addItem(item("Close Split View", #selector(BrowserWindow.closeSplit(_:))))
         menu.addItem(.separator())
         menu.addItem(item("Keep Sidebar Open", #selector(BrowserWindow.toggleSidebarPinned(_:)), "s", [.command, .control]))
         menu.addItem(item("Keep Top Bar Open", #selector(BrowserWindow.toggleTopBarPinned(_:)), "b", [.command, .control]))

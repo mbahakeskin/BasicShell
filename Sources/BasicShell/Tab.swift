@@ -34,6 +34,13 @@ final class Tab: NSObject, Identifiable {
     private(set) var canGoForward = false
     var icon: NSImage?
     var pinned = false
+    /// The group it belongs to, if any (Groups.swift).
+    var group: TabGroup?
+    /// Whose cookies and history it uses (Profiles.swift); set as it is put in a window.
+    var profile: Profile = Profiles.main
+    /// Its page's text is a translation (Translate.swift), and one is being made.
+    var isTranslated = false
+    var isTranslating = false
     /// Its page is making sound now (Mute.swift), and what the tab itself has said about its sound (nil: its site's say stands).
     var isPlayingAudio = false
     var muteSaid: Bool?
@@ -89,6 +96,8 @@ final class Tab: NSObject, Identifiable {
     /// The site whose saved zoom the page has, so that zoom is put on only
     /// when the site changes (see Tab.applySiteZoom).
     @ObservationIgnored var zoomedFor: String?
+    /// The site whose Develop settings this tab is following (SiteDevelop.swift).
+    @ObservationIgnored var developHost: String?
 
     #if AGENT
     // What the agent tools keep with a tab (see Agent.swift).
@@ -109,6 +118,8 @@ final class Tab: NSObject, Identifiable {
     @ObservationIgnored let loadBegun = Waiters()
     /// How many documents have come to be in this tab: a script that began in one is lost when it goes (see Call.script).
     @ObservationIgnored var commits = 0
+    /// An element the person picked for the agent (AgentPick.swift), until the agent has read it.
+    @ObservationIgnored var picked: String?
     /// The language its document is in, when it is not English (see Call.language), said once for each document.
     @ObservationIgnored var language: (documents: Int, name: String?)?
     @ObservationIgnored let dialogEnded = Waiters()
@@ -197,7 +208,7 @@ final class Tab: NSObject, Identifiable {
         // extension's own are; any other page, the usual configuration.
         let config = configuration
             ?? (isPrivate ? nil : url.flatMap { Extensions.shared.configuration(for: $0) })
-            ?? Web.configuration(privately: isPrivate, store: store)
+            ?? Web.configuration(privately: isPrivate, store: store ?? (isPrivate ? nil : profile.dataStore))
         store = config.websiteDataStore
         let web = WKWebView(frame: .zero, configuration: config)
         web.navigationDelegate = self
@@ -252,7 +263,7 @@ final class Tab: NSObject, Identifiable {
                     self.title = web.title ?? ""
                     self.host?.retitled(self)
                     Extensions.shared.changed(self, .title)
-                    if !self.isPrivate, let url = web.url { History.shared.retitle(url, self.title) }
+                    if !self.isPrivate, let url = web.url { self.profile.history.retitle(url, self.title) }
                 }
             },
             web.observe(\.url) { [weak self] web, _ in
@@ -381,6 +392,18 @@ extension Tab: WKNavigationDelegate {
             handOff(url, action: action)
             return
         }
+        // Shift-click peeks at the link over this page (Peek.swift).
+        if action.navigationType == .linkActivated, ["http", "https"].contains(scheme),
+           action.modifierFlags.contains(.shift), action.modifierFlags.intersection([.command, .option, .control]).isEmpty,
+           let window = host as? BrowserWindow, !agentUnasked {
+            decisionHandler(.cancel, preferences)
+            window.peek(url, from: self)
+            return
+        }
+        // The site's own Develop settings, in place before the request is made.
+        if action.targetFrame?.isMainFrame ?? true, ["http", "https"].contains(scheme), let host = url.host() {
+            SiteDevelop.shared.prepare(self, for: host)
+        }
         // ⌘-click opens beside this tab and stays here; ⇧⌘-click goes with it.
         if action.navigationType == .linkActivated, ["http", "https"].contains(scheme),
            action.modifierFlags.contains(.command) {
@@ -412,6 +435,8 @@ extension Tab: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        // A new document has its own text again.
+        isTranslated = false
         applyMute()
         readerPageChanged()
         #if AGENT
@@ -450,7 +475,7 @@ extension Tab: WKNavigationDelegate {
         if (host as? BrowserWindow)?.shell.selected === self { probeReader() }
         // Not BasicShell's own page saying it couldn't be opened.
         if let shown = errorShown, webView.url == shown { errorShown = nil; return }
-        if !isPrivate, let url = webView.url { History.shared.record(url, title: webView.title ?? "") }
+        if !isPrivate, let url = webView.url { profile.history.record(url, title: webView.title ?? "") }
         Favicons.fetch(for: self)
     }
 

@@ -11,7 +11,8 @@ newer version, which Settings turns off).
   in Settings › General, there is no top bar: the sidebar has the traffic
   lights, back and forward, the site (a click brings up its whole address
   over the page) and the site's buttons above the tabs; the extensions are
-  in the Extensions menu, as in Arc.
+  in the Extensions menu, as in Arc. A fresh install starts that way; an
+  install that already has tabs, history or bookmarks keeps the top bar.
 - Full screen uses every pixel: the same bars, the same edges. On a screen
   with a notch the top bar runs through the strip the menu bar would have,
   the notch in its middle, and the window's corners are the screen's own;
@@ -27,6 +28,36 @@ newer version, which Settings turns off).
   kept only in memory, never on disk, and goes when the app quits; they are
   never saved in the session.
 - Several windows, each with its own tabs.
+- Tab groups: right click a tab › Add to Group (or drop it between a group's
+  tabs). A group has a coloured name, which a click folds away, a line of its
+  colour down its tabs and a small New Tab row at its end. They come back with
+  the session.
+- Profiles: a row of coloured dots above the pinned tabs. Each profile has its
+  own cookies and sign-ins, tabs, pinned tabs, groups, history and bookmarks;
+  extensions, zoom and what sites may do are shared. The agent lists every
+  profile's tabs, can open a page in another profile and show one.
+- Split view: right click a tab (or a link) › Open Side by Side. Two pages
+  share the window with a divider to drag; the one with the frame has the
+  keyboard, and the address, Find, zoom and Picture in Picture follow it.
+  Going to any other tab ends it.
+- Translate Page, from the address field or a page's menu: the system's own
+  translation, on this Mac, text by text in the page, and back with one more
+  press. A language not downloaded yet is pointed to in System Settings. The
+  agent always reads the page's own words.
+- ⌘ held over a link for a moment shows the page it goes to, small, beside
+  the link (`defaults write … preview.links -bool false` turns it off); ⌘-click
+  still opens it behind.
+- Develop › Keep These Settings for This Site: a site's user agent, colour
+  scheme and switches (JavaScript, images, styles, same-origin and file
+  restrictions) kept for it, put on a tab as it goes there and taken off as it
+  goes elsewhere; Settings › Tabs lists them.
+- Peek: Shift-click a link (or Peek at Link in its menu) to see its page in a
+  panel over the one you are reading, which stays where it was. Esc, ⌘W, a
+  click beside the panel or its cross puts it away; its other button keeps it
+  as a tab beside this one, loaded as it is.
+- Import (Settings › Import, File menu): bookmarks and all of the
+  history from Chrome and what is built on it, Safari and Firefox; and, from
+  Chrome and its kin, a password file (CSV) to hand to a password manager.
 - Ads and trackers, YouTube's ads included, are blocked by uBlock Origin
   Lite, the Safari extension that comes with its app from the App Store.
   BasicShell adds it when that app is on the Mac, running it from a copy of
@@ -34,7 +65,8 @@ newer version, which Settings turns off).
   launch; the first launch without it asks whether to get it, and with a
   yes it is added as soon as it is there (Settings › Privacy turns that off). Its button in the
   top bar turns it off for a site; removed, it stays removed.
-- Tabs off screen are frozen: no script, no timers, nothing lost. After six
+- Tabs off screen are frozen: no script, no timers, nothing lost. Right away
+  by default; Settings › Tabs can wait 30 seconds up to an hour first. After six
   hours off screen, or when memory runs short, a tab is unloaded and comes
   back where it was. Tabs holding unsent typing, sound or a call are left
   alone, and a site can be kept awake (the sun in the top bar).
@@ -187,6 +219,16 @@ the Claude app, Antigravity, or any other MCP client).
 It is in the build only when asked for: `./build.sh agent`, which is also what
 a release is (from 0.6.0 on, a release has this build alone). The plain build,
 `./build.sh`, has no part of it, not the Settings page, not the code.
+
+Two things for working beside the agent: `pick`, and a page's right-click
+menu › Pick Element for the Agent: you point at an element and the agent is
+told its selector, role, text and HTML, the styles that aren't the default's,
+the React or Vue components it belongs to (and their file, in a development
+build) and the page's recent errors. And a profile of its own: with `open` the
+agent says, task by task, whether a page goes in the profile shown (your
+sign-ins) or in "Agent" (none, made the first time); Settings › Agents › Pages
+the agent opens go in can fix it one way. Its tabs stay open when it is done
+unless it closes them.
 
 Turn it on in Settings › Agents, then connect from there: a button adds
 BasicShell to Claude Code (or copies the command, `claude mcp add --scope

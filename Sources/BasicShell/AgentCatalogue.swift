@@ -10,8 +10,8 @@ import Foundation
 extension AgentTools {
     /// A line for each tool.
     static let lines: [String: String] = [
-        "tabs": "List open tabs: number, title, address, state. Filter: from_tab to_tab, yours, query, window. No private ones.",
-        "open": "Open address in a new background tab, wait, list its controls. http, https, file.",
+        "tabs": "List open tabs in every profile: number, title, address, state, group, profile. Filter: from_tab to_tab, yours, query, window. No private ones.",
+        "open": "Open address in a new background tab, wait, list its controls. http, https, file. profile: \"Agent\" for a signed-out one.",
         "close": "Close a tab.",
         "select": "Show a tab to the person.",
         "navigate": "Go to an address, or back, forward, reload, hard_reload. Lists the page's controls.",
@@ -42,8 +42,9 @@ extension AgentTools {
         "save_page": "Save the page as pdf or webarchive in Downloads.",
         "record": "Record the tab as a GIF: start, stop.",
         "resize": "Window size, preset (mobile tablet desktop), user_agent, color_scheme, zoom.",
-        "selection": "The text the person selected.",
-        "arrange": "Pin, unpin, duplicate, sleep, move or new_window a tab. Switch: tabs.",
+        "selection": "What the person handed over: a picked element, else the text they selected.",
+        "pick": "Ask the person to click an element; get its selector, HTML, styles, components and errors.",
+        "arrange": "Pin, unpin, duplicate, sleep, move, new_window, group, ungroup, split, unsplit, or show a profile. Switch: tabs.",
         "clipboard": "Read or write the clipboard text. Switch: clipboard.",
         "extensions": "List, errors, console or reload extensions. Switch: extensions.",
         "download": "Save the file at an address into Downloads.",

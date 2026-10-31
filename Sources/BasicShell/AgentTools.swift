@@ -79,7 +79,7 @@ enum AgentTools {
     /// Every tool with its whole description: what `help` gives, and what the
     /// terse list the agent is handed is made from.
     static let full: [[String: Any]] = [
-        tool("tabs", "The open tabs in every window: each one's number, title and address, which is shown, which are asleep. Private tabs are left out. Long addresses are cut; the numbers are the same however it is filtered.", [
+        tool("tabs", "The open tabs in every window: each one's number, title and address, which is shown, which are asleep, its group, and the other half of a split view. Private tabs are left out. Long addresses are cut; the numbers are the same however it is filtered.", [
             "from_tab": ["type": "integer", "description": "Only tabs from this number on (with `to_tab`: that range)."],
             "to_tab": ["type": "integer", "description": "Only tabs up to this number."],
             "yours": ["type": "boolean", "description": "Only the tabs the agent opened or has worked in."],
@@ -90,6 +90,7 @@ enum AgentTools {
         tool("open", "Opens an address in a new tab, behind the tab the person is looking at unless `front` is true, and waits for it to load.", [
             "url": ["type": "string", "description": "The address: http, https, or a file on this Mac (file:// or a path such as /Users/me/page.html). Files count as one site, \"files on this Mac\", which the person allows once (or not at all, with bypass)."],
             "front": ["type": "boolean", "description": "Show the new tab to the person. Off unless they want to watch."],
+            "profile": ["type": "string", "description": "Which of the person's profiles to open it in: choose per task. Left out, the profile shown, with the person's own sign-ins: use that when the task needs their accounts, mail or anything they are signed in to. \"Agent\" is a profile of your own, with no sign-ins (made the first time): use it to read public pages and research without touching their accounts. Another profile's name opens it there, with that profile's sign-ins."],
             "observe": observePage,
         ], required: ["url"]),
         tool("close", "Closes a tab, several tabs (`tabs`), or all the tabs you opened (`yours`).", [
@@ -238,11 +239,11 @@ enum AgentTools {
             "code": ["type": "string", "description": "The body of an async function: use `return` for the answer. Put values in `args` and read them as `args.name`, not inside the code's own text."],
             "args": ["type": "object", "description": "Values for the code, seen there as the object `args`: an address, a word, a list. They need no quoting inside the code."],
         ], required: ["code"]),
-        tool("history", "Pages the person visited, newest first, found by words in their title or address. Needs to be allowed in BasicShell's Settings › Agents.", [
+        tool("history", "Pages the person visited in the profile shown, newest first, found by words in their title or address. Needs to be allowed in BasicShell's Settings › Agents.", [
             "query": ["type": "string", "description": "Words to look for. Empty: the latest."],
             "limit": ["type": "integer", "description": "How many, 25 unless said."],
         ], reads: true),
-        tool("bookmarks", "The person's bookmarks, found by words in their title or address. Same condition as `history`.", [
+        tool("bookmarks", "The person's bookmarks in the profile shown, found by words in their title or address. Same condition as `history`.", [
             "query": ["type": "string", "description": "Words to look for. Empty: all of them."],
         ], reads: true),
         tool("downloads", "What was downloaded (running, paused and the last hundred finished): name, state, where it is. Same condition as `history`.", reads: true),
@@ -260,10 +261,14 @@ enum AgentTools {
             "color_scheme": ["type": "string", "enum": ["light", "dark", "system"], "description": "What the page is told about the person's light or dark setting."],
             "zoom": ["type": "number", "description": "The page's zoom, 1 for actual size (0.3 to 3)."],
         ]),
-        tool("selection", "The text the person has selected on the page (or in a field on it, except a password or card field).", reads: true),
+        tool("selection", "What the person has handed over from the page: an element they picked with Pick Element for the Agent in its right-click menu (until you have read it), else the text they have selected (or in a field on it, except a password or card field).", reads: true),
+        tool("pick", "Asks the person to point at an element of the page: the tab comes to the front, a banner says to click, and the call waits up to a minute. You get the element's selector, role, name, text and HTML, the styles that aren't the default's, the React or Vue components it belongs to (and their file when a development build says), and recent errors. Use it when the person says \"this\" or \"that thing\" and you can't tell which. Esc, or no click, picks nothing.", reads: true),
         tool("arrange", "Arranges a tab among the person's tabs. Off until the person turns on \"Arrange my tabs\" in Settings › Agents.", [
-            "action": ["type": "string", "enum": ["pin", "unpin", "duplicate", "sleep", "move", "new_window"], "description": "pin or unpin it; duplicate it (the copy's number is given); put it to sleep (not the one shown); move it to `position` among its kind (pinned or not); or take it to a window of its own."],
+            "action": ["type": "string", "enum": ["pin", "unpin", "duplicate", "sleep", "move", "new_window", "group", "ungroup", "split", "unsplit", "profile"], "description": "pin or unpin it; duplicate it (the copy's number is given); put it to sleep (not the one shown); move it to `position` among its kind (pinned or not); take it to a window of its own; group it into the group called `name` (made if there is none, with `color`); take it out of its group; split: show it side by side with tab `with` (both in the profile shown); unsplit: back to one page; profile: show the profile called `name` in the front window (a tab of it can then be shown)."],
             "position": ["type": "integer", "description": "For move: where it should end up, 1 for the first."],
+            "name": ["type": "string", "description": "For group: the group's name. For profile: the profile's."],
+            "color": ["type": "string", "description": "For group: Blue, Red, Green, Orange, Purple, Pink, Teal or Yellow; the next unused one if left out."],
+            "with": ["type": "integer", "description": "For split: the number of the other tab."],
         ], required: ["action"]),
         tool("clipboard", "The person's clipboard, as text. Off until the person turns it on in Settings › Agents.", [
             "action": ["type": "string", "enum": ["read", "write"], "description": "read (the default) or write."],
@@ -429,6 +434,7 @@ enum AgentTools {
             case "record": return try await call.record()
             case "resize": return try await call.resize()
             case "selection": return try await call.selection()
+            case "pick": return try await call.pick()
             case "arrange": return try await call.arrange()
             case "clipboard": return try await call.clipboard()
             case "extensions": return try await call.extensions()
@@ -561,7 +567,7 @@ enum AgentTools {
     static func tab(numbered number: Int) -> Tab? {
         guard let id = numbered[number] else { return nil }
         for window in Windows.all {
-            if let tab = window.shell.tabs.first(where: { $0.id == id }) { return tab.isPrivate ? nil : tab }
+            if let tab = window.shell.allTabs.first(where: { $0.id == id }) { return tab.isPrivate ? nil : tab }
         }
         return nil
     }
@@ -620,6 +626,8 @@ private struct Call {
         let restoring = tab.isUnloaded || tab.webView == nil
         access.hold(tab)
         guard let web = tab.webView else { throw Refusal(message: "That tab has no page.") }
+        // The agent reads the page's own words, not a translation of them (Translate.swift).
+        Translate.undo(tab)
         tab.agentIntents = tab.navigationIntents
         if settled {
             // A page made again begins to load by itself; the wait is for that load's end.
@@ -788,8 +796,9 @@ private struct Call {
 
     /// With `leaving`, a script that is still running when the tab begins another document is given up at that
     /// moment (PageLeft): WebKit never answers a script whose document went, so only the time-out would end it.
+    @inline(never)
     private func script(_ body: String, _ values: [String: Any] = [:], in web: WKWebView, world: WKContentWorld = AgentPage.world, timeout: Double = 15, leaving tab: Tab? = nil) async throws -> Any? {
-        let source = world === AgentPage.world ? AgentPage.helper + "\n" + body : body
+        let source = world === AgentPage.world ? AgentPage.helperSource() + "\n" + body : body
         let before = tab?.navigationIntents ?? 0, documents = tab?.commits ?? 0
         let result: Result<Any?, any Error>? = await within(timeout) { done in
             web.callAsyncJavaScript(source, arguments: values, in: nil, in: world) { result in
@@ -850,7 +859,8 @@ private struct Call {
         var listed = 0, all = 0
         // Everyone is numbered in the order there is, whatever is asked for.
         for (index, window) in Windows.all.enumerated() {
-            let tabs = window.shell.tabs.filter { !$0.isPrivate }
+            // Every profile's tabs: the agent may go to the ones not shown too.
+            let tabs = window.shell.allTabs.filter { !$0.isPrivate }
             var rows: [String] = []
             for tab in tabs {
                 let number = AgentTools.number(of: tab)
@@ -864,6 +874,9 @@ private struct Call {
                 var notes: [String] = []
                 if tab === window.shell.selected { notes.append("shown") }
                 if tab.pinned { notes.append("pinned") }
+                if Profiles.shared.list.count > 1 { notes.append("profile \"\(tab.profile.name)\"\(tab.profile === window.shell.profile ? "" : ", not shown")") }
+                if let group = tab.group { notes.append("group \"\(group.name)\"") }
+                if let split = window.shell.split, split.contains(tab) { notes.append("split view with [\(AgentTools.number(of: split.other(than: tab)))]") }
                 if tab.isUnloaded || tab.isFrozen || tab.webView == nil { notes.append("asleep") }
                 if tab.isLoading { notes.append("loading") }
                 if access.holds(tab) { notes.append("yours") }
@@ -874,7 +887,8 @@ private struct Call {
             if let onlyWindow, onlyWindow != index + 1 { continue }
             listed += rows.count
             if rows.isEmpty && filtered { continue }
-            lines.append("Window \(index + 1)\(window === front ? " (in front)" : ""):")
+            let profileNote = Profiles.shared.list.count > 1 ? ", showing profile \"\(window.shell.profile.name)\"" : ""
+            lines.append("Window \(index + 1)\(window === front ? " (in front)" : "")\(profileNote):")
             lines += rows.isEmpty ? ["  no tabs"] : rows
         }
         if Windows.all.isEmpty { lines.append("No window is open; `open` makes one.") }
@@ -902,9 +916,40 @@ private struct Call {
     func open() async throws -> Reply {
         let url = try address(string("url") ?? "")
         let window = Windows.front ?? Windows.open(empty: true)
-        try await access.permit(.read, site: AgentAccess.site(url)!, for: client, over: window.window)
+        // Which profile: the one named, else the agent's own when Settings says so, else the one shown.
+        let chosen: Profile
+        let asked = AgentAccess.profileMode == "shown" && string("profile")?.caseInsensitiveCompare(AgentAccess.ownProfileName) == .orderedSame ? nil : string("profile")
+        if let named = asked {
+            if let found = Profiles.shared.list.first(where: { $0.name.caseInsensitiveCompare(named) == .orderedSame }) {
+                chosen = found
+            } else if named.caseInsensitiveCompare(AgentAccess.ownProfileName) == .orderedSame {
+                // Its own profile, made the first time it asks for it.
+                chosen = Profiles.shared.add(name: AgentAccess.ownProfileName)
+            } else {
+                throw Refusal(message: "There is no profile called \"\(named)\"; the profiles are \(Profiles.shared.list.map { "\"\($0.name)\"" }.joined(separator: ", ")), and \"\(AgentAccess.ownProfileName)\" is made when asked for.")
+            }
+        } else if AgentAccess.ownProfile {
+            chosen = Profiles.shared.list.first { $0.name == AgentAccess.ownProfileName } ?? Profiles.shared.add(name: AgentAccess.ownProfileName)
+        } else {
+            chosen = window.shell.profile
+        }
+        try await access.permit(.read, site: AgentAccess.site(AgentAccess.site(url)!, in: chosen), for: client, over: window.window)
         let tab = Tab(privately: false, opening: url)
-        window.insert(tab, after: nil, select: flag("front"))
+        if chosen !== window.shell.profile {
+            if flag("front") {
+                window.switchProfile(to: chosen)
+            } else {
+                // Behind the profile shown: parked with that profile's tabs, loading there.
+                tab.host = window
+                tab.profile = chosen
+                let parked = window.shell.parked[chosen.id] ?? ParkedTabs(tabs: [], selected: nil)
+                parked.tabs.append(tab)
+                window.shell.parked[chosen.id] = parked
+            }
+        }
+        if !window.shell.parked.values.contains(where: { $0.tabs.contains(tab) }) {
+            window.insert(tab, after: nil, select: flag("front"))
+        }
         access.hold(tab)
         tab.load(url)
         var listing = "", languageNote = ""
@@ -923,7 +968,7 @@ private struct Call {
         if flag("yours") || arguments["tabs"] != nil {
             var chosen: [Tab] = []
             if flag("yours") {
-                for window in Windows.all { for tab in window.shell.tabs where !tab.isPrivate && access.holds(tab) { chosen.append(tab) } }
+                for window in Windows.all { for tab in window.shell.allTabs where !tab.isPrivate && access.holds(tab) { chosen.append(tab) } }
             }
             for number in (arguments["tabs"] as? [Any] ?? []).compactMap({ ($0 as? NSNumber)?.intValue ?? ($0 as? String).flatMap(Int.init) }) {
                 guard let tab = AgentTools.tab(numbered: number) else { throw Refusal(message: "There is no tab \(number) now; `tabs` lists the ones there are.") }
@@ -951,6 +996,8 @@ private struct Call {
     func select() async throws -> Reply {
         let tab = try target()
         guard let window = tab.host as? BrowserWindow else { throw Refusal(message: "That tab is in no window.") }
+        // A tab of another profile brings its profile with it.
+        if !window.shell.tabs.contains(tab) { window.switchProfile(to: tab.profile) }
         window.select(tab)
         return .text("Showing [\(AgentTools.number(of: tab))] \(tab.name).")
     }
@@ -1284,7 +1331,7 @@ private struct Call {
         }
         for frame in tab.frames {
             let said: Any?? = await within(3) { done in
-                web.callAsyncJavaScript(AgentPage.helper + "\nreturn __agent.focus();", arguments: [:], in: frame, in: AgentPage.world) { done(try? $0.get()) }
+                web.callAsyncJavaScript(AgentPage.helperSource() + "\nreturn __agent.focus();", arguments: [:], in: frame, in: AgentPage.world) { done(try? $0.get()) }
             }
             if let inner = said as? [String: Any], inner["secret"] as? Bool == true { throw Refusal(message: secretRefusal) }
         }
@@ -1838,8 +1885,30 @@ private struct Call {
         }
     }
 
+    /// Asks the person to click an element (AgentPick.swift) and tells what it is.
+    func pick() async throws -> Reply {
+        let (tab, web) = try await page(.read)
+        // They have to see the page to point at it.
+        if let window = tab.host as? BrowserWindow {
+            if !window.shell.tabs.contains(tab) { window.switchProfile(to: tab.profile) }
+            window.select(tab)
+            window.window?.makeKeyAndOrderFront(nil)
+        }
+        let found = try await script(AgentPick.source, [:], in: web, timeout: 70, leaving: tab) as? [String: Any]
+        if found?["secret"] as? Bool == true { throw Refusal(message: secretRefusal) }
+        guard let found, found["cancelled"] == nil else {
+            return .text("The person didn't pick anything (they pressed Esc, or a minute went by). Ask them again, or describe what to look for.")
+        }
+        return .text(AgentPick.describe(found, in: tab))
+    }
+
     func selection() async throws -> Reply {
-        let (_, web) = try await page(.read)
+        let (selectedTab, web) = try await page(.read)
+        // An element the person picked from the menu comes first.
+        if let picked = selectedTab.picked {
+            selectedTab.picked = nil
+            return .text(picked)
+        }
         let said = try await script("return __agent.selection();", in: web) as? [String: Any]
         if said?["secret"] as? Bool == true { throw Refusal(message: secretRefusal) }
         var text = (said?["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1851,10 +1920,49 @@ private struct Call {
 
     func arrange() async throws -> Reply {
         try AgentAccess.need(.tabs)
+        if string("action") == "unsplit" {
+            guard let window = Windows.front, window.shell.split != nil else { throw Refusal(message: "No split view is up.") }
+            window.endSplit()
+            return .text("Back to one page.")
+        }
+        if string("action") == "profile" {
+            guard let window = Windows.front else { throw Refusal(message: "No window is open.") }
+            let wanted = string("name") ?? ""
+            guard let profile = Profiles.shared.list.first(where: { $0.name.caseInsensitiveCompare(wanted) == .orderedSame }) else {
+                throw Refusal(message: "There is no profile called \"\(wanted)\"; the profiles are \(Profiles.shared.list.map { "\"\($0.name)\"" }.joined(separator: ", ")).")
+            }
+            window.switchProfile(to: profile)
+            return .text("The front window now shows the profile \"\(profile.name)\" (\(window.shell.tabs.count) tabs); its tabs are numbered in `tabs`.")
+        }
         let tab = try target()
         guard let window = tab.host as? BrowserWindow else { throw Refusal(message: "That tab is in no window.") }
         let name = tab.name
+        let shown = window.shell.tabs.contains(tab)
+        if !shown, ["pin", "unpin", "duplicate", "sleep", "move", "new_window", "group", "ungroup", "split"].contains(string("action") ?? "") {
+            throw Refusal(message: "That tab is in the profile \"\(tab.profile.name)\", which is not shown; `arrange` with action profile and its name shows it first.")
+        }
         switch string("action") ?? "" {
+        case "group":
+            let wanted = (string("name") ?? "").trimmingCharacters(in: .whitespaces)
+            guard !wanted.isEmpty else { throw Refusal(message: "`group` wants a `name`.") }
+            guard !tab.pinned else { throw Refusal(message: "A pinned tab can't be in a group; unpin it first.") }
+            let named = window.shell.groups.first { $0.name.caseInsensitiveCompare(wanted) == .orderedSame }
+            let colour = GroupColors.names.firstIndex { $0.caseInsensitiveCompare(string("color") ?? "") == .orderedSame }
+            let group = named ?? window.makeGroup(named: wanted, color: colour)
+            if let colour, named != nil { window.recolor(group, colour) }
+            window.add(tab, to: group)
+            return .text("Put \(name) in the group \"\(group.name)\".")
+        case "ungroup":
+            guard tab.group != nil else { throw Refusal(message: "That tab is in no group.") }
+            window.removeFromGroup(tab)
+            return .text("Took \(name) out of its group.")
+        case "split":
+            guard let other = integer("with").flatMap({ AgentTools.tab(numbered: $0) }), window.shell.tabs.contains(other), other !== tab else {
+                throw Refusal(message: "`split` wants `with`: the number of another tab in the profile shown.")
+            }
+            window.select(tab)
+            window.splitWith(other)
+            return .text("Showing \(name) and \(other.name) side by side; \(name) has the keyboard.")
         case "pin":
             window.setPinned(tab, true)
             return .text("Pinned \(name).")
@@ -1881,7 +1989,9 @@ private struct Call {
         case "new_window":
             guard window.shell.tabs.count > 1 else { throw Refusal(message: "It is the only tab in its window.") }
             window.detach(tab)
-            Windows.open(empty: true).insert(tab, after: nil, select: true)
+            let other = Windows.open(empty: true)
+            other.shell.profile = tab.profile
+            other.insert(tab, after: nil, select: true)
             return .text("Took \(name) to a window of its own.")
         default:
             throw Refusal(message: "`action` is pin, unpin, duplicate, sleep, move or new_window.")

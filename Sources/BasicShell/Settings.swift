@@ -10,7 +10,7 @@ enum SettingsWindow {
         if let tab { UserDefaults.standard.set(tab, forKey: "settings.tab") }
         if window == nil {
             let made = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 580, height: 520),
+                contentRect: NSRect(x: 0, y: 0, width: 680, height: 520),
                 styleMask: [.titled, .closable, .fullSizeContentView],
                 backing: .buffered, defer: false
             )
@@ -31,6 +31,7 @@ struct SettingsView: View {
     var body: some View {
         TabView(selection: $tab) {
             GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }.tag("general")
+            ImportSettings().tabItem { Label("Import", systemImage: "square.and.arrow.down") }.tag("import")
             TabSettings().tabItem { Label("Tabs", systemImage: "square.on.square") }.tag("tabs")
             PrivacySettings().tabItem { Label("Privacy", systemImage: "hand.raised") }.tag("privacy")
             ExtensionSettings().tabItem { Label("Extensions", systemImage: "puzzlepiece.extension") }.tag("extensions")
@@ -39,7 +40,7 @@ struct SettingsView: View {
             #endif
         }
         .padding(.top, 28)
-        .frame(width: 580, height: 520)
+        .frame(width: 680, height: 520)
     }
 }
 
@@ -49,6 +50,7 @@ private struct GeneralSettings: View {
     @AppStorage("debug.enabled") private var debug = false
     @AppStorage("fullscreen.notch") private var notch = true
     @AppStorage("layout.sidebarOnly") private var sidebarOnly = false
+    @AppStorage("translate.engine") private var translateEngine = TranslateEngine.online.rawValue
     @AppStorage(Develop.developKey) private var develop = false
     @AppStorage(Develop.debugKey) private var debugMenu = false
 
@@ -59,6 +61,10 @@ private struct GeneralSettings: View {
                 Text("Sidebar only").tag(true)
             }
             .onChange(of: sidebarOnly) { _, only in Windows.all.forEach { $0.setSidebarOnly(only) } }
+            Picker("Translate pages with", selection: $translateEngine) {
+                Text("Google (fast, online)").tag(TranslateEngine.online.rawValue)
+                Text("This Mac (slow, nothing sent)").tag(TranslateEngine.device.rawValue)
+            }
             Picker("Search with", selection: $engine) {
                 ForEach(Engine.allCases, id: \.rawValue) { Text($0.title).tag($0.rawValue) }
             }
@@ -112,13 +118,19 @@ private struct TabSettings: View {
     @AppStorage("sleep.unloadHours") private var unload = 6.0
     @AppStorage("archive.hours") private var archive = 12.0
     @AppStorage("sleep.freeze") private var freeze = true
+    @AppStorage("sleep.freezeAfter") private var freezeAfter = 0.0
 
+    private let freezeChoices: [(String, Double)] = [("Right away", 0), ("30 seconds", 30), ("1 minute", 60), ("5 minutes", 300), ("15 minutes", 900), ("1 hour", 3600)]
     private let unloadChoices: [(String, Double)] = [("1 hour", 1), ("2 hours", 2), ("6 hours", 6), ("12 hours", 12), ("1 day", 24), ("Never", 0)]
     private let archiveChoices: [(String, Double)] = [("6 hours", 6), ("12 hours", 12), ("1 day", 24), ("3 days", 72), ("1 week", 168), ("Never", 0)]
 
     var body: some View {
         Form {
             Section {
+                Picker("Put tabs to sleep after", selection: $freezeAfter) {
+                    ForEach(freezeChoices, id: \.1) { Text($0.0).tag($0.1) }
+                }
+                .disabled(!freeze)
                 Picker("Unload tabs unseen for", selection: $unload) {
                     ForEach(unloadChoices, id: \.1) { Text($0.0).tag($0.1) }
                 }
@@ -126,7 +138,7 @@ private struct TabSettings: View {
                     ForEach(archiveChoices, id: \.1) { Text($0.0).tag($0.1) }
                 }
             } footer: {
-                Text("Unloaded tabs give their memory back and reload where they were; archived tabs leave the sidebar for Tab › Show Archived Tabs. Pinned tabs are never archived, and nothing holding unsent typing is unloaded.")
+                Text("A tab you leave is put to sleep (frozen) after the first wait: right away is the lightest on the Mac, a longer wait keeps a page you flip back to running as you left it. Unloaded tabs give their memory back and reload where they were; archived tabs leave the sidebar for Tab › Show Archived Tabs. Pinned tabs are never archived, and nothing holding unsent typing is unloaded.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
@@ -143,6 +155,13 @@ private struct TabSettings: View {
             Section("Sites muted") {
                 SiteList(sites: MutedSites.shared.sites.sorted(), empty: "None. Right-click a tab, or use the Tab menu, to mute a site's sound for good.") {
                     MutedSites.shared.remove(site: $0)
+                }
+            }
+            Section("Sites with developer settings") {
+                SiteList(sites: SiteDevelop.shared.sites.keys.sorted(), empty: "None. Develop › Keep These Settings for This Site keeps a site's user agent, colour scheme and switches.", detail: {
+                    SiteDevelop.shared.sites[$0]?.summary
+                }) {
+                    SiteDevelop.shared.save(nil, for: $0)
                 }
             }
             Section("Sites with their own zoom") {

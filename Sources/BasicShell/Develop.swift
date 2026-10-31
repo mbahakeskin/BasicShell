@@ -314,6 +314,8 @@ extension Menus {
         menu.addItem(item("Disable Styles", #selector(BrowserWindow.toggleStyles(_:))))
         menu.addItem(item("Disable Cross-Origin Restrictions", #selector(BrowserWindow.toggleCrossOrigin(_:))))
         menu.addItem(item("Disable Local File Restrictions", #selector(BrowserWindow.toggleLocalFiles(_:))))
+        menu.addItem(.separator())
+        menu.addItem(item("Keep These Settings for This Site", #selector(BrowserWindow.toggleKeepDevelop(_:))))
         menu.addItem(item("Empty Caches", #selector(BrowserWindow.emptyCaches(_:)), "e", option))
         menu.addItem(.separator())
         menu.addItem(submenu("Experimental Features", Develop.Filler.experimental))
@@ -635,12 +637,14 @@ extension BrowserWindow {
     @objc func toggleJavaScript(_ sender: Any?) {
         guard let tab = shell.selected else { return }
         tab.javaScriptOff.toggle()
+        SiteDevelop.shared.changed(tab)
         tab.webView?.reload()
     }
 
     @objc func toggleImages(_ sender: Any?) {
         guard let tab = shell.selected, let web = tab.webView else { return }
         tab.imagesOff.toggle()
+        SiteDevelop.shared.changed(tab)
         Develop.setImages(!tab.imagesOff, web)
         web.reload()
     }
@@ -648,6 +652,7 @@ extension BrowserWindow {
     @objc func toggleStyles(_ sender: Any?) {
         guard let tab = shell.selected, let web = tab.webView else { return }
         tab.stylesOff.toggle()
+        SiteDevelop.shared.changed(tab)
         Develop.setStyles(!tab.stylesOff, web)
         web.reload()
     }
@@ -655,6 +660,7 @@ extension BrowserWindow {
     @objc func toggleCrossOrigin(_ sender: Any?) {
         guard let tab = shell.selected, let web = tab.webView else { return }
         tab.crossOriginOff.toggle()
+        SiteDevelop.shared.changed(tab)
         Develop.setCrossOriginRestrictions(!tab.crossOriginOff, web)
         web.reload()
     }
@@ -662,6 +668,7 @@ extension BrowserWindow {
     @objc func toggleLocalFiles(_ sender: Any?) {
         guard let tab = shell.selected, let web = tab.webView else { return }
         tab.localFilesOff.toggle()
+        SiteDevelop.shared.changed(tab)
         Develop.setLocalFileRestrictions(!tab.localFilesOff, web)
         // A file is loaded with a right to read only the folder it sits in
         // (Tab.load); with the restrictions off, anything on this Mac.
@@ -743,6 +750,10 @@ extension BrowserWindow {
         case #selector(toggleLocalFiles(_:)):
             item.state = tab?.localFilesOff == true ? .on : .off
             return loaded
+        case #selector(toggleKeepDevelop(_:)):
+            let host = tab?.url?.host()
+            item.state = host != nil && tab?.developHost == host ? .on : .off
+            return loaded && tab?.isPrivate == false && host != nil
         default: return nil
         }
     }
