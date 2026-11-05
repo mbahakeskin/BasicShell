@@ -1,0 +1,408 @@
+import SwiftUI
+import WebKit
+
+/// Back, forward, the address with reload in it, and the traffic lights at its left
+/// end, on glass along the top; in Backlight's own full screen, on either
+/// side of the notch.
+struct TopBarView: View {
+    let shell: Shell
+    let window: BrowserWindow
+    private var _text = State(initialValue: "")
+    private var text: String {
+        get { _text.wrappedValue }
+        nonmutating set { _text.wrappedValue = newValue }
+    }
+    @FocusState private var focused: Bool
+
+    private var tab: Tab? { shell.selected }
+
+    var body: some View {
+        Group {
+            if shell.sidebarOnly {
+                // Its buttons are in the sidebar; drawn here as well, the
+                // extensions' would say they were here (see present(_:for:)).
+                Color.clear
+            } else if let notch = shell.notch {
+                // One bar across the strip the menu bar would have, the
+                // notch in its middle: the buttons to its left, the address
+                // to its right.
+                HStack(spacing: 0) {
+                    HStack(spacing: 2) {
+                        FullScreenLights(window: window).padding(.horizontal, 8)
+                        navigation
+                        Spacer(minLength: 8)
+                        SiteTools(shell: shell, window: window)
+                    }
+                    .frame(width: notch.leftWidth)
+                    Spacer(minLength: 0)
+                    address.frame(width: notch.rightWidth)
+                }
+                .padding(.horizontal, 4)
+                .frame(height: notch.height)
+                .glassEffect(.regular, in: .rect(cornerRadius: min(Metrics.radius, notch.height / 2)))
+                .padding(.horizontal, Metrics.inset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                HStack(spacing: 2) {
+                    // Where the traffic lights sit (see Lights.swift); in full
+                    // screen the bar draws its own.
+                    if shell.fullScreen {
+                        FullScreenLights(window: window).padding(.horizontal, 8)
+                    } else {
+                        Color.clear.frame(width: 68, height: 1)
+                    }
+                    IconButton(symbol: "chevron.left", enabled: tab?.canGoBack ?? false) { window.goBack(nil) }
+                    IconButton(symbol: "chevron.right", enabled: tab?.canGoForward ?? false) { window.goForward(nil) }
+                    Spacer(minLength: 12)
+                    address.frame(maxWidth: 640)
+                    Spacer(minLength: 12)
+                    SiteTools(shell: shell, window: window)
+                }
+                .padding(.horizontal, 6)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .gesture(WindowDragGesture())
+                        .onTapGesture(count: 2) { window.window?.performZoom(nil) }
+                }
+                .glassEffect(.regular, in: .rect(cornerRadius: Metrics.radius))
+            }
+        }
+        .coordinateSpace(.named("bar"))
+        .onChange(of: shell.editingAddress) { _, editing in
+            if editing { text = tab?.url?.absoluteString ?? "" }
+            focused = editing
+        }
+        .onChange(of: focused) { _, now in
+            if !now { shell.editingAddress = false }
+        }
+    }
+
+    @ViewBuilder private var navigation: some View {
+        IconButton(symbol: "chevron.left", enabled: tab?.canGoBack ?? false) { window.goBack(nil) }
+        IconButton(symbol: "chevron.right", enabled: tab?.canGoForward ?? false) { window.goForward(nil) }
+    }
+
+    private var reload: some View {
+        IconButton(symbol: tab?.isLoading == true ? "xmark" : "arrow.clockwise", enabled: tab?.url != nil) { window.reload(nil) }
+            .help(tab?.isLoading == true ? "Stop Loading" : "Reload This Page (⌘R)")
+    }
+
+    @ViewBuilder private var address: some View {
+        if shell.editingAddress {
+            TextField("Search or enter address", text: _text.projectedValue)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .focused($focused)
+                .onSubmit { window.go(text) }
+                .onExitCommand { shell.editingAddress = false }
+                .padding(.horizontal, 12)
+                .frame(height: 28)
+                .background(Capsule().fill(Color.primary.opacity(0.08)))
+        } else {
+            // Reload at the right end, inside; as much room at the left, so
+            // the address stays in the middle.
+            HStack(spacing: 0) {
+                SiteInfoButton(shell: shell, window: window)
+                Button { shell.editingAddress = true } label: {
+                    HStack(spacing: 6) {
+                        if let url = tab?.url {
+                            Text(Address.pretty(url)).lineLimit(1).truncationMode(.middle)
+                        } else {
+                            Text("Search or enter address").foregroundStyle(.secondary)
+                        }
+                    }
+                    .font(.system(size: 13))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 28)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                TranslateButton(tab: tab, window: window)
+                reload
+            }
+            .background(Capsule().fill(Color.primary.opacity(0.05)))
+        }
+    }
+}
+
+/// The site's own, in the top bar or the sidebar: kept awake, its
+/// extensions, downloads, the bookmark.
+struct SiteTools: View {
+    let shell: Shell
+    let window: BrowserWindow
+    /// Which side of its button the downloads open on.
+    var downloadsEdge: Edge = .bottom
+    /// The extensions' buttons here; in the sidebar they are left to the
+    /// Extensions menu (ExtensionsMenu).
+    var extensions = true
+
+    private var tab: Tab? { shell.selected }
+
+    var body: some View {
+        if let tab, tab.isPlayingAudio || tab.muteSaid == true {
+            IconButton(symbol: tab.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill") { tab.toggleMute() }
+                .foregroundStyle(tab.isMuted ? Color.secondary : Color.primary)
+                .help(tab.isMuted ? "Unmute Tab" : "Mute Tab")
+        }
+        if let tab, tab.hasArticle || tab.isReading {
+            IconButton(symbol: "doc.plaintext") { window.toggleReader(nil) }
+                .foregroundStyle(tab.isReading ? Color.accentColor : Color.primary)
+                .help(tab.isReading ? "Hide Reader (⌥⌘R)" : "Show Reader (⌥⌘R)")
+        }
+        if let tab, Dusk.shared.offered(tab.url) {
+            DuskButton(tab: tab, window: window)
+        }
+        if tab?.url?.host() != nil {
+            let awake = Awake.shared.contains(tab?.url)
+            IconButton(symbol: awake ? "sun.max.fill" : "moon.zzz") { window.toggleAwake(nil) }
+                .foregroundStyle(awake ? Color.orange : Color.primary)
+                .help(awake ? "Let This Site Sleep" : "Keep This Site Awake")
+        }
+        if extensions {
+            ForEach(Extensions.shared.contexts, id: \.uniqueIdentifier) { context in
+                ExtensionButton(context: context, tab: tab, shell: shell)
+            }
+        }
+        if !Downloads.shared.items.isEmpty || shell.downloadsOpen {
+            DownloadsButton(shell: shell, window: window, edge: downloadsEdge)
+        }
+        if tab?.url != nil {
+            let kept = Bookmarks.shared.contains(tab?.url)
+            IconButton(symbol: kept ? "star.fill" : "star") { window.bookmarkPage(nil) }
+                .foregroundStyle(kept ? Color.yellow : Color.primary)
+                .help(kept ? "Remove Bookmark (⌘D)" : "Bookmark This Page (⌘D)")
+        }
+    }
+}
+
+/// Dark pages, from where the site's tools are: this site darkened or left
+/// as it is, and every site's pages as they are made, until brought back.
+struct DuskButton: View {
+    let tab: Tab
+    let window: BrowserWindow
+
+    var body: some View {
+        let paused = Dusk.shared.paused
+        let site = tab.url?.host() ?? "this site"
+        Menu {
+            if !paused {
+                Button(tab.dusked ? "Leave \(site) as it is  ⇧⌘D" : "Darken \(site)  ⇧⌘D") { window.toggleDusk(nil) }
+            }
+            Button(paused ? "Darken light pages again  ⌥⇧⌘D" : "Pause dark pages everywhere  ⌥⇧⌘D") { window.pauseDusk(nil) }
+        } label: {
+            Image(systemName: "circle.lefthalf.filled")
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .foregroundStyle(paused ? Color.secondary : tab.dusked ? Color.accentColor : Color.primary)
+        .help(paused ? "Dark pages are paused" : tab.dusked ? "This page is darkened" : "Dark pages")
+    }
+}
+
+/// The site in the sidebar: its name only, reload at the right end; a click
+/// brings the field up over the page with the whole address.
+struct SiteField: View {
+    let shell: Shell
+    let window: BrowserWindow
+
+    private var tab: Tab? { shell.selected }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            SiteInfoButton(shell: shell, window: window, edge: .trailing)
+            Button { window.openLocation(nil) } label: {
+                HStack(spacing: 6) {
+                    if let url = tab?.url {
+                        Text(Address.site(url)).lineLimit(1).truncationMode(.middle)
+                    } else {
+                        Text("Search or enter address").foregroundStyle(.secondary)
+                    }
+                }
+                .font(.system(size: 13))
+                .frame(maxWidth: .infinity)
+                .frame(height: 28)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            TranslateButton(tab: tab, window: window)
+            IconButton(symbol: tab?.isLoading == true ? "xmark" : "arrow.clockwise", enabled: tab?.url != nil) { window.reload(nil) }
+                .help(tab?.isLoading == true ? "Stop Loading" : "Reload This Page (⌘R)")
+        }
+        .background(Capsule().fill(Color.primary.opacity(0.06)))
+    }
+}
+
+/// The traffic lights in full screen, where macOS keeps the real ones in a
+/// title bar it does not always bring down. Close, the one that can't be used
+/// in full screen, and leave full screen.
+struct FullScreenLights: View {
+    let window: BrowserWindow
+    private var _hovering = State(initialValue: false)
+    private var hovering: Bool {
+        get { _hovering.wrappedValue }
+        nonmutating set { _hovering.wrappedValue = newValue }
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            light(Color(red: 1, green: 0.37, blue: 0.34), glyph: "xmark") { window.window?.performClose(nil) }
+            light(Color.gray.opacity(0.45), glyph: nil, action: nil)
+            light(Color(red: 0.16, green: 0.78, blue: 0.25), glyph: "arrow.down.forward.and.arrow.up.backward") { window.window?.toggleFullScreen(nil) }
+        }
+        .onHover { hovering = $0 }
+    }
+
+    private func light(_ color: Color, glyph: String?, action: (() -> Void)?) -> some View {
+        Button { action?() } label: {
+            Circle()
+                .fill(color)
+                .frame(width: 12, height: 12)
+                .overlay {
+                    if hovering, let glyph {
+                        Image(systemName: glyph)
+                            .font(.system(size: 6.5, weight: .heavy))
+                            .foregroundStyle(.black.opacity(0.55))
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .disabled(action == nil)
+    }
+}
+
+/// The downloads, under a button that fills a ring as they come in (grey with
+/// a pause mark when only paused ones are left); it shows once something has
+/// been downloaded, as in Safari.
+struct DownloadsButton: View {
+    let shell: Shell
+    let window: BrowserWindow
+    var edge: Edge = .bottom
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let progress = Downloads.shared.aggregate
+        let fraction = progress?.fraction ?? 0
+        let paused = progress.map { !$0.running } ?? false
+        let running = Downloads.shared.running
+        let open = Binding(get: { shell.downloadsOpen }, set: { showing in
+            shell.downloadsOpen = showing
+            window.layout(animated: true)
+        })
+        Button { open.wrappedValue.toggle() } label: {
+            ZStack {
+                if progress != nil {
+                    Circle().stroke(Color.primary.opacity(0.15), lineWidth: 2)
+                    Circle().trim(from: 0, to: max(0.03, fraction))
+                        .stroke(paused ? Color.secondary : Color.accentColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .animation(reduceMotion ? nil : .linear(duration: 0.2), value: fraction)
+                }
+                Image(systemName: progress == nil ? "arrow.down.circle" : paused ? "pause.fill" : "arrow.down")
+                    .font(.system(size: progress == nil ? 13 : paused ? 8 : 9, weight: progress == nil ? .medium : .bold))
+                    .foregroundStyle(paused ? Color.secondary : Color.primary)
+            }
+            .frame(width: 18, height: 18)
+            .frame(width: 28, height: 28)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .help(progress == nil ? "Downloads" : paused ? "Downloads, paused at \(Int(fraction * 100)) percent" : "Downloads, \(running) running, \(Int(fraction * 100)) percent")
+        .accessibilityLabel("Downloads")
+        .accessibilityValue(progress == nil ? "" : paused ? "Paused, \(Int(fraction * 100)) percent" : "\(running) running, \(Int(fraction * 100)) percent")
+        .popover(isPresented: open, arrowEdge: edge) { DownloadsPopover() }
+    }
+}
+
+/// The downloads under the top bar's button, newest first.
+struct DownloadsPopover: View {
+    var body: some View {
+        let items = Downloads.shared.items
+        VStack(spacing: 0) {
+            if items.isEmpty {
+                Text("No downloads").foregroundStyle(.secondary).frame(height: 60)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) { ForEach(items) { DownloadRow(item: $0) } }
+                        .padding(.vertical, 4)
+                }
+                .frame(height: min(items.reduce(CGFloat(8)) { $0 + ($1.isActive ? 60 : 50) }, 320))
+            }
+            Divider()
+            HStack {
+                Button("Clear") { Downloads.shared.clearFinished() }
+                    .disabled(!items.contains { !$0.isActive })
+                Spacer()
+                Button("Show in Finder") {
+                    NSWorkspace.shared.open(FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0])
+                }
+            }
+            .buttonStyle(.borderless)
+            .font(.system(size: 12))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+        .frame(width: 360)
+    }
+}
+
+/// An extension's button: its icon, its badge, and its popup when pressed.
+struct ExtensionButton: View {
+    let context: WKWebExtensionContext
+    let tab: Tab?
+    let shell: Shell
+
+    var body: some View {
+        // Read so the button redraws when the extension changes it.
+        let _ = Extensions.shared.actions
+        let target = tab?.isPrivate == false ? tab : nil
+        let action = context.action(for: target)
+        let icon = action?.icon(for: CGSize(width: 16, height: 16)) ?? context.webExtension.icon(for: CGSize(width: 16, height: 16))
+        Button {
+            // Nothing here may read the action's popup web view or popover:
+            // reading either makes WebKit load the popup page, and a popup
+            // already loaded is never shown when asked for.
+            let name = context.webExtension.displayName ?? "extension"
+            Debug.log("extension", "\(name) button pressed; popup: \(action?.presentsPopup == true ? "yes" : "no"), enabled: \(action?.isEnabled ?? false)")
+            let asked = Extensions.shared.popupsAsked
+            context.performAction(for: target)
+            if action?.presentsPopup == true {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    if Extensions.shared.popupsAsked == asked { Debug.log("extension", "\(name): WebKit never asked for the popup") }
+                }
+            }
+        } label: {
+            Group {
+                if let icon { Image(nsImage: icon).resizable().frame(width: 16, height: 16) }
+                else { Image(systemName: "puzzlepiece.extension") }
+            }
+            .frame(width: 28, height: 28)
+            .overlay(alignment: .topTrailing) {
+                if let badge = action?.badgeText, !badge.isEmpty {
+                    Text(badge)
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 3)
+                        .background(Capsule().fill(Color.red))
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .help(action?.label ?? context.webExtension.displayName ?? "Extension")
+        .background {
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear { shell.extensionButtons[context.uniqueIdentifier] = geometry.frame(in: .named("bar")) }
+                    .onChange(of: geometry.frame(in: .named("bar"))) { _, frame in
+                        shell.extensionButtons[context.uniqueIdentifier] = frame
+                    }
+            }
+        }
+    }
+}

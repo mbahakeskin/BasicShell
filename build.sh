@@ -1,9 +1,9 @@
 #!/bin/bash
-# Wraps the SwiftPM binary in a double-clickable, ad-hoc signed BasicShell.app.
+# Wraps the SwiftPM binary in a double-clickable, ad-hoc signed Backlight.app.
 #
-#   ./build.sh            release build into build/BasicShell.app
+#   ./build.sh            release build into build/Backlight.app
 #   ./build.sh debug      same, from a debug build
-#   ./build.sh agent      with the agent tools (Sources/BasicShell/Agent*.swift),
+#   ./build.sh agent      with the agent tools (Sources/Backlight/Agent*.swift),
 #                         which are in the build only when asked for; goes
 #                         with debug too
 set -euo pipefail
@@ -22,10 +22,12 @@ for arg in "$@"; do
     *) echo "usage: ./build.sh [debug] [agent]" >&2; exit 2 ;;
   esac
 done
-NAME="BasicShell"
+NAME="Backlight"
 APP="build/$NAME.app"
-ID="com.mbahakeskin.basicshell"
-VERSION="0.8.2"
+# The bundle identifier BasicShell had was com.mbahakeskin.basicshell; what it kept under that is brought
+# over at the first launch of this one (Sources/Backlight/Legacy.swift).
+ID="com.mbahakeskin.backlight"
+VERSION="0.9.0"
 BUILD="$(date +%Y%m%d%H%M)"
 
 swift build -c "$CONFIG" --scratch-path "$SCRATCH" ${FLAGS[@]+"${FLAGS[@]}"}
@@ -36,6 +38,11 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BINARY" "$APP/Contents/MacOS/$NAME"
 if [ "$CONFIG" = "release" ]; then
   strip -x "$APP/Contents/MacOS/$NAME"
+fi
+
+# The icon: made from icon/Backlight.png by icon/make-icns.sh and kept as icon/Backlight.icns.
+if [ -f "icon/$NAME.icns" ]; then
+  cp "icon/$NAME.icns" "$APP/Contents/Resources/$NAME.icns"
 fi
 
 # Pages are told one language in Accept-Language: the first of the Mac's
@@ -55,6 +62,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>$NAME</string>
   <key>CFBundleExecutable</key><string>$NAME</string>
   <key>CFBundleIdentifier</key><string>$ID</string>
+  <key>CFBundleIconFile</key><string>$NAME</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$BUILD</string>
@@ -90,11 +98,14 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Signed with "BasicShell Local Signing" when that identity is in the
-# keychain: a self-signed certificate that stays the same from build to build,
-# so macOS keeps what it was told about the app (location, camera, microphone)
-# instead of asking again after every build. Otherwise ad-hoc, which runs just
-# as well but is a new app to macOS each time.
-IDENTITY="$( (security find-certificate -c "BasicShell Local Signing" -Z 2>/dev/null || true) | awk '/SHA-1/ {print $3}')"
+# Signed with "Backlight Local Signing" when that identity is in the keychain (or "BasicShell Local
+# Signing", the one the app had under its old name): a self-signed certificate that stays the same from
+# build to build, so macOS keeps what it was told about the app (location, camera, microphone) instead of
+# asking again after every build. Otherwise ad-hoc, which runs just as well but is a new app to macOS each time.
+IDENTITY=""
+for certificate in "Backlight Local Signing" "BasicShell Local Signing"; do
+  IDENTITY="$( (security find-certificate -c "$certificate" -Z 2>/dev/null || true) | awk '/SHA-1/ {print $3; exit}')"
+  [ -n "$IDENTITY" ] && break
+done
 codesign --force --options runtime --entitlements "$NAME.entitlements" --sign "${IDENTITY:--}" "$APP"
 echo "Built $APP$WITH"

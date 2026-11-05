@@ -1,4 +1,4 @@
-# BasicShell
+# Backlight
 
 A small, quiet web browser for macOS 27, written in Swift on the WebKit that
 ships with the Mac. No dependencies, no telemetry, nothing sent anywhere but
@@ -28,7 +28,7 @@ newer version, which Settings turns off).
   kept only in memory, never on disk, and goes when the app quits; they are
   never saved in the session.
 - Several windows, each with its own tabs.
-- BasicShell menu › Keyboard Shortcuts…: every key the menus answer to, read off
+- Backlight menu › Keyboard Shortcuts…: every key the menus answer to, read off
   the menus as they are, with a search field, and what the pointer does with a
   key held.
 - Tab groups: right click a tab › Add to Group (or drop it between a group's
@@ -64,7 +64,7 @@ newer version, which Settings turns off).
   Chrome and its kin, a password file (CSV) to hand to a password manager.
 - Ads and trackers, YouTube's ads included, are blocked by uBlock Origin
   Lite, the Safari extension that comes with its app from the App Store.
-  BasicShell adds it when that app is on the Mac, running it from a copy of
+  Backlight adds it when that app is on the Mac, running it from a copy of
   the app's files that keeps WebKit from compiling its rules anew at every
   launch; the first launch without it asks whether to get it, and with a
   yes it is added as soon as it is there (Settings › Privacy turns that off). Its button in the
@@ -105,7 +105,7 @@ newer version, which Settings turns off).
 - Find in the page (`⌘F`): a small field at the page's top right, every
   match marked and counted, `⌘G` and `⇧⌘G` for the next and the one before.
 - Updates (the build with the agent tools, which is what releases are):
-  BasicShell menu › Check for Updates…, and once a day by itself unless
+  Backlight menu › Check for Updates…, and once a day by itself unless
   Settings › General turns that off, it asks github.com for the latest release
   and, if its version number is higher than the running one's (0.6.0 over 0.5.3;
   the time anything was built plays no part), offers it with its notes. Update
@@ -140,7 +140,7 @@ newer version, which Settings turns off).
   a site that already has a dark look is left alone, which is measured, not
   read off what the site says. Some pages break (a hero over a picture, say):
   the button in the site's tools, or `⇧⌘D`, takes it off for that site, `⌥⇧⌘D`
-  pauses it for all of them until pressed again or BasicShell quits. Settings
+  pauses it for all of them until pressed again or Backlight quits. Settings
   lists the sites set by hand. Needs the private WebKit call that takes one
   world's scripts out of a page (`_removeAllUserScriptsAssociatedWithContentWorld:`),
   so it touches no extension's script; without it the setting isn't offered.
@@ -151,7 +151,7 @@ newer version, which Settings turns off).
   in one). It saves the largest picture the page offers for it, or the video's
   file, through the Downloads panel, on the page's own session. A video a site
   sends in pieces (a `blob:` address, as most do) is put together from what the
-  page loaded: on a listed site BasicShell notes the playlists and video files
+  page loaded: on a listed site Backlight notes the playlists and video files
   the page asks for (WebKit's private `_resourceLoadDelegate`; only their
   addresses, kinds and sizes, nothing put into the page), and the button then
   fetches an HLS playlist's pieces (its best quality, AES-128 ones decrypted)
@@ -169,7 +169,7 @@ newer version, which Settings turns off).
   it off; Tab › Mute This Site keeps a site quiet (Settings › Tabs lists them).
 - Downloads can be paused, resumed, cancelled and restarted, with the speed and
   the time left. A paused one, and the last hundred finished, are still there
-  after BasicShell is quit; a server that cannot go on from the middle starts
+  after Backlight is quit; a server that cannot go on from the middle starts
   the file again.
 - The lock at the left of the address (an "i" where the page isn't secure)
   brings up the site's information: how it was fetched and by whose
@@ -209,14 +209,14 @@ and `_setWindowOcclusionDetectionEnabled:` keeps a page whose video is in it
 awake on another desktop, for the captions to go on (and a page an agent works
 in, while it does); and when an extension's background fails to
 start again after macOS ended its process, `_backgroundWebView`,
-`_webProcessIdentifier` and `_terminateServiceWorkers` let BasicShell end
+`_webProcessIdentifier` and `_terminateServiceWorkers` let Backlight end
 the broken processes and start it afresh; and `_features` with
 `_setEnabled:forFeature:` turn on `requestIdleCallback`, HTTPS first and
 the removal of tracking parameters, which WebKit has but keeps off, and turn
 off the holding of a page's animations to about 60 frames a second
 (Settings › General); `_setDeveloperExtrasEnabled:` puts Inspect Element in a
 page's right-click menu, which `_webView:contextMenu:forElement:` lets
-BasicShell arrange; `_setPageMuted:` and a key-value observer on `_isPlayingAudio` for the speaker
+Backlight arrange; `_setPageMuted:` and a key-value observer on `_isPlayingAudio` for the speaker
 and its mute; `WKDownload`'s resume data for a paused download;
 `_findString:options:maxCount:` with a `_findDelegate`
 marks and counts what is looked for in a page (`_hideFindUI` takes the marks
@@ -237,21 +237,21 @@ entitlement Apple grants on request, tied to a paid Developer ID.
 
 Needs macOS 27 and the Command Line Tools (Swift 6.4); Xcode is not required.
 
-    ./build.sh          # build/BasicShell.app, ad-hoc signed
+    ./build.sh          # build/Backlight.app, ad-hoc signed
     ./build.sh agent    # the same with the agent tools (see Agents, below)
 
 `swift build` alone builds the executable (`-Xswiftc -DAGENT` for the one
 with the agent tools).
 
-`build.sh` signs with a code-signing identity named "BasicShell Local Signing"
-if the keychain has one (a self-signed certificate is enough), so macOS keeps
+`build.sh` signs with a code-signing identity named "Backlight Local Signing"
+(or "BasicShell Local Signing", the app's old name) if the keychain has one (a self-signed certificate is enough), so macOS keeps
 the app's permissions (location, camera, microphone) from build to build;
 otherwise it signs ad hoc, and macOS asks again after each build.
 
 ## Agents
 
 Anthropic's own extension, Claude in Chrome, drives pages through Chrome's
-debugger, which WebKit's extensions don't have. BasicShell offers the same
+debugger, which WebKit's extensions don't have. Backlight offers the same
 things itself, as tools over the Model Context Protocol, with no key and no
 account of its own: whichever agent you already use calls them (Claude Code,
 the Claude app, Antigravity, or any other MCP client).
@@ -271,12 +271,12 @@ the agent opens go in can fix it one way. Its tabs stay open when it is done
 unless it closes them.
 
 Turn it on in Settings › Agents, then connect from there: a button adds
-BasicShell to Claude Code (or copies the command, `claude mcp add --scope
-user basicshell -- …/BasicShell.app/Contents/MacOS/BasicShell --mcp`), another
+Backlight to Claude Code (or copies the command, `claude mcp add --scope
+user backlight -- …/Backlight.app/Contents/MacOS/Backlight --mcp`), another
 writes it into the Claude app's settings, another into Antigravity's
 (`~/.gemini/config/mcp_config.json`, which its command line, `agy`, and its
 editor share), and a last one copies the entry for any other agent. The agent
-starts BasicShell's own program with `--mcp`; that speaks the protocol and
+starts Backlight's own program with `--mcp`; that speaks the protocol and
 passes each call to the running browser over a socket in its folder that only
 your user can open.
 
@@ -284,8 +284,8 @@ The agent is handed a short list: each tool's name, a line and its
 parameters (about 17,000 characters for 48 tools, where 29,000 were for 42).
 The whole description of any tool, what each parameter means and the limits,
 is one call away: `help` (with `tool`; without, the list). Settings › Agents ›
-Connect also writes a skill for Claude Code (`~/.claude/skills/basicshell`)
-on how to work in BasicShell without wasting turns.
+Connect also writes a skill for Claude Code (`~/.claude/skills/backlight`)
+on how to work in Backlight without wasting turns.
 
 The tools:
 
@@ -357,7 +357,7 @@ The tools:
   named global; nothing in other pages, and not in a page that has a password
   or card field, which are the ones that look hardest at what runs in them);
   Settings › Agents › Waiting chooses another way (`settle` lets an agent
-  choose, until BasicShell quits: it is told it may switch when an action
+  choose, until Backlight quits: it is told it may switch when an action
   comes back too early or late, or a page seems to mind the script):
   the Web Inspector, which puts nothing in the page, or the old 150 ms
   window. A determined detector can still tell the tracker
@@ -366,8 +366,8 @@ The tools:
 - The Web Inspector way: a hidden inspector is connected to the tab the agent
   acts in (WebKit's `_inspector`), and what WebKit's own instruments say (timers
   set and fired, frames asked for, requests, layout and paint) is read from the
-  inspector's page, BasicShell's own, whose connection is hooked so that the
-  frontend records nothing and BasicShell is told only when it has decided.
+  inspector's page, Backlight's own, whose connection is hooked so that the
+  frontend records nothing and Backlight is told only when it has decided.
   A finite CSS animation is asked for the way the inspector's console would
   (read only). The debugger is off, so a `debugger;` statement stops nothing;
   the page can tell it is being inspected, as with Safari's inspector open.
@@ -478,7 +478,7 @@ What keeps it yours:
 
 Settings › Agents says what each part allows, in words, and lets you set a
 site (read, read and ask before clicking, read only, read and act, or never),
-add one before an agent asks, and see what agents have done since BasicShell
+add one before an agent asks, and see what agents have done since Backlight
 opened.
 
 It has a switch, "Bypass permissions", that turns the asking off, for work
@@ -531,7 +531,7 @@ does more in these ways:
   agents did, one Bypass switch for all of it, and a Stop button on the
   page's frame.
 - **Nothing to install** in a browser, no account or key, no extension that
-  has to see every page: BasicShell's own program is the server, and the
+  has to see every page: Backlight's own program is the server, and the
   plain build has none of it.
 
 Claude in Chrome is still ahead in these:
@@ -551,7 +551,7 @@ Claude in Chrome is still ahead in these:
 
 ## Network traffic
 
-Besides the pages you open: nothing of BasicShell's own. uBlock Origin Lite's
+Besides the pages you open: nothing of Backlight's own. uBlock Origin Lite's
 lists come with its app, which the App Store keeps up to date. An extension you
 add from the Chrome Web Store is fetched from Google, once. What an agent reads
 of a page, when you let it, goes to that agent, which is to say whoever runs it (Anthropic for
@@ -563,7 +563,7 @@ with Xcode, so views here store `State` by hand instead of using the attribute.
 
 ## Credits
 
-Parts of BasicShell (the address parser, the traffic-light
+Parts of Backlight (the address parser, the traffic-light
 placement, the Safari user-agent handling, the WebSocket an extension's
 worker gets, and the page script and colour engine of dark pages, in
 `Dusk.swift` and `DuskColours.swift`) are adapted from
