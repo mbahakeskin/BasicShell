@@ -79,9 +79,9 @@ enum Session {
         let ordered = NSApp.orderedWindows.compactMap { $0.windowController as? BrowserWindow }
         let rest = Windows.all.filter { window in !ordered.contains { $0 === window } }
         let windows: [SavedWindow] = (ordered + rest).compactMap { window in
-            let tabs = window.shell.tabs.filter { !$0.isPrivate && $0.url != nil }
+            let tabs = window.shell.tabs.filter { !$0.isPrivate && $0.url != nil && !isPopout($0.url) }
             let others: [SavedProfile] = window.shell.parked.compactMap { id, parked in
-                let kept = parked.tabs.filter { !$0.isPrivate && $0.url != nil }
+                let kept = parked.tabs.filter { !$0.isPrivate && $0.url != nil && !isPopout($0.url) }
                 guard !kept.isEmpty else { return nil }
                 return SavedProfile(id: id.uuidString, tabs: kept.map { savedTab($0, among: kept) },
                                     selected: parked.selected.flatMap { selected in kept.firstIndex { $0 === selected } })
@@ -177,6 +177,29 @@ enum Session {
 
     // MARK: - reading
 
+    /// An extension's window that opened as a tab (Bitwarden's "view item" from
+    /// its autofill menu: `?uilocation=popout`). It is for one moment: brought
+    /// back at launch it only shows its lock screen, and Bitwarden's asks for
+    /// Touch ID at once.
+    static func isPopout(_ url: URL?) -> Bool {
+        guard let url, url.scheme == Extensions.scheme,
+              let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
+        else { return false }
+        return items.contains { $0.name == "uilocation" && ["popout", "popup"].contains($0.value ?? "") }
+    }
+
+    /// The tabs without those, with the indexes that pointed into them
+    /// (the tab in front, the tab each was opened from) put right.
+    private static func withoutPopouts(_ tabs: [SavedTab], selected: Int?) -> (tabs: [SavedTab], selected: Int?) {
+        let keep = tabs.indices.filter { !isPopout(tabs[$0].url) }
+        guard keep.count != tabs.count else { return (tabs, selected) }
+        var moved: [Int: Int] = [:]
+        for (new, old) in keep.enumerated() { moved[old] = new }
+        var kept = keep.map { tabs[$0] }
+        for index in kept.indices { kept[index].opener = kept[index].opener.flatMap { moved[$0] } }
+        return (kept, selected.flatMap { moved[$0] })
+    }
+
     /// Set once the session has been read, so nothing overwrites it before then.
     private(set) static var restored = false
 
@@ -187,9 +210,21 @@ enum Session {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         guard let data = try? Data(contentsOf: file),
-              let saved = try? decoder.decode(Saved.self, from: data),
+              var saved = try? decoder.decode(Saved.self, from: data),
               !saved.windows.isEmpty
         else { return false }
+        // Written by a build that kept popouts too.
+        saved.windows = saved.windows.compactMap { window in
+            var window = window
+            (window.tabs, window.selected) = withoutPopouts(window.tabs, selected: window.selected)
+            window.others = window.others?.compactMap { other in
+                var other = other
+                (other.tabs, other.selected) = withoutPopouts(other.tabs, selected: other.selected)
+                return other.tabs.isEmpty ? nil : other
+            }
+            return window.tabs.isEmpty && (window.others ?? []).isEmpty ? nil : window
+        }
+        guard !saved.windows.isEmpty else { return false }
         for savedWindow in saved.windows.reversed() {
             let window = Windows.open(empty: true)
             let frame = NSRectFromString(savedWindow.frame)

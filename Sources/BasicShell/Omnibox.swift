@@ -26,6 +26,19 @@ struct OmniboxView: View {
         get { _chip.wrappedValue }
         nonmutating set { _chip.wrappedValue = newValue }
     }
+    // What was typed to get the chip ("claude"), so Backspace can give it back.
+    private var _word = State(initialValue: "")
+    private var word: String {
+        get { _word.wrappedValue }
+        nonmutating set { _word.wrappedValue = newValue }
+    }
+    // Keywords are off for what is in the field: the person went to the plain
+    // search row, or took the chip off, and means a search of the engine.
+    private var _plain = State(initialValue: false)
+    private var plain: Bool {
+        get { _plain.wrappedValue }
+        nonmutating set { _plain.wrappedValue = newValue }
+    }
     // The menu bar's items, read once as the field opens.
     private var _commands = State<[Command]>(initialValue: [])
     private var commands: [Command] {
@@ -65,10 +78,10 @@ struct OmniboxView: View {
         }
 
         var list: [Suggestion] = []
-        let exact = Keywords.exact(typed)
+        let exact = plain ? nil : Keywords.exact(typed)
         if let exact { list.append(.keyword(exact.keyword, words: exact.words)) }
         list.append(.typed(typed))
-        if exact == nil, !typed.contains(" ") {
+        if exact == nil, !plain, !typed.contains(" ") {
             for keyword in Keywords.similar(typed) { list.append(.keywordHint(keyword)) }
         }
         if typed.count >= 2 {
@@ -142,12 +155,16 @@ struct OmniboxView: View {
                             return .handled
                         }
                         .onKeyPress(.tab) { tabPressed() }
-                        .onChange(of: text) { _, now in
+                        .onChange(of: text) { old, now in
+                            // Going off the keyword's row and then typing on:
+                            // "claude xyz" is a search of the engine.
+                            if chip == nil, chosen != 0, Keywords.exact(old) != nil { plain = true }
                             chosen = 0
+                            if now.isEmpty { plain = false }
                             // "yt " is the keyword, then a space: its chip.
-                            guard chip == nil, now.count > 1, now.hasSuffix(" "), !now.dropLast().contains(" "),
+                            guard chip == nil, !plain, now.count > 1, now.hasSuffix(" "), !now.dropLast().contains(" "),
                                   let hit = Keywords.exact(now), hit.words.isEmpty else { return }
-                            chip = hit.keyword
+                            put(hit.keyword, typed: String(now.dropLast()))
                             text = ""
                         }
                 }
@@ -185,7 +202,8 @@ struct OmniboxView: View {
                 guard event.keyCode == 51, event.modifierFlags.isDisjoint(with: [.command, .option, .control]),
                       let chip = self.chip, self.text.isEmpty else { return event }
                 self.chip = nil
-                self.text = chip.key
+                self.plain = true
+                self.text = self.word.isEmpty ? chip.key : self.word
                 return nil
             }
         }
@@ -204,18 +222,25 @@ struct OmniboxView: View {
     /// there, Tab stays in the field.
     private func tabPressed() -> KeyPress.Result {
         guard chip == nil else { return .handled }
+        guard !plain else { return .ignored }
         let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if let hit = Keywords.exact(typed) {
-            chip = hit.keyword
+            put(hit.keyword, typed: String(typed.split(separator: " ").first ?? ""))
             text = hit.words
             return .handled
         }
         if !typed.contains(" "), let keyword = Keywords.similar(typed, limit: 1).first {
-            chip = keyword
+            put(keyword, typed: typed)
             text = ""
             return .handled
         }
         return .ignored
+    }
+
+    private func put(_ keyword: Keyword, typed: String) {
+        word = typed
+        plain = false
+        chip = keyword
     }
 
     private func row(_ suggestion: Suggestion, chosen: Bool) -> some View {
@@ -251,16 +276,16 @@ struct OmniboxView: View {
 
     private func pick(_ index: Int) {
         let list = suggestions
-        guard list.indices.contains(index) else { return window.commit(text) }
+        guard list.indices.contains(index) else { return window.commit(text, keywords: !plain) }
         switch list[index] {
-        case .typed(let typed): window.commit(typed)
+        case .typed(let typed): window.commit(typed, keywords: !plain)
         case .tab(let tab): window.switchTo(tab)
         case .page(let url, _, _): window.commit(url.absoluteString)
         case .keyword(let keyword, let words):
             guard let url = keyword.url(for: words) else { return }
             window.commit(url.absoluteString)
         case .keywordHint(let keyword):
-            chip = keyword
+            put(keyword, typed: text.trimmingCharacters(in: .whitespacesAndNewlines))
             text = ""
         case .command(let command):
             window.dismissOmnibox()

@@ -25,7 +25,7 @@ done
 NAME="BasicShell"
 APP="build/$NAME.app"
 ID="com.mbahakeskin.basicshell"
-VERSION="0.8.1"
+VERSION="0.8.2"
 BUILD="$(date +%Y%m%d%H%M)"
 
 swift build -c "$CONFIG" --scratch-path "$SCRATCH" ${FLAGS[@]+"${FLAGS[@]}"}

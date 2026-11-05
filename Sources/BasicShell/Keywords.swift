@@ -81,9 +81,9 @@ enum Keywords {
             Keyword(key: "cl", name: "Claude", template: "https://claude.ai/new?q=%s", home: "https://claude.ai/new", colour: "#D97757"),
             Keyword(key: "gpt", name: "ChatGPT", template: "https://chatgpt.com/?q=%s", home: "https://chatgpt.com/", colour: "#10A37F"),
             Keyword(key: "gh", name: "GitHub", template: "https://github.com/search?q=%s", colour: "#6E7681"),
-            Keyword(key: "w", name: "Wikipedia", template: "https://\(language).wikipedia.org/w/index.php?search=%s", home: "https://\(language).wikipedia.org/", colour: "#8A8D91"),
-            Keyword(key: "m", name: "Maps", template: "https://www.google.com/maps/search/%s", home: "https://www.google.com/maps", colour: "#34A853"),
-            Keyword(key: "r", name: "Reddit", template: "https://www.reddit.com/search/?q=%s", colour: "#FF4500"),
+            Keyword(key: "wiki", name: "Wikipedia", template: "https://\(language).wikipedia.org/w/index.php?search=%s", home: "https://\(language).wikipedia.org/", colour: "#8A8D91"),
+            Keyword(key: "map", name: "Maps", template: "https://www.google.com/maps/search/%s", home: "https://www.google.com/maps", colour: "#34A853"),
+            Keyword(key: "rd", name: "Reddit", template: "https://www.reddit.com/search/?q=%s", colour: "#FF4500"),
             Keyword(key: "tl", name: "Translate", template: "https://translate.google.com/?sl=auto&tl=\(language)&text=%s&op=translate", home: "https://translate.google.com/", colour: "#4285F4"),
         ]
     }

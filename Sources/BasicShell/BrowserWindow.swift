@@ -1017,8 +1017,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         if let web = shell.selected?.webView { window?.makeFirstResponder(web) }
     }
 
-    func commit(_ typed: String) {
-        guard let url = Address.resolve(typed, keywords: true) else { return }
+    func commit(_ typed: String, keywords: Bool = true) {
+        guard let url = Address.resolve(typed, keywords: keywords) else { return }
         if shell.asking == .address, let tab = shell.selected {
             dismissOmnibox()
             tab.load(url)
@@ -1838,7 +1838,11 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     }
 
     private func followPointerWithEdges() {
-        guard edgeToEdge, NSApp.isActive, let screen = window?.screen else { return }
+        // Only while this window has the keyboard: with Settings (or another
+        // window of the app) in front, hiding the menu bar again raised this
+        // window over the Settings window for the moment the cover lasts, and
+        // it came back after it (seen: "not key" in the log, then "hidden").
+        guard edgeToEdge, NSApp.isActive, window?.isKeyWindow == true, let screen = window?.screen else { return }
         let frame = screen.frame
         let location = NSEvent.mouseLocation
         let fromTop = frame.maxY - location.y
