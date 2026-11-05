@@ -10,7 +10,7 @@ enum SettingsWindow {
         if let tab { UserDefaults.standard.set(tab, forKey: "settings.tab") }
         if window == nil {
             let made = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 680, height: 520),
+                contentRect: NSRect(x: 0, y: 0, width: 760, height: 520),
                 styleMask: [.titled, .closable, .fullSizeContentView],
                 backing: .buffered, defer: false
             )
@@ -31,6 +31,7 @@ struct SettingsView: View {
     var body: some View {
         TabView(selection: $tab) {
             GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }.tag("general")
+            KeywordSettings().tabItem { Label("Search", systemImage: "magnifyingglass") }.tag("search")
             ImportSettings().tabItem { Label("Import", systemImage: "square.and.arrow.down") }.tag("import")
             TabSettings().tabItem { Label("Tabs", systemImage: "square.on.square") }.tag("tabs")
             PrivacySettings().tabItem { Label("Privacy", systemImage: "hand.raised") }.tag("privacy")
@@ -40,7 +41,7 @@ struct SettingsView: View {
             #endif
         }
         .padding(.top, 28)
-        .frame(width: 680, height: 520)
+        .frame(width: 760, height: 520)
     }
 }
 
@@ -496,3 +497,59 @@ private struct UpdateSection: View {
     }
 }
 #endif
+
+/// Sites the address field searches by a keyword: "yt lofi", "cl write a poem".
+private struct KeywordSettings: View {
+    @AppStorage(Keywords.key) private var stored = ""
+
+    private var items: Binding<[Keyword]> {
+        Binding(get: { Keywords.decode(stored) }, set: { stored = Keywords.encode($0) })
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Search a site from the address field").font(.headline)
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(items) { $item in
+                        HStack(spacing: 8) {
+                            Button {
+                                Dropper.pick { item.colour = $0.hex }
+                            } label: {
+                                ZStack {
+                                    Circle().fill(item.tint ?? Color.clear)
+                                    Circle().strokeBorder(Color.secondary.opacity(0.5), lineWidth: 1)
+                                    if item.colour == nil { Image(systemName: "eyedropper").font(.system(size: 9)).foregroundStyle(.secondary) }
+                                }
+                                .frame(width: 20, height: 20)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Pick the site's color from anywhere on the screen")
+                            .contextMenu { Button("Remove Color") { item.colour = nil } }
+                            TextField("", text: $item.key, prompt: Text("key")).frame(width: 60)
+                            TextField("", text: $item.name, prompt: Text("name")).frame(width: 110)
+                            TextField("", text: $item.template, prompt: Text("https://…/search?q=%s")).frame(maxWidth: .infinity)
+                            Button {
+                                items.wrappedValue.removeAll { $0.id == item.id }
+                            } label: { Image(systemName: "minus.circle") }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                        }
+                        .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.leading)
+                    }
+                }
+                .padding(.trailing, 4)
+            }
+            HStack {
+                Button("Add") { items.wrappedValue.append(Keyword(key: "", name: "", template: "https://")) }
+                Button("Restore Built-in List") { Keywords.restoreDefaults(); stored = "" }
+            }
+            Text("Type a key and a space (or Tab), then the words: “yt lofi”. The key alone opens the site; %s is where the words go. A site's search box also offers “Add as Search Engine…” in its right-click menu. The dot is the site's color, shown faintly in the field: click it to pick one from anywhere on the screen with the eyedropper.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 16)
+    }
+}

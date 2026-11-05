@@ -484,6 +484,9 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         menuBarWatch?.invalidate()
         menuBarWatch = nil
         edgesAuto = false
+        coverTimer?.invalidate()
+        coverTimer = nil
+        if window?.level != .normal { window?.level = .normal }
         dockHeld = false
         edgeSince = nil
         heldUntil = .distantPast
@@ -1015,7 +1018,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     }
 
     func commit(_ typed: String) {
-        guard let url = Address.resolve(typed) else { return }
+        guard let url = Address.resolve(typed, keywords: true) else { return }
         if shell.asking == .address, let tab = shell.selected {
             dismissOmnibox()
             tab.load(url)
@@ -1035,7 +1038,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     func go(_ typed: String) {
         shell.editingAddress = false
         layout(animated: true)
-        guard let url = Address.resolve(typed) else { return }
+        guard let url = Address.resolve(typed, keywords: true) else { return }
         if let tab = shell.selected { tab.load(url) } else { open(url, from: nil, select: true) }
         if let web = shell.selected?.webView { window?.makeFirstResponder(web) }
     }
@@ -1417,6 +1420,17 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     @objc func closeSplit(_ sender: Any?) { endSplit() }
 
+    /// The macOS eyedropper, over anything on the screen; the color's code
+    /// goes to the clipboard.
+    @objc func pickColor(_ sender: Any?) {
+        Dropper.pick { [weak self] color in
+            guard let code = color.hex else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(code, forType: .string)
+            self?.say("Copied \(code)")
+        }
+    }
+
     @objc func translatePage(_ sender: Any?) {
         guard let tab = shell.selected else { return }
         Translate.toggle(tab, in: self)
@@ -1639,6 +1653,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     func windowDidEndLiveResize(_ notification: Notification) { Session.touch() }
 
     func windowDidResignKey(_ notification: Notification) {
+        if edgeToEdge { Debug.log("edges", "not key: \(spaceState())") }
         guard !shell.editingAddress else { return }
         shell.sidebarShown = false
         shell.topBarShown = false
@@ -1653,6 +1668,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     /// moment, and a swipe let go before halfway goes back. The video came
     /// back as the swipe began and stayed back when it didn't happen.
     func windowDidChangeOcclusionState(_ notification: Notification) {
+        followOcclusionWithEdges()
         guard let window, let tab = shell.selected else { return }
         if window.occlusionState.contains(.visible) {
             if window.isOnActiveSpace { bringBackOnceSeen(tab) }
@@ -1681,6 +1697,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     /// A move to another desktop is over (see windowDidChangeOcclusionState).
     @objc private func spaceChanged(_ notification: Notification) {
+        if edgeToEdge { Debug.log("edges", "desktop changed: \(spaceState())") }
+        syncEdgeOptions()
         guard let window, let tab = shell.selected else { return }
         if window.isOnActiveSpace {
             if window.occlusionState.contains(.visible) { bringBackOnceSeen(tab) }
@@ -1716,14 +1734,54 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         // screen sets these options itself, and clearing them there left the
         // menu bar a black strip with nothing in it (measured).
         if edgeToEdge {
-            resetMenuBar()
-            NSApp.presentationOptions = BrowserWindow.hiddenOptions
+            Debug.log("edges", "key: \(spaceState())")
+            syncEdgeOptions()
         } else if NSApp.presentationOptions == BrowserWindow.autoHideOptions || NSApp.presentationOptions == BrowserWindow.hiddenOptions {
             NSApp.presentationOptions = []
         }
     }
 
     // MARK: - the menu bar and the Dock in BasicShell's own full screen
+
+    /// The options hide the menu bar and the Dock of whatever desktop is
+    /// shown while this app is the active one, and Mission Control and the
+    /// swipes between desktops make its window key while another desktop is
+    /// shown: the menu bar went black there, and a click on BasicShell was
+    /// the way out. So they are on only while the window is on the desktop
+    /// shown, and taken off while it is not.
+    private func syncEdgeOptions() {
+        guard edgeToEdge, let window else { return }
+        if window.isOnActiveSpace {
+            resetMenuBar()
+            NSApp.presentationOptions = BrowserWindow.hiddenOptions
+        } else if NSApp.presentationOptions.contains(.hideMenuBar) || NSApp.presentationOptions.contains(.autoHideMenuBar) {
+            resetMenuBar()
+            NSApp.presentationOptions = []
+        }
+    }
+
+    /// The window going out of sight (a swipe to another desktop has taken it
+    /// off the screen) lets go of the menu bar and the Dock at once, so macOS
+    /// brings the menu bar in while the swipe ends and not after it: the
+    /// desktop change is told of only when the swipe is over, and the bar
+    /// came a quarter of a second late (measured). Back in sight, the
+    /// options are put again if the window is on the desktop shown.
+    private func followOcclusionWithEdges() {
+        guard edgeToEdge, let window else { return }
+        let options = NSApp.presentationOptions
+        if window.occlusionState.contains(.visible) {
+            if window.isOnActiveSpace, NSApp.isActive, window.isKeyWindow, !options.contains(.hideMenuBar), !options.contains(.autoHideMenuBar) { syncEdgeOptions() }
+        } else if options.contains(.hideMenuBar) || options.contains(.autoHideMenuBar) {
+            Debug.log("edges", "out of sight: \(spaceState())")
+            resetMenuBar()
+            NSApp.presentationOptions = []
+        }
+    }
+
+    private func spaceState() -> String {
+        let front = NSWorkspace.shared.frontmostApplication?.localizedName ?? "?"
+        return "onShownDesktop \(window?.isOnActiveSpace ?? false), appActive \(NSApp.isActive), occluded \(!(window?.occlusionState.contains(.visible) ?? false)), mission control \(Spaces.missionControl), front \(front), options \(NSApp.presentationOptions.rawValue)"
+    }
 
     /// Both hidden outright: macOS hides the menu bar only with the Dock.
     /// With the auto-hiding kind, macOS keeps a click in the strip the menu
@@ -1753,9 +1811,28 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     private static let pushTime: TimeInterval = 0.15
     private static let heldFor: TimeInterval = 0.6
 
-    private func setEdgesAuto(_ auto: Bool, because why: @autoclosure () -> String) {
+    /// A switch of the options makes macOS show the menu bar for a moment: a
+    /// sliver going to the auto-hiding kind, up to the whole bar going back
+    /// (measured; the user sees it as one flick when the pointer touches the
+    /// Dock's edge). Away from the top the bar is not wanted, so the window
+    /// stands above the menu bar's level for the length of the switch and
+    /// nothing of it shows. Not at the top: there the bar is the point.
+    private var coverTimer: Timer?
+    private static let coverFor: TimeInterval = 0.25
+
+    private func coverMenuBar() {
+        guard let window else { return }
+        window.level = .statusBar
+        coverTimer?.invalidate()
+        coverTimer = Timer.scheduledTimer(withTimeInterval: BrowserWindow.coverFor, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.window?.level = .normal }
+        }
+    }
+
+    private func setEdgesAuto(_ auto: Bool, covering: Bool, because why: @autoclosure () -> String) {
         guard auto != edgesAuto else { return }
         edgesAuto = auto
+        if covering { coverMenuBar() }
         NSApp.presentationOptions = auto ? BrowserWindow.autoHideOptions : BrowserWindow.hiddenOptions
         Debug.log("edges", "\(auto ? "auto-hiding" : "hidden"): \(why())")
     }
@@ -1786,7 +1863,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             if now.timeIntervalSince(since) >= BrowserWindow.pushTime { holdAuto(for: BrowserWindow.heldFor) }
         }
         let held = now < heldUntil
-        setEdgesAuto(atTop || held || dockHeld || menuBarDown,
+        setEdgesAuto(atTop || held || dockHeld || menuBarDown, covering: fromTop > 60 && !menuBarDown && !held,
                      because: "\(Int(fromTop)) pt from the top\(atTop ? ", at the edge" : "")\(held ? ", held" : "")\(dockHeld ? ", Dock zone" : "")\(menuBarDown ? ", menu bar down" : "")")
     }
 
@@ -1806,6 +1883,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
         menuBarWatch?.invalidate()
+        coverTimer?.invalidate()
         for tab in shell.allTabs {
             Extensions.shared.closed(tab, windowClosing: true)
             tab.discard()

@@ -125,6 +125,7 @@ enum Menus {
         menu.addItem(item("Pause Dark Pages", #selector(BrowserWindow.pauseDusk(_:)), "d", [.command, .shift, .option]))
         menu.addItem(item("Picture in Picture", #selector(BrowserWindow.pictureInPicture(_:)), "p", [.command, .shift]))
         menu.addItem(item("Downloads", #selector(BrowserWindow.showDownloads(_:)), "l", [.command, .option]))
+        menu.addItem(item("Pick Color from Screen", #selector(BrowserWindow.pickColor(_:))))
         menu.addItem(.separator())
         menu.addItem(item("Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]))
         return menu

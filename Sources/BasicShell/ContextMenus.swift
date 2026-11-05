@@ -42,6 +42,10 @@ extension Tab {
                 proposed.removeItem(item)
                 menu.addItem(item)
             }
+            if editable, link == nil, ["http", "https"].contains(url?.scheme ?? "") {
+                menu.addItem(.separator())
+                menu.addItem(action("Add as Search Engine…") { [weak self] in self?.addSearchEngine() })
+            }
             if let inspect { menu.addItem(.separator()); menu.addItem(inspect) }
             return tidy(menu)
         }
@@ -114,6 +118,71 @@ extension Tab {
         #endif
         if let inspect { menu.addItem(.separator()); menu.addItem(inspect) }
         return tidy(menu)
+    }
+
+    /// The field that was right-clicked is the one with the keyboard: its
+    /// form's address, with this field's place marked %s, becomes a keyword.
+    private static let searchForm = """
+    (() => {
+      const field = document.activeElement;
+      if (!field || !['INPUT', 'TEXTAREA'].includes(field.tagName) || field.type === 'password' || !field.form || !field.name) return null;
+      const form = field.form;
+      if ((form.getAttribute('method') || 'get').toLowerCase() !== 'get') return null;
+      const address = new URL(form.getAttribute('action') || location.href, location.href);
+      address.search = '';
+      for (const f of form.elements) {
+        if (f === field || !f.name || f.disabled || ['submit', 'button', 'file', 'password', 'image', 'reset'].includes(f.type)) continue;
+        if (['checkbox', 'radio'].includes(f.type) && !f.checked) continue;
+        address.searchParams.append(f.name, f.value);
+      }
+      address.searchParams.append(field.name, '__WORDS__');
+      return { url: address.href.replace('__WORDS__', '%s'), host: location.hostname, title: document.title,
+               theme: (document.querySelector('meta[name=theme-color]') || {}).content || '' };
+    })()
+    """
+
+    private func addSearchEngine() {
+        webView?.evaluateJavaScript(Tab.searchForm) { [weak self] result, _ in
+            guard let self, let window = self.host as? BrowserWindow else { return }
+            guard let found = result as? [String: Any], let template = found["url"] as? String, template.contains("%s") else {
+                window.say("That isn't a search box this can use.")
+                return
+            }
+            let host = (found["host"] as? String) ?? ""
+            let bare = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+            let site = bare.split(separator: ".").dropLast().last.map(String.init) ?? bare
+            var keyword = Keyword(key: String(site.prefix(2)).lowercased(), name: site.prefix(1).uppercased() + site.dropFirst(), template: template)
+            keyword.colour = (NSColor.css(found["theme"] as? String ?? "") ?? self.icon.flatMap { NSColor.dominant(in: $0) })?.hex
+
+            let name = NSTextField(string: keyword.name)
+            let key = NSTextField(string: keyword.key)
+            name.frame = NSRect(x: 60, y: 28, width: 200, height: 22)
+            key.frame = NSRect(x: 60, y: 0, width: 80, height: 22)
+            let labels = [("Name", 28), ("Key", 0)].map { text, y -> NSTextField in
+                let label = NSTextField(labelWithString: text)
+                label.frame = NSRect(x: 0, y: y + 2, width: 56, height: 17)
+                return label
+            }
+            let form = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 52))
+            ([name, key] + labels).forEach(form.addSubview)
+
+            let alert = NSAlert()
+            alert.messageText = "Add \(bare) as a Search Engine"
+            alert.informativeText = "Type the key and a space in the address field, then the words to search for."
+            alert.accessoryView = form
+            alert.addButton(withTitle: "Add")
+            alert.addButton(withTitle: "Cancel")
+            alert.window.initialFirstResponder = key
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            keyword.name = name.stringValue.trimmingCharacters(in: .whitespaces)
+            keyword.key = key.stringValue.trimmingCharacters(in: .whitespaces)
+            guard !keyword.name.isEmpty, !keyword.key.isEmpty, !keyword.key.contains(" ") else {
+                window.say("It needs a name and a key without spaces.")
+                return
+            }
+            Keywords.add(keyword)
+            window.say("“\(keyword.key)” now searches \(keyword.name).")
+        }
     }
 
     /// The text chosen on the page, searched for in a new tab with the

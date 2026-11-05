@@ -20,6 +20,22 @@ struct OmniboxView: View {
         get { _chosen.wrappedValue }
         nonmutating set { _chosen.wrappedValue = newValue }
     }
+    // The site whose chip is in the field: what is typed searches it.
+    private var _chip = State<Keyword?>(initialValue: nil)
+    private var chip: Keyword? {
+        get { _chip.wrappedValue }
+        nonmutating set { _chip.wrappedValue = newValue }
+    }
+    // The menu bar's items, read once as the field opens.
+    private var _commands = State<[Command]>(initialValue: [])
+    private var commands: [Command] {
+        get { _commands.wrappedValue }
+        nonmutating set { _commands.wrappedValue = newValue }
+    }
+    // Watches for Backspace in an empty field: the field handles that key
+    // itself before a key handler of the view would see it.
+    private final class KeyWatch { var monitor: Any? }
+    private var _watch = State(initialValue: KeyWatch())
     @FocusState private var focused: Bool
 
     private var privately: Bool {
@@ -30,20 +46,45 @@ struct OmniboxView: View {
         case typed(String)
         case tab(Tab)
         case page(URL, String, symbol: String)
+        /// A site's keyword typed whole: its front page, or a search of it.
+        case keyword(Keyword, words: String)
+        /// A keyword nearly typed: Enter or Tab puts its chip in the field.
+        case keywordHint(Keyword)
+        case command(Command)
     }
 
     private var suggestions: [Suggestion] {
         let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !typed.isEmpty else { return [] }
-        var list: [Suggestion] = [.typed(typed)]
+        if let chip { return [.keyword(chip, words: typed)] }
+
+        // ">" asks for commands alone.
+        if typed.hasPrefix(">") {
+            let query = String(typed.dropFirst())
+            return Commands.matching(query, in: commands, limit: 9).map { .command($0) }
+        }
+
+        var list: [Suggestion] = []
+        let exact = Keywords.exact(typed)
+        if let exact { list.append(.keyword(exact.keyword, words: exact.words)) }
+        list.append(.typed(typed))
+        if exact == nil, !typed.contains(" ") {
+            for keyword in Keywords.similar(typed) { list.append(.keywordHint(keyword)) }
+        }
+        if typed.count >= 2 {
+            for command in Commands.matching(typed, in: commands, limit: 3) { list.append(.command(command)) }
+        }
+
         var seen: Set<URL> = []
         // Not the tab whose own address this is.
         let editing = shell.asking == .address ? shell.selected : nil
         let open = Windows.all.flatMap { $0.shell.tabs }.filter { $0 !== editing && $0.isPrivate == privately }
+        var tabs = 0
         for tab in Fuzzy.ranked(open, typed, title: \.title, url: \.url) {
             guard let url = tab.url, seen.insert(url).inserted else { continue }
             list.append(.tab(tab))
-            if list.count >= 3 { break }
+            tabs += 1
+            if tabs >= 3 { break }
         }
         // A private tab's field doesn't search what ordinary browsing kept.
         guard !privately else { return list }
@@ -52,9 +93,20 @@ struct OmniboxView: View {
         }
         for visit in History.shared.suggestions(for: typed) where seen.insert(visit.url).inserted {
             list.append(.page(visit.url, visit.title, symbol: "clock"))
-            if list.count >= 9 { break }
+            if list.count >= 12 { break }
         }
         return list
+    }
+
+    /// The tint of what Enter would do now: a site's colour, faintly.
+    private var tint: Color? {
+        if let chip { return chip.tint }
+        let list = suggestions
+        guard list.indices.contains(chosen) else { return nil }
+        switch list[chosen] {
+        case .keyword(let keyword, _), .keywordHint(let keyword): return keyword.tint
+        default: return nil
+        }
     }
 
     var body: some View {
@@ -68,7 +120,15 @@ struct OmniboxView: View {
                     Image(systemName: privately ? "eyeglasses" : "magnifyingglass")
                         .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(.secondary)
-                    TextField(privately ? "Private tab: search or enter address" : "Search or enter address", text: _text.projectedValue)
+                    if let chip {
+                        Text(chip.name)
+                            .font(.system(size: 14, weight: .medium))
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 4)
+                            .background(Capsule().fill((chip.tint ?? .secondary).opacity(0.22)))
+                            .transition(.opacity)
+                    }
+                    TextField(prompt, text: _text.projectedValue)
                         .textFieldStyle(.plain)
                         .font(.system(size: 20))
                         .focused($focused)
@@ -81,7 +141,15 @@ struct OmniboxView: View {
                             chosen = max(chosen - 1, 0)
                             return .handled
                         }
-                        .onChange(of: text) { _, _ in chosen = 0 }
+                        .onKeyPress(.tab) { tabPressed() }
+                        .onChange(of: text) { _, now in
+                            chosen = 0
+                            // "yt " is the keyword, then a space: its chip.
+                            guard chip == nil, now.count > 1, now.hasSuffix(" "), !now.dropLast().contains(" "),
+                                  let hit = Keywords.exact(now), hit.words.isEmpty else { return }
+                            chip = hit.keyword
+                            text = ""
+                        }
                 }
                 .padding(.horizontal, 18)
                 .frame(height: 56)
@@ -101,25 +169,75 @@ struct OmniboxView: View {
             }
             .frame(width: 640)
             .glassEffect(.regular, in: .rect(cornerRadius: 18))
+            // The site's colour, barely there.
+            .overlay(RoundedRectangle(cornerRadius: 18).fill((tint ?? .clear).opacity(0.07)).allowsHitTesting(false))
+            .animation(.easeOut(duration: 0.2), value: tint)
             .padding(.top, 150)
         }
         .onAppear {
             // The tab's own address, to change.
             if shell.asking == .address, let url = shell.selected?.url { text = url.absoluteString }
+            commands = Commands.all(for: window.window) + Commands.extras(for: window)
             focused = true
+            // Backspace in an empty field takes the chip off, leaving its
+            // keyword to edit.
+            _watch.wrappedValue.monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                guard event.keyCode == 51, event.modifierFlags.isDisjoint(with: [.command, .option, .control]),
+                      let chip = self.chip, self.text.isEmpty else { return event }
+                self.chip = nil
+                self.text = chip.key
+                return nil
+            }
+        }
+        .onDisappear {
+            if let monitor = _watch.wrappedValue.monitor { NSEvent.removeMonitor(monitor) }
+            _watch.wrappedValue.monitor = nil
         }
     }
 
+    private var prompt: String {
+        if let chip { return "Search \(chip.name)" }
+        return privately ? "Private tab: search, enter address or run a command" : "Search, enter address or run a command"
+    }
+
+    /// Tab: the keyword typed (or nearly) becomes its chip; with one already
+    /// there, Tab stays in the field.
+    private func tabPressed() -> KeyPress.Result {
+        guard chip == nil else { return .handled }
+        let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let hit = Keywords.exact(typed) {
+            chip = hit.keyword
+            text = hit.words
+            return .handled
+        }
+        if !typed.contains(" "), let keyword = Keywords.similar(typed, limit: 1).first {
+            chip = keyword
+            text = ""
+            return .handled
+        }
+        return .ignored
+    }
+
     private func row(_ suggestion: Suggestion, chosen: Bool) -> some View {
+        let tint: Color? = switch suggestion {
+        case .keyword(let keyword, _), .keywordHint(let keyword): keyword.tint
+        default: nil
+        }
         let (symbol, title, detail): (String, String, String?) = switch suggestion {
         case .typed(let typed):
             if let url = Address.url(from: typed) { ("arrow.up.right", "Go to \(Address.pretty(url))", nil) }
             else { ("magnifyingglass", "Search \(Engine.current.title) for “\(typed)”", nil) }
         case .tab(let tab): ("square.on.square", tab.name, "Switch to Tab")
         case .page(let url, let title, let symbol): (symbol, title.isEmpty ? Address.pretty(url) : title, Address.pretty(url))
+        case .keyword(let keyword, let words):
+            if words.isEmpty { ("arrow.up.right", "Open \(keyword.name)", keyword.homeURL.map { Address.pretty($0) }) }
+            else { ("magnifyingglass", "Search \(keyword.name) for “\(words)”", nil) }
+        case .keywordHint(let keyword):
+            ("arrow.right.to.line", keyword.name, "Tab to search")
+        case .command(let command): ("command", command.title, command.shortcut.isEmpty ? command.path : command.shortcut)
         }
         return HStack(spacing: 10) {
-            Image(systemName: symbol).frame(width: 18).foregroundStyle(.secondary)
+            Image(systemName: symbol).frame(width: 18).foregroundStyle(tint ?? .secondary)
             Text(title).lineLimit(1).truncationMode(.tail)
             Spacer(minLength: 8)
             if let detail { Text(detail).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
@@ -128,7 +246,7 @@ struct OmniboxView: View {
         .font(.system(size: 14))
         .padding(.horizontal, 12)
         .frame(height: 36)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(chosen ? 0.1 : 0)))
+        .background(RoundedRectangle(cornerRadius: 8).fill((tint ?? .primary).opacity(chosen ? (tint == nil ? 0.1 : 0.16) : 0)))
     }
 
     private func pick(_ index: Int) {
@@ -138,6 +256,16 @@ struct OmniboxView: View {
         case .typed(let typed): window.commit(typed)
         case .tab(let tab): window.switchTo(tab)
         case .page(let url, _, _): window.commit(url.absoluteString)
+        case .keyword(let keyword, let words):
+            guard let url = keyword.url(for: words) else { return }
+            window.commit(url.absoluteString)
+        case .keywordHint(let keyword):
+            chip = keyword
+            text = ""
+        case .command(let command):
+            window.dismissOmnibox()
+            // After the field is gone, so the page has the keyboard again.
+            DispatchQueue.main.async { command.run() }
         }
     }
 }

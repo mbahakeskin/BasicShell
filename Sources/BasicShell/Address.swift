@@ -8,9 +8,13 @@ enum Address {
     private static let ours: Set<String> = ["http", "https", "file", "about", "data"]
 
     /// A URL for what was typed, or a search for it when it isn't one.
-    static func resolve(_ typed: String) -> URL? {
+    /// With `keywords`, a first word that is a site's keyword ("yt lofi")
+    /// searches that site; only what a person types in the address field
+    /// asks for it, not a page's selected text or an agent's address.
+    static func resolve(_ typed: String, keywords: Bool = false) -> URL? {
         let text = typed.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
+        if keywords, let hit = Keywords.exact(text), let url = hit.keyword.url(for: hit.words) { return url }
         return url(from: text) ?? Engine.current.search(text)
     }
 
