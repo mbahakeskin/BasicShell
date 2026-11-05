@@ -163,8 +163,7 @@ newer version, which Settings turns off).
   its sound by its length (a file that holds both, as TikTok's do with the sound's
   track first, is read to its last track); a playlist of that length is looked for
   the same way.
-  Play the video for a moment first. Live streams, DRM-protected video and DASH described by an .mpd are
-  not saved.
+  Play the video for a moment first, so the page has loaded what it needs.
 - A speaker on a tab that makes sound, in the sidebar and the top bar, turns
   it off; Tab › Mute This Site keeps a site quiet (Settings › Tabs lists them).
 - Downloads can be paused, resumed, cancelled and restarted, with the speed and

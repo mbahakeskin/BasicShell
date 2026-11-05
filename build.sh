@@ -27,7 +27,7 @@ APP="build/$NAME.app"
 # The bundle identifier BasicShell had was com.mbahakeskin.basicshell; what it kept under that is brought
 # over at the first launch of this one (Sources/Backlight/Legacy.swift).
 ID="com.mbahakeskin.backlight"
-VERSION="0.9.0"
+VERSION="0.9.1"
 BUILD="$(date +%Y%m%d%H%M)"
 
 swift build -c "$CONFIG" --scratch-path "$SCRATCH" ${FLAGS[@]+"${FLAGS[@]}"}
@@ -40,7 +40,7 @@ if [ "$CONFIG" = "release" ]; then
   strip -x "$APP/Contents/MacOS/$NAME"
 fi
 
-# The icon: made from icon/Backlight.png by icon/make-icns.sh and kept as icon/Backlight.icns.
+# The icon: made from icon/Backlight.png by icon/make-icns.py and kept as icon/Backlight.icns.
 if [ -f "icon/$NAME.icns" ]; then
   cp "icon/$NAME.icns" "$APP/Contents/Resources/$NAME.icns"
 fi
