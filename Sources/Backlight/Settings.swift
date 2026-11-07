@@ -2,46 +2,65 @@ import AppKit
 import SwiftUI
 import WebKit
 
-/// Backlight › Settings (⌘,): one window, a few plain choices.
+/// Backlight › Settings (⌘,): a panel over the page, as History and
+/// Downloads are, a few plain choices on a few tabs.
 enum SettingsWindow {
-    private static var window: NSWindow?
-
-    static func show(_ tab: String? = nil) {
+    /// Brings the panel up in the front window (a new one if there is none),
+    /// on `tab` if one is named; one already up stays.
+    @MainActor static func show(_ tab: String? = nil) {
         if let tab { UserDefaults.standard.set(tab, forKey: "settings.tab") }
-        if window == nil {
-            let made = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 760, height: 520),
-                styleMask: [.titled, .closable, .fullSizeContentView],
-                backing: .buffered, defer: false
-            )
-            made.title = "Settings"
-            made.titlebarAppearsTransparent = true
-            made.isReleasedWhenClosed = false
-            made.contentView = NSHostingView(rootView: SettingsView())
-            made.center()
-            window = made
+        let window = Windows.front ?? Windows.open(empty: true)
+        if window.shell.panel != .settings { window.showPanel(.settings) }
+    }
+
+    static let tabs: [(id: String, title: String)] = {
+        var list = [("general", "General"), ("search", "Search"), ("import", "Import"), ("tabs", "Tabs"),
+                    ("privacy", "Privacy"), ("extensions", "Extensions")]
+        #if AGENT
+        list.append(("agent", "Agents"))
+        #endif
+        return list
+    }()
+}
+
+/// The panel's top row: where the title is in the other panels.
+struct SettingsTabs: View {
+    @Binding var tab: String
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(SettingsWindow.tabs, id: \.id) { entry in
+                Button { tab = entry.id } label: {
+                    Text(entry.title)
+                        .font(.system(size: 13, weight: .medium))
+                        .padding(.horizontal, 12)
+                        .frame(height: 28)
+                        .background(Capsule().fill(Color.primary.opacity(tab == entry.id ? 0.12 : 0)))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(tab == entry.id ? .primary : .secondary)
+            }
         }
-        window?.makeKeyAndOrderFront(nil)
     }
 }
 
-struct SettingsView: View {
-    @AppStorage("settings.tab") private var tab = "general"
+/// What the chosen tab shows.
+struct SettingsContent: View {
+    let tab: String
 
     var body: some View {
-        TabView(selection: $tab) {
-            GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }.tag("general")
-            KeywordSettings().tabItem { Label("Search", systemImage: "magnifyingglass") }.tag("search")
-            ImportSettings().tabItem { Label("Import", systemImage: "square.and.arrow.down") }.tag("import")
-            TabSettings().tabItem { Label("Tabs", systemImage: "square.on.square") }.tag("tabs")
-            PrivacySettings().tabItem { Label("Privacy", systemImage: "hand.raised") }.tag("privacy")
-            ExtensionSettings().tabItem { Label("Extensions", systemImage: "puzzlepiece.extension") }.tag("extensions")
-            #if AGENT
-            AgentSettings().tabItem { Label("Agents", systemImage: "cursorarrow.rays") }.tag("agent")
-            #endif
+        switch tab {
+        case "search": KeywordSettings()
+        case "import": ImportSettings()
+        case "tabs": TabSettings()
+        case "privacy": PrivacySettings()
+        case "extensions": ExtensionSettings()
+        #if AGENT
+        case "agent": AgentSettings()
+        #endif
+        default: GeneralSettings()
         }
-        .padding(.top, 28)
-        .frame(width: 760, height: 520)
     }
 }
 
@@ -73,18 +92,18 @@ private struct GeneralSettings: View {
             }
             Toggle(isOn: $region) {
                 Text("Search Google in this Mac's language and region")
-                Text("Adds hl=\(Engine.language)\(Engine.region.map { ", gl=\($0)" } ?? "") to Google searches, so results don't follow a VPN's country.")
+                Text("Adds hl=\(Engine.language)\(Engine.region.map { ", gl=\($0)" } ?? "") so a VPN doesn't change the results.")
             }
             .disabled(engine != Engine.google.rawValue)
             Toggle(isOn: $highRefresh) {
                 Text("Let pages draw as fast as the screen")
-                Text("WebKit holds a page's animations and scripted scrolling to about 60 frames a second even on a 120 Hz screen. Off, they are held to that again, which costs the battery less.")
+                Text("WebKit caps animations at 60 frames a second. Off, they are capped again and the battery lasts longer.")
             }
             .onChange(of: highRefresh) { _, _ in Features.forEachPage { Features.applyRefresh(to: $0) } }
             if Dusk.available {
                 Toggle(isOn: $dusk) {
                     Text("Darken light pages")
-                    Text("A page that stays white while the app is dark is given dark colours of its own, pictures untouched; a site that already has a dark look is left alone. Some pages break (a hero over a picture, say): the button in the site's tools, or ⇧⌘D, takes it off for that site, ⌥⇧⌘D for all of them. Only while macOS is dark.")
+                    Text("White pages get dark colours while macOS is dark. ⇧⌘D turns it off for a site, ⌥⇧⌘D for all.")
                 }
                 .onChange(of: dusk) { _, _ in Dusk.shared.changed() }
             }
@@ -101,25 +120,25 @@ private struct GeneralSettings: View {
             Section {
                 Toggle(isOn: $notch) {
                     Text("Full screen uses the space beside the notch")
-                    Text("The page goes up to the top of the screen, with a clock beside the notch. Off, full screen gets a desktop of its own, as elsewhere in macOS, and the strip beside the notch stays black.")
+                    Text("The page goes to the top of the screen. Off, full screen is a desktop of its own.")
                 }
             }
             Section {
                 Toggle(isOn: $develop) {
                     Text("Show the Develop menu")
-                    Text("In the menu bar, as in Safari: the Web Inspector and its console, a page's source, the extensions' background pages, the way a tab introduces itself, its size and look, tabs without JavaScript, images or styles, and WebKit's experimental features.")
+                    Text("The Web Inspector, page source, user agent, page size and more, as in Safari.")
                 }
                 .onChange(of: develop) { _, _ in Menus.showDeveloperMenus() }
                 Toggle(isOn: $debugMenu) {
                     Text("Show the Debug menu")
-                    Text("WebKit's internal debugging features (compositing borders, repaint counters, the resource usage overlay), and the web process: its number, and crashing it. What is switched there can break pages; the last item puts them all back.")
+                    Text("WebKit's internal switches. They can break pages; the last item puts them back.")
                 }
                 .onChange(of: debugMenu) { _, _ in Menus.showDeveloperMenus() }
             }
             Section {
                 Toggle(isOn: $debug) {
                     Text("Debug logging")
-                    Text("Keeps a log of location requests, extension popups and what pages and extensions report. Takes full effect after reopening Backlight.")
+                    Text("A log of location requests, extension popups and what pages report. Reopen Backlight to apply.")
                 }
                 Button("Open Debug Log") { DebugWindow.show() }
             }
@@ -136,6 +155,7 @@ private struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
     }
 }
 
@@ -163,34 +183,34 @@ private struct TabSettings: View {
                     ForEach(archiveChoices, id: \.1) { Text($0.0).tag($0.1) }
                 }
             } footer: {
-                Text("A tab you leave is put to sleep (frozen) after the first wait: right away is the lightest on the Mac, a longer wait keeps a page you flip back to running as you left it. Unloaded tabs give their memory back and reload where they were; archived tabs leave the sidebar for Tab › Show Archived Tabs. Pinned tabs are never archived, and nothing holding unsent typing is unloaded.")
+                Text("Sleeping tabs stop; unloaded ones give back their memory and reload where they were; archived ones leave the sidebar (Tab › Show Archived Tabs). Pinned tabs stay.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 Toggle(isOn: $freeze) {
                     Text("Freeze tabs off screen")
-                    Text("Stops them completely instead of slowing them down, with a private WebKit feature.")
+                    Text("Stops them completely instead of slowing them.")
                 }
             }
             Section("Sites kept awake") {
-                SiteList(sites: Awake.shared.sites.sorted(), empty: "None. The sun in the top bar keeps a site's tabs awake.") {
+                SiteList(sites: Awake.shared.sites.sorted(), empty: "None. The sun in the top bar keeps a site awake.") {
                     Awake.shared.remove(site: $0)
                 }
             }
             Section("Sites muted") {
-                SiteList(sites: MutedSites.shared.sites.sorted(), empty: "None. Right-click a tab, or use the Tab menu, to mute a site's sound for good.") {
+                SiteList(sites: MutedSites.shared.sites.sorted(), empty: "None. Right-click a tab to mute its site.") {
                     MutedSites.shared.remove(site: $0)
                 }
             }
             Section("Sites with developer settings") {
-                SiteList(sites: SiteDevelop.shared.sites.keys.sorted(), empty: "None. Develop › Keep These Settings for This Site keeps a site's user agent, colour scheme and switches.", detail: {
+                SiteList(sites: SiteDevelop.shared.sites.keys.sorted(), empty: "None. Develop › Keep These Settings for This Site.", detail: {
                     SiteDevelop.shared.sites[$0]?.summary
                 }) {
                     SiteDevelop.shared.save(nil, for: $0)
                 }
             }
             Section("Sites with their own zoom") {
-                SiteList(sites: SiteZoom.shared.levels.keys.sorted(), empty: "None. ⌘+ and ⌘− set a site's zoom, and so does the lock in its address.", detail: {
+                SiteList(sites: SiteZoom.shared.levels.keys.sorted(), empty: "None. ⌘+ and ⌘− set a site's zoom.", detail: {
                     SiteZoom.shared.level(for: $0).map { "\(Int(($0 * 100).rounded()))%" }
                 }) {
                     SiteZoom.shared.set(nil, for: $0)
@@ -198,6 +218,7 @@ private struct TabSettings: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
     }
 }
 
@@ -218,7 +239,7 @@ private struct PrivacySettings: View {
             Section {
                 Toggle(isOn: $blocker) {
                     Text("Block ads with uBlock Origin Lite")
-                    Text("The Safari extension that comes with its app from the App Store; Backlight adds it whenever it is on this Mac.")
+                    Text("The Safari extension from its App Store app.")
                 }
                 .onChange(of: blocker) { _, on in
                     guard on else { return }
@@ -230,13 +251,13 @@ private struct PrivacySettings: View {
             } header: {
                 Text("Ad and tracker blocking")
             } footer: {
-                Text("Its button in the top bar turns it off for a site; Settings › Extensions removes it.")
+                Text("Its top bar button turns it off for a site.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 Toggle(isOn: $cleanLinks) {
                     Text("Copy addresses without tracking")
-                    Text("⇧⌘C and Copy Address leave out the parameters that only follow you (utm_…, fbclid, gclid, a site's share codes); the page is the same. ⌥⇧⌘C, with ⌥ held in the Edit menu, copies the address as it is.")
+                    Text("⇧⌘C drops utm_, fbclid and the like. ⌥⇧⌘C copies the address as it is.")
                 }
             } header: {
                 Text("Copied links")
@@ -283,7 +304,7 @@ private struct PrivacySettings: View {
                     Text("No limit").tag(0)
                 } label: {
                     Text("Keep it under")
-                    Text("Pages' files, kept to load them faster next time. Over the limit all of it is deleted, and pages load from the network once.")
+                    Text("Over the limit, the cache is emptied.")
                 }
                 .onChange(of: cacheLimit) { _, _ in
                     DiskUse.enforce()
@@ -311,6 +332,7 @@ private struct PrivacySettings: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
     }
 
     private func measureCache() {
@@ -343,7 +365,7 @@ private struct MediaDownloadSettings: View {
 
     var body: some View {
         Section("Download button on photos and videos") {
-            Text("A site listed here gets a small button over each large photo and video when the pointer is on it, which saves the largest picture the page has, or the video's file. None until you add a site. Videos a site sends in pieces can't be saved.")
+            Text("A site listed here shows a save button over its photos and videos.")
                 .foregroundStyle(.secondary)
             HStack {
                 TextField("Site", text: _site.projectedValue, prompt: Text("example.com"))
@@ -424,7 +446,7 @@ private struct ExtensionSettings: View {
                 }
                 if !status.isEmpty { Text(status).font(.caption).foregroundStyle(.secondary) }
             } footer: {
-                Text("Extensions run on WebKit's own extension engine, as in Safari. A Safari extension, made for it, is loaded from inside its app; one from the Chrome Web Store that needs a Chrome API WebKit lacks won't work. They work in private tabs too.")
+                Text("They run on WebKit's extension engine, as in Safari. A Chrome extension that needs a Chrome-only API won't work.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Installed") {
@@ -457,6 +479,7 @@ private struct ExtensionSettings: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
     }
 
     private func add(_ work: @escaping () async throws -> String) {
@@ -480,7 +503,7 @@ private struct UpdateSection: View {
         Section {
             Toggle(isOn: Binding(get: { updater.automatic }, set: { updater.automatic = $0 })) {
                 Text("Look for updates by itself")
-                Text("Once a day, Backlight asks github.com for the latest release, which sends nothing of yours but the address of the request. A newer one is offered, never put in without your say.")
+                Text("Once a day it asks github.com for the latest release. Nothing is installed without your say.")
             }
             LabeledContent {
                 HStack {
@@ -545,7 +568,7 @@ private struct KeywordSettings: View {
                 Button("Add") { items.wrappedValue.append(Keyword(key: "", name: "", template: "https://")) }
                 Button("Restore Built-in List") { Keywords.restoreDefaults(); stored = "" }
             }
-            Text("Type a key and a space (or Tab), then the words: “yt lofi”. The key alone opens the site; %s is where the words go. A site's search box also offers “Add as Search Engine…” in its right-click menu. The dot is the site's color, shown faintly in the field: click it to pick one from anywhere on the screen with the eyedropper.")
+            Text("Type a key and a space, then the words: “yt lofi”. %s is where the words go. A site's search box can be added from its right-click menu. The dot is the site's colour.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

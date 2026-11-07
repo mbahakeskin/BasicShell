@@ -295,17 +295,63 @@ struct OmniboxView: View {
     }
 }
 
-/// What a window with no tabs shows.
+/// What a window with no tabs shows: the browser's own ground, its mark with
+/// the light behind it, and the places visited most, one click away.
 struct EmptyPage: View {
     let shell: Shell
     let window: BrowserWindow
 
-    var body: some View {
-        Button { window.ask(.newTab(privately: false)) } label: {
-            Label("New Tab", systemImage: "plus").padding(.horizontal, 8)
+    /// Up to six sites: the ones kept on purpose, then the ones visited, each once.
+    private var sites: [(host: String, url: URL)] {
+        var seen = Set<String>()
+        var found: [(host: String, url: URL)] = []
+        let pool = Bookmarks.shared.marks.map(\.url) + History.shared.visits.prefix(400).map(\.url)
+        for url in pool {
+            guard let host = url.host()?.replacingOccurrences(of: "www.", with: "").appending(url.port.map { ":\($0)" } ?? ""), seen.insert(host).inserted,
+                  let root = URL(string: "\(url.scheme ?? "https")://\(url.host() ?? host)\(url.port.map { ":\($0)" } ?? "")/")
+            else { continue }
+            found.append((host, root))
+            if found.count == 6 { break }
         }
-        .buttonStyle(.glass)
-        .controlSize(.large)
+        return found
+    }
+
+    var body: some View {
+        let sites = sites
+        ZStack {
+        Backlit(center: UnitPoint(x: 0.5, y: 0.12), radius: 620, strength: 0.08)
+        VStack(spacing: 28) {
+            if !sites.isEmpty {
+                HStack(spacing: 10) {
+                    ForEach(sites, id: \.host) { site in
+                        Button { window.open(site.url, select: true) } label: {
+                            VStack(spacing: 8) {
+                                Text(site.host.first?.isLetter == true ? String(site.host.prefix(1)).uppercased() : "·")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .frame(width: 34, height: 34)
+                                    .background(Circle().fill(Color.primary.opacity(0.08)))
+                                Text(site.host)
+                                    .font(.system(size: 11))
+                                    .lineLimit(1)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 6)
+                            .frame(width: 92, height: 84)
+                            .glassEffect(.regular, in: .rect(cornerRadius: Metrics.radius))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(site.url.absoluteString)
+                    }
+                }
+            }
+            Button { window.ask(.newTab(privately: false)) } label: {
+                Label("New Tab", systemImage: "plus").padding(.horizontal, 8)
+            }
+            .buttonStyle(.glass)
+            .controlSize(.large)
+        }
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

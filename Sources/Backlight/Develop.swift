@@ -591,7 +591,7 @@ extension BrowserWindow {
         guard let tab = shell.selected, let web = tab.webView, let window else { return }
         let alert = NSAlert()
         alert.messageText = "Custom Size"
-        alert.informativeText = "The page's view, in points, between 200 and 6000 each way. The window grows or shrinks to fit."
+        alert.informativeText = "The page's view, in points, between 200 and 6000 each way. It is shown in a frame; the window keeps its size."
         let key = "develop.customSize"
         let last = (UserDefaults.standard.string(forKey: key) ?? "").split(separator: "x").compactMap { Int($0) }
         let width = NSTextField(string: String(last.count == 2 ? last[0] : Int(web.bounds.width)))
@@ -632,17 +632,8 @@ extension BrowserWindow {
 
     /// A phone's or a tablet's size and way of introducing itself, or back.
     @objc func chooseDesign(_ item: NSMenuItem) {
-        guard let tab = shell.selected, let web = tab.webView, let window else { return }
-        let preset = BrowserWindow.designs[min(max(item.tag, 0), 2)]
-        Task {
-            do {
-                if let size = preset.size { _ = try await Viewport.resize(web, in: window, to: size) } else { Viewport.restore(window) }
-            } catch {
-                return say((error as? Viewport.Refused)?.message ?? error.localizedDescription)
-            }
-            Viewport.setAgent(preset.agent, for: tab)
-            web.reload()
-        }
+        guard shell.selected?.webView != nil else { return }
+        applyDesign(BrowserWindow.designs[min(max(item.tag, 0), 2)])
     }
 
     @objc func chooseLook(_ item: NSMenuItem) {

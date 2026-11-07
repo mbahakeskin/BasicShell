@@ -41,7 +41,7 @@ extension AgentTools {
         "downloads": "Downloads, running, paused and finished. Switch: history.",
         "save_page": "Save the page as pdf or webarchive in Downloads.",
         "record": "Record the tab as a GIF: start, stop.",
-        "resize": "Window size, preset (mobile tablet desktop), user_agent, color_scheme, zoom.",
+        "resize": "Page size (a frame in the window), preset (mobile tablet desktop), user_agent, color_scheme, zoom.",
         "selection": "What the person handed over: a picked element, else the text they selected.",
         "pick": "Ask the person to click an element; get its selector, HTML, styles, components and errors.",
         "arrange": "Pin, unpin, duplicate, sleep, move, new_window, group, ungroup, split, unsplit, or show a profile. Switch: tabs.",

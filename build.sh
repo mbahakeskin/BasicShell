@@ -27,7 +27,7 @@ APP="build/$NAME.app"
 # The bundle identifier BasicShell had was com.mbahakeskin.basicshell; what it kept under that is brought
 # over at the first launch of this one (Sources/Backlight/Legacy.swift).
 ID="com.mbahakeskin.backlight"
-VERSION="0.9.1"
+VERSION="0.10.0"
 BUILD="$(date +%Y%m%d%H%M)"
 
 swift build -c "$CONFIG" --scratch-path "$SCRATCH" ${FLAGS[@]+"${FLAGS[@]}"}

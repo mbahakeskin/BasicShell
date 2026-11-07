@@ -31,13 +31,13 @@ extension BrowserWindow {
     func zoom(to level: Double) {
         guard let tab = shell.selected, let web = tab.webView else { return }
         let level = min(3, max(0.3, (level * 100).rounded() / 100))
-        web.pageZoom = level
+        setUserZoom(level, on: web)
         if !tab.isPrivate, let site = tab.url?.host() { SiteZoom.shared.set(level == 1 ? nil : level, for: site) }
     }
 
     func zoom(by step: Double) {
         guard let web = shell.selected?.webView else { return }
-        zoom(to: Double(web.pageZoom) + step)
+        zoom(to: userZoom(of: web) + step)
     }
 }
 
@@ -95,7 +95,7 @@ struct SiteInfoView: View {
         self.tab = tab
         self.window = window
         self.close = close
-        _zoom = State(initialValue: Double(tab.webView?.pageZoom ?? 1))
+        _zoom = State(initialValue: tab.webView.map { window.userZoom(of: $0) } ?? 1)
     }
 
     private var site: String { tab.url?.host() ?? "" }
@@ -266,7 +266,7 @@ struct SiteInfoView: View {
 
     private func change(to level: Double) {
         window.zoom(to: level)
-        zoom = Double(tab.webView?.pageZoom ?? 1)
+        zoom = tab.webView.map { window.userZoom(of: $0) } ?? 1
     }
 
     // MARK: the certificate

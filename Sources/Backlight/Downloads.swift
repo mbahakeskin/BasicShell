@@ -125,6 +125,16 @@ final class Downloads: NSObject, WKDownloadDelegate {
         attach(download, to: item)
         items.insert(item, at: 0)
         Dock.update()
+        showStarted(item)
+    }
+
+    /// A download has begun: the list comes out under the downloads button, so
+    /// the person knows it did (a click on a link that saves a file shows
+    /// nothing else). It goes away by itself some seconds after the last one
+    /// has finished, unless the person opened or closed it themselves.
+    private func showStarted(_ item: Item) {
+        let window = item.web?.window?.windowController as? BrowserWindow ?? Windows.front
+        window?.downloadStarted()
     }
 
     // MARK: - what isn't a WKDownload
@@ -135,6 +145,7 @@ final class Downloads: NSObject, WKDownloadDelegate {
         items.insert(item, at: 0)
         Dock.update()
         changed()
+        showStarted(item)
         return item
     }
 
@@ -473,6 +484,7 @@ final class Downloads: NSObject, WKDownloadDelegate {
         if !hosts.isEmpty, running == 0 { hosts = [:] }
         saver.poke()
         Dock.update()
+        if !items.contains(where: \.isActive) { Windows.all.forEach { $0.downloadsEnded() } }
     }
 
     func flush() { saver.flush() }

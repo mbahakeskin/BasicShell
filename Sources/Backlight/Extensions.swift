@@ -821,6 +821,11 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
     }
 
     func webExtensionController(_ controller: WKWebExtensionController, openNewWindowUsing configuration: WKWebExtension.WindowConfiguration, for extensionContext: WKWebExtensionContext, completionHandler: @escaping ((any WKWebExtensionWindow)?, (any Error)?) -> Void) {
+        // A popup (Bitwarden's pop out) is a panel over the front window, not a window of its own.
+        if configuration.windowType == .popup, !configuration.tabURLs.isEmpty, let front = Windows.front {
+            completionHandler(front.openPopout(urls: configuration.tabURLs, size: configuration.frame.size), nil)
+            return
+        }
         let window = Windows.open(empty: true)
         for url in configuration.tabURLs { window.open(url, select: true) }
         if configuration.frame != .zero { window.window?.setFrame(configuration.frame, display: true) }
@@ -961,9 +966,9 @@ final class Extensions: NSObject, WKWebExtensionControllerDelegate {
 extension Tab: WKWebExtensionTab {
     private var browser: BrowserWindow? { host as? BrowserWindow }
 
-    func window(for context: WKWebExtensionContext) -> (any WKWebExtensionWindow)? { browser }
+    func window(for context: WKWebExtensionContext) -> (any WKWebExtensionWindow)? { popout ?? browser }
     func indexInWindow(for context: WKWebExtensionContext) -> Int {
-        browser?.shell.tabs.firstIndex(of: self) ?? NSNotFound
+        popout != nil ? 0 : browser?.shell.tabs.firstIndex(of: self) ?? NSNotFound
     }
     func parentTab(for context: WKWebExtensionContext) -> (any WKWebExtensionTab)? { opener }
     /// None while frozen: WebKit's extension code would run scripts in it,
@@ -975,7 +980,7 @@ extension Tab: WKWebExtensionTab {
     func isSelected(for context: WKWebExtensionContext) -> Bool { browser?.shell.selected === self }
     func isLoadingComplete(for context: WKWebExtensionContext) -> Bool { !isLoading }
     func isPlayingAudio(for context: WKWebExtensionContext) -> Bool { false }
-    func zoomFactor(for context: WKWebExtensionContext) -> Double { Double(webView?.pageZoom ?? 1) }
+    func zoomFactor(for context: WKWebExtensionContext) -> Double { webView.map { web in (host as? BrowserWindow)?.userZoom(of: web) ?? Double(web.pageZoom) } ?? 1 }
 
     func activate(for context: WKWebExtensionContext, completionHandler: @escaping ((any Error)?) -> Void) {
         browser?.select(self)

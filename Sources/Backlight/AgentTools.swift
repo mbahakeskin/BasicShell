@@ -253,7 +253,7 @@ enum AgentTools {
         tool("record", "Records the tab as a GIF: start, do things, then stop, which saves it into the Downloads folder and says where.", [
             "action": ["type": "string", "enum": ["start", "stop"]],
         ], required: ["action"]),
-        tool("resize", "Changes how the tab's page is shown, for trying a layout: the window's size (the page's view is then that size), the light or dark look, the zoom, and the way the browser introduces itself to sites: a phone's or tablet's, or any user agent you give. The window is the person's: put it back with preset \"desktop\". WebKit has no touch emulation; a page that asks the browser what it is (its user agent) is told after a reload.", [
+        tool("resize", "Changes how the tab's page is shown, for trying a layout: the size the page is shown at (it stands in a frame in the window, which keeps its own size; the page is told that size), the light or dark look, the zoom, and the way the browser introduces itself to sites: a phone's or tablet's, or any user agent you give. Put the page back to fill the window with preset \"desktop\". WebKit has no touch emulation; a page that asks the browser what it is (its user agent) is told after a reload.", [
             "width": ["type": "integer", "description": "The page view's width, in points."],
             "height": ["type": "integer", "description": "The page view's height, in points."],
             "preset": ["type": "string", "enum": ["mobile", "tablet", "desktop"], "description": "mobile (390×844, as an iPhone), tablet (820×1180, as an iPad), desktop (the window's own size back, and the browser's own user agent)."],
@@ -2117,11 +2117,12 @@ private struct Call {
                 var size: CGSize?
                 switch preset {
                 case .desktop?:
-                    if Viewport.restore(window) { said.append("the window is back at its own size") }
+                    if Viewport.restore(window) { said.append("the page fills the window again") }
                 case .mobile?, .tablet?:
                     size = preset?.size
                 case nil:
-                    size = CGSize(width: integer("width").map(Double.init) ?? Double(web.bounds.width), height: integer("height").map(Double.init) ?? Double(web.bounds.height))
+                    let now = tab.stageSize ?? web.bounds.size
+                    size = CGSize(width: integer("width").map(Double.init) ?? Double(now.width), height: integer("height").map(Double.init) ?? Double(now.height))
                 }
                 if let size { said.append(try await Viewport.resize(web, in: window, to: size)) }
             }

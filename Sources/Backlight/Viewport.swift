@@ -1,8 +1,8 @@
 import AppKit
 import WebKit
 
-// How a page is shown, for trying a layout: the size of the window (the page's
-// view is then that size), the way the browser introduces itself to sites, and
+// How a page is shown, for trying a layout: the size of the frame it stands in
+// (the window keeps its own, see Stage.swift), the way the browser introduces itself to sites, and
 // the light or dark look the page is told of. The Develop menu and the agent's
 // `resize` both do it here.
 //
@@ -70,45 +70,32 @@ enum Viewport {
         let message: String
     }
 
-    /// A window's frame from before its size was changed here, to put back.
-    private static var windowed: [ObjectIdentifier: NSRect] = [:]
+    /// The window a tab's window is, when it is one of the browser's.
+    private static func browser(_ window: NSWindow) -> BrowserWindow? { window.windowController as? BrowserWindow }
 
-    static func isResized(_ window: NSWindow) -> Bool { windowed[ObjectIdentifier(window)] != nil }
+    /// Whether the page is shown in a frame of another size (see Stage.swift).
+    static func isResized(_ window: NSWindow) -> Bool { browser(window)?.stage.size != nil }
 
-    /// The window as it was, if its size was changed here.
+    /// The page filling the window again, if it was in a frame.
     @discardableResult
     static func restore(_ window: NSWindow) -> Bool {
-        guard let frame = windowed.removeValue(forKey: ObjectIdentifier(window)) else { return false }
-        window.setFrame(frame, display: true, animate: false)
+        guard let shell = browser(window), shell.shell.selected?.stageSize != nil else { return false }
+        shell.setStage(nil)
         return true
     }
 
-    /// The window made as large as it takes for the page's view to be `size`;
-    /// said back in words, with a note where the screen wouldn't allow it.
+    /// The page shown in a frame where it is told it is `size`; said back in
+    /// words, with a note where the window has no room for it that large.
     static func resize(_ web: WKWebView, in window: NSWindow, to size: CGSize) async throws -> String {
-        guard !window.styleMask.contains(.fullScreen) else {
-            throw Refused(message: "The window is full screen, which has a size of its own; it has to be left first.")
-        }
         guard size.width >= 200, size.height >= 200, size.width <= 6000, size.height <= 6000 else {
-            throw Refused(message: "A page view between 200 and 6000 points each way.")
+            throw Refused(message: "A page size between 200 and 6000 points each way.")
         }
-        let key = ObjectIdentifier(window)
-        if windowed[key] == nil { windowed[key] = window.frame }
-        // The window grows by what the view is short of.
-        var frame = window.frame
-        frame.size.width += size.width - web.bounds.width
-        frame.size.height += size.height - web.bounds.height
-        frame.origin.y -= frame.size.height - window.frame.size.height
-        if let area = (window.screen ?? NSScreen.main)?.visibleFrame {
-            frame.size.width = min(frame.size.width, area.width)
-            frame.size.height = min(frame.size.height, area.height)
-            frame.origin.x = min(max(frame.origin.x, area.minX), area.maxX - frame.size.width)
-            frame.origin.y = min(max(frame.origin.y, area.minY), area.maxY - frame.size.height)
-        }
-        window.setFrame(frame, display: true, animate: false)
-        try? await Task.sleep(for: .milliseconds(250))
-        let exact = Int(web.bounds.width) == Int(size.width) && Int(web.bounds.height) == Int(size.height)
-        return "the page view is \(Int(web.bounds.width))×\(Int(web.bounds.height)) points" + (exact ? "" : " (the window or the screen wouldn't give more or less)")
+        guard let shell = browser(window) else { throw Refused(message: "That tab is in no browser window.") }
+        shell.setStage(size, for: shell.shell.allTabs.first { $0.webView === web })
+        try? await Task.sleep(for: .milliseconds(150))
+        let scale = shell.stage.scale
+        return "the page is told it is \(Int(size.width))×\(Int(size.height)) points, in a frame in the window"
+            + (scale < 0.995 ? ", drawn at \(Int((scale * 100).rounded()))% to fit (screenshots are smaller than that size)" : "")
     }
 
     /// The way the tab introduces itself to sites, kept across an unload;

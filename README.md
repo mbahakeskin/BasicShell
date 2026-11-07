@@ -435,10 +435,11 @@ The tools:
   `screenshot` with a `region` (enlarged, to read small print), `key` with a
   `repeat`, and `batch` (several tools in one call, stopping at the first
   that fails).
-- `resize`: the window's size (a phone's or a tablet's, or any), the light or
+- `resize`: the size the page is shown at (a phone's or a tablet's, or any: the
+  page stands in a frame in the window, which keeps its own size), the light or
   dark look the page is told of, the zoom, and the way the browser introduces
-  itself to sites (a phone's or a tablet's, or any user agent given). It changes your window, and `desktop` puts it back; there
-  is no touch emulation in WebKit.
+  itself to sites (a phone's or a tablet's, or any user agent given). `desktop`
+  fills the window again; there is no touch emulation in WebKit.
 - More of the page: `site_info` (whether the connection is secure, the
   certificate's holder, issuer and expiry, what the person allowed the site,
   its cookie count, the zoom, how the tab is set), `selection` (what you have selected), `screenshot` of
@@ -539,7 +540,7 @@ Claude in Chrome is still ahead in these:
 
 - It works through Chrome's debugger, so it can emulate devices truly (touch,
   throttled networks, screen metrics); WebKit has no such thing, and
-  `resize` changes the window's size, the look the page is told of, the zoom
+  `resize` changes the size of the page's frame, the look the page is told of, the zoom
   and the user agent only.
 - Each of its actions is checked by a classifier of Anthropic's; this has
   none.

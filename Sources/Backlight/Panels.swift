@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 /// The lists that open over the page: each a glass card with a search field,
 /// put away with Esc or a click outside.
 enum Panel: String, CaseIterable {
-    case history, bookmarks, downloads, archive
+    case history, bookmarks, downloads, archive, settings, popout
 
     var title: String {
         switch self {
@@ -12,6 +12,8 @@ enum Panel: String, CaseIterable {
         case .bookmarks: "Bookmarks"
         case .downloads: "Downloads"
         case .archive: "Archived Tabs"
+        case .settings: "Settings"
+        case .popout: "Extension"
         }
     }
 }
@@ -27,6 +29,7 @@ struct PanelView: View {
         nonmutating set { _query.wrappedValue = newValue }
     }
     @FocusState private var focused: Bool
+    @AppStorage("settings.tab") private var settingsTab = "general"
 
     var body: some View {
         ZStack {
@@ -40,7 +43,31 @@ struct PanelView: View {
         .onAppear { focused = true }
     }
 
-    private func card(_ panel: Panel) -> some View {
+    @ViewBuilder private func card(_ panel: Panel) -> some View {
+        if panel == .settings {
+            VStack(spacing: 0) {
+                SettingsTabs(tab: $settingsTab)
+                    .padding(.horizontal, 14)
+                    .frame(height: 50)
+                Divider()
+                SettingsContent(tab: settingsTab)
+            }
+            .frame(width: 720, height: 560)
+            .glassEffect(.regular, in: .rect(cornerRadius: 18))
+        } else if panel == .popout {
+            if let popout = shell.popout, let web = popout.tab.webView {
+                PopoutHolder(web: web)
+                    .frame(width: popout.size.width, height: popout.size.height)
+                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                    .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(Color.primary.opacity(0.14), lineWidth: 1) }
+                    .shadow(color: .black.opacity(0.3), radius: 28, y: 8)
+            }
+        } else {
+            listCard(panel)
+        }
+    }
+
+    private func listCard(_ panel: Panel) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(panel.title).font(.system(size: 15, weight: .semibold))
@@ -89,7 +116,7 @@ struct PanelView: View {
                 .disabled(!Downloads.shared.items.contains { !$0.isActive })
         case .archive:
             Button("Clear") { Archive.shared.clear() }.buttonStyle(.borderless)
-        case .bookmarks:
+        case .bookmarks, .settings, .popout:
             EmptyView()
         }
     }
@@ -139,6 +166,8 @@ struct PanelView: View {
             let items = Downloads.shared.items
             if items.isEmpty { empty("No downloads") }
             ForEach(items) { DownloadRow(item: $0) }
+        case .settings, .popout:
+            EmptyView()
         }
     }
 

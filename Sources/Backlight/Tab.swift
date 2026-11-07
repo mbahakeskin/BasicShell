@@ -97,6 +97,10 @@ final class Tab: NSObject, Identifiable {
     // What the Develop menu set for this tab, kept across an unload (see
     // Develop.swift and Viewport.swift).
     @ObservationIgnored var userAgent: String?
+    /// The size its page is shown at, in a frame (Stage.swift); `nil` fills the window.
+    @ObservationIgnored var stageSize: CGSize?
+    /// The window an extension asked for, when this page is its popup (Popout.swift).
+    @ObservationIgnored var popout: PopoutWindow?
     @ObservationIgnored var look: NSAppearance.Name?
     @ObservationIgnored var javaScriptOff = false
     @ObservationIgnored var imagesOff = false
@@ -475,7 +479,8 @@ extension Tab: WKNavigationDelegate {
         let site = web.url?.host()
         guard site != zoomedFor else { return }
         zoomedFor = site
-        web.pageZoom = site.flatMap { SiteZoom.shared.level(for: $0) } ?? 1
+        let level = site.flatMap { SiteZoom.shared.level(for: $0) } ?? 1
+        if let window = web.window?.windowController as? BrowserWindow { window.setUserZoom(level, on: web) } else { web.pageZoom = level }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

@@ -69,8 +69,10 @@ enum Address {
     static func pretty(_ url: URL) -> String {
         guard let host = url.host() else { return url.absoluteString }
         let bare = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+        // The port is part of where it is: two servers on one machine differ by it.
+        let place = url.port.map { "\(bare):\($0)" } ?? bare
         let path = url.path()
-        return path.isEmpty || path == "/" ? bare : bare + path
+        return path.isEmpty || path == "/" ? place : place + path
     }
 
     /// The site alone: its host, without "www.".

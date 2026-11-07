@@ -40,6 +40,7 @@ enum Web {
         Geolocation.attach(to: config)
         WebNotifications.attach(to: config)
         LinkPreview.attach(to: config)
+        config.userContentController.addUserScript(LocalDev.jsonScript)
         Debug.attach(to: config)
         config.userContentController.add(DuskRelay.shared, contentWorld: Dusk.world, name: DuskRelay.name)
         config.userContentController.add(MediaDownload.shared, contentWorld: MediaDownload.world, name: MediaDownload.name)

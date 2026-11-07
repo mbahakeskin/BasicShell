@@ -262,7 +262,7 @@ final class ZoomRow: NSView {
     }
 
     private func refresh() {
-        let zoom = owner.shell.selected?.webView?.pageZoom ?? 1
+        let zoom = owner.shell.selected?.webView.map { owner.userZoom(of: $0) } ?? 1
         percent.stringValue = "\(Int((zoom * 100).rounded()))%"
     }
 

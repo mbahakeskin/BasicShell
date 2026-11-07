@@ -183,7 +183,7 @@ final class Updater: NSObject {
         let alert = NSAlert()
         alert.messageText = "Backlight \(release.version) is available"
         let notes = Updater.excerpt(release.notes)
-        alert.informativeText = "You have \(current)." + (notes.isEmpty ? "" : "\n\n" + notes)
+        alert.informativeText = notes.isEmpty ? "You have \(current)." : notes
         alert.addButton(withTitle: "Update and Restart")
         alert.addButton(withTitle: "Later")
         alert.addButton(withTitle: "Skip This Version")
@@ -201,13 +201,27 @@ final class Updater: NSObject {
         }
     }
 
-    /// The first of what the release says, without the markup.
+    /// What the release changed: the heading of each item of its list (the
+    /// bold words it opens with, else its first sentence), whole and without
+    /// markup; the rest is on the release's page, behind its button.
     private static func excerpt(_ notes: String) -> String {
         let lines = notes.split(separator: "\n", omittingEmptySubsequences: true)
-            .map { $0.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "") }
-            .filter { !$0.lowercased().contains("self-signed") && !$0.lowercased().contains("sha-256") && !$0.hasPrefix("**Download") && !$0.hasPrefix("Download") }
-        let text = lines.prefix(8).joined(separator: "\n")
-        return text.count > 700 ? String(text.prefix(700)) + "…" : text
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.hasPrefix("- ") || $0.hasPrefix("* ") }
+            .map { String($0.dropFirst(2)) }
+        let items = lines.compactMap { item -> String? in
+            var head = item
+            if item.hasPrefix("**"), let end = item.dropFirst(2).range(of: "**") {
+                head = String(item.dropFirst(2)[..<end.lowerBound])
+            } else if let stop = item.range(of: ". ") {
+                head = String(item[..<stop.lowerBound])
+            }
+            head = head.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "`", with: "")
+                .trimmingCharacters(in: CharacterSet(charactersIn: ". "))
+            return head.isEmpty ? nil : "• " + head
+        }
+        let shown = items.prefix(5).joined(separator: "\n")
+        return items.count > 5 ? shown + "\n…and \(items.count - 5) more" : shown
     }
 
     static func say(_ message: String, _ detail: String) {

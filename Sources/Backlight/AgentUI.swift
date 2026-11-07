@@ -167,7 +167,7 @@ struct AgentSettings: View {
             Section {
                 Toggle(isOn: $enabled) {
                     Text("Let an agent use this browser")
-                    Text("AI agents (Claude Code, Codex, the Claude app, Antigravity, or any other that speaks the Model Context Protocol) get tools for Backlight: they can see your tabs, read pages and act in them, as you and signed in as you. Nothing is on until you say so here, and what is allowed is chosen below.")
+                    Text("Claude Code, Codex, the Claude app and other MCP agents get tools to read pages and act in them, as you. Off until you turn it on.")
                 }
                 .onChange(of: enabled) { _, _ in access.start() }
                 if enabled {
@@ -181,7 +181,7 @@ struct AgentSettings: View {
                     }
                 }
             } footer: {
-                Text("A page can try to talk the agent into things with text you don't see. Asking per site, the frame around a tab it is using and its Stop button are there for that; keep it to sites you trust.")
+                Text("A page can try to talk an agent into things. Asking per site and the Stop button guard against it.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             if enabled {
@@ -218,7 +218,7 @@ struct AgentSettings: View {
                         Button("Add") { status = AgentConnect.addToAntigravity() }
                     } label: {
                         Text("Antigravity")
-                        Text("The agy command line and the editor. Written into ~/.gemini/config/mcp_config.json; restart it after.")
+                        Text("Written into ~/.gemini/config/mcp_config.json; restart it after.")
                     }
                     LabeledContent {
                         Button("Add") { status = AgentConnect.addSkill() }
@@ -240,7 +240,7 @@ struct AgentSettings: View {
                 } header: {
                     Text("Connect")
                 } footer: {
-                    Text("Added once, it stays: a new chat has Backlight's tools without adding it again. After Backlight is updated, quit and reopen it, and start a new chat, to get new tools.")
+                    Text("Added once, it stays. After an update, reopen Backlight and start a new chat.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
@@ -251,7 +251,7 @@ struct AgentSettings: View {
                         Text("Always a profile of its own, “Agent”, with none").tag("own")
                     }
                 } footer: {
-                    Text("Left to the agent it uses your sign-ins when the task needs them, and the signed-out “Agent” profile for reading public pages. Either way its tabs stay open when it is done unless it closes them, and it can look at a tab of yours that you ask it to.")
+                    Text("The agent uses your sign-ins when it needs them, and a signed-out “Agent” profile for public pages.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
@@ -262,24 +262,24 @@ struct AgentSettings: View {
                     Ability(title: "Click and type in it",
                             detail: "Click, drag, type, press keys, scroll, fill in forms (a whole form, or the site's search, in one call), answer the page's alerts, change the window's size, look and user agent to try a layout, download a file into Downloads (asked each time) or give the page a file from this Mac (asked each time). Needs your \"click and type\" for the site, which includes reading.",
                             tools: ["click", "hover", "drag", "type", "key", "scroll", "fill", "fill_form", "search", "dialog", "resize", "upload", "download", "batch"])
-                    Text("Never, whatever is set: private tabs, and what is in password, card and one-time-code fields. The agent can't see them or fill them; signing in and paying stay yours.")
+                    Text("Always yours: private tabs, and password, card and one-time-code fields.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
                 Section {
                     Toggle(isOn: $bypass) {
                         Text("Bypass permissions")
-                        Text("Stop asking, and open everything. The agent may read, click and type on any site and open any file on this Mac without a question, give pages files from this Mac, download files and clear cookies and storage; what a page it works in asks (your location, to show notifications, to open another app) is answered no, unasked; and every switch below is on: the clipboard, tabs, extensions, history, developer tools, WebKit features and storage. For work you are watching.")
+                        Text("No questions: any site, any file, every switch below on. For work you are watching.")
                     }
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Still in force with it on").font(.callout.weight(.medium))
-                        Text("Sites you set to Never. Private tabs, and password and card fields. The Stop button on the page's frame. Turn bypass off and the switches below are as you left them.")
+                        Text("Still kept: sites set to Never, private tabs, password and card fields, the Stop button.")
                             .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                 } header: {
                     Text("Asking")
                 } footer: {
-                    Text("Without it, Backlight asks the first time the agent wants to read a site and again before it clicks or types there; \"Remember for this site\" keeps the answer (see Sites). With it on, a page that talks the agent into something meets nothing in its way.")
+                    Text("Off, Backlight asks before an agent reads a site and again before it clicks or types there.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
@@ -305,7 +305,7 @@ struct AgentSettings: View {
                 } header: {
                     Text("Waiting")
                 } footer: {
-                    Text("A script in the page is the quickest and costs no memory, but it is code in the page. The Web Inspector puts none there: it reads what WebKit knows of the page's timers, frames and requests, at about 130 MB for each tab the agent works in while it works there, which is given back a minute after. The agent can switch to it by itself if an action seems to come back too early or late.")
+                    Text("A script in the page is quickest but is code in the page. The Web Inspector adds none, at about 130 MB per tab while the agent works there.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
@@ -317,7 +317,7 @@ struct AgentSettings: View {
                 } header: {
                     Text("For developers")
                 } footer: {
-                    Text("A page opened before you turn these on isn't watched: reload it. The last three work only while Developer tools are on (or bypass is).")
+                    Text("A page opened before you turn these on isn't watched: reload it.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
@@ -391,12 +391,13 @@ struct AgentSettings: View {
                 } header: {
                     Text("Recent activity")
                 } footer: {
-                    Text("What the agent has done since Backlight opened, newest first, and how long each call took (a slow one in orange). Kept in memory only.")
+                    Text("What the agent did since Backlight opened, with how long each call took. Kept in memory only.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
     }
 
     private func addSite() {

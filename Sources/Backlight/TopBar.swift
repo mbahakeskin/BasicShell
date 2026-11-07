@@ -219,7 +219,9 @@ struct SiteField: View {
             Button { window.openLocation(nil) } label: {
                 HStack(spacing: 6) {
                     if let url = tab?.url {
-                        Text(Address.site(url)).lineLimit(1).truncationMode(.middle)
+                        // A server of one's own is told apart by its port.
+                        Text(LocalDev.isLocal(url) ? Address.site(url) + (url.port.map { ":\($0)" } ?? "") : Address.site(url))
+                            .lineLimit(1).truncationMode(.middle)
                     } else {
                         Text("Search or enter address").foregroundStyle(.secondary)
                     }
@@ -292,6 +294,7 @@ struct DownloadsButton: View {
         let running = Downloads.shared.running
         let open = Binding(get: { shell.downloadsOpen }, set: { showing in
             shell.downloadsOpen = showing
+            window.downloadsShownByApp = false
             window.layout(animated: true)
         })
         Button { open.wrappedValue.toggle() } label: {

@@ -504,7 +504,7 @@ struct ImportSettings: View {
             } header: {
                 Text("Bookmarks and history")
             } footer: {
-                Text("Chrome, Brave, Edge, Arc, Vivaldi, Opera, Chromium, Safari and Firefox. Folders become a prefix of the title (Work / Reports). Pages already here aren't added again. Nothing is changed in the other browser.")
+                Text("From Chrome, Brave, Edge, Arc, Vivaldi, Opera, Chromium, Safari or Firefox. Nothing changes in the other browser.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             if let source = model.current, case .chromium = source.kind {
@@ -513,7 +513,7 @@ struct ImportSettings: View {
                 } header: {
                     Text("Passwords")
                 } footer: {
-                    Text("Writes the passwords \(source.name) has saved to a CSV file you choose a place for, which password managers can import. macOS asks you to allow reading the key. The file is plain text: delete it once it's imported.")
+                    Text("A CSV file for a password manager to import. It is plain text: delete it afterwards.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             } else if model.current?.kind == .safari {
@@ -528,6 +528,7 @@ struct ImportSettings: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
         .task { await model.load() }
     }
 }

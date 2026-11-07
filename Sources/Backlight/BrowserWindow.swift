@@ -40,6 +40,8 @@ final class Shell {
     /// Where the toast's pill is in its host, flipped (ToastView).
     @ObservationIgnored var toastPill: CGRect = .zero
     var panel: Panel?
+    /// The window an extension asked for as a popup, shown as a panel (Popout.swift).
+    var popout: PopoutWindow?
     /// An extension's popup is open under its button in the top bar.
     var popupOpen = false
     /// The downloads under their button in the top bar are showing.
@@ -88,6 +90,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
 
     let root = RootView()
     private let page = NSView()
+    /// The window's ground: the desktop, blurred, where no page is.
+    private let glass = NSVisualEffectView()
     /// The view the tabs' pages are in, for Split.swift.
     var pageView: NSView { page }
     // Split view (Split.swift).
@@ -105,6 +109,13 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     private var omnibox: NSHostingView<OmniboxView>?
     private var panelHost: NSHostingView<PanelView>?
     private var toastView: ToastHost?
+    private var downloadsAutoClose: Timer?
+    /// The page shown in a frame of another size (Stage.swift).
+    let stage = Stage()
+    var stageHost: NSHostingView<StageView>?
+    var stagedZoom: [ObjectIdentifier: CGFloat] = [:]
+    /// The downloads list is out because a download began, not because it was asked for.
+    var downloadsShownByApp = false
     private var findHost: NSHostingView<FindBarView>?
     #if AGENT
     private var agentFrame: AgentFrameHost?
@@ -134,7 +145,9 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         window.minSize = NSSize(width: 480, height: 320)
         window.isReleasedWhenClosed = false
         window.acceptsMouseMovedEvents = true
-        window.backgroundColor = .windowBackgroundColor
+        // Where nothing is drawn the desktop shows through, blurred (see `glass`).
+        window.isOpaque = false
+        window.backgroundColor = .clear
         super.init(window: window)
         window.delegate = self
         window.onFullScreen = { [weak self] in self?.fullScreenRequested() ?? false }
@@ -165,6 +178,12 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
         root.onLayout = { [weak self] in self?.layout(animated: false) }
         root.onExit = { [weak self] in self?.pointerLeft() }
 
+        glass.material = .underWindowBackground
+        glass.blendingMode = .behindWindow
+        glass.state = .active
+        glass.autoresizingMask = [.width, .height]
+        glass.frame = root.bounds
+        root.addSubview(glass)
         page.wantsLayer = true
         page.layer?.masksToBounds = true
         root.addSubview(page)
@@ -240,13 +259,24 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
                 pageFrame.size.height = barY - inset - pageFrame.minY
             }
         }
+        // At another size the page stands in a frame on a ground of its own.
+        let ground = pageFrame
+        if let size = stage.size {
+            let fit = Stage.fit(size, in: ground.size)
+            pageFrame = NSRect(x: ground.minX + fit.rect.minX, y: ground.maxY - fit.rect.maxY,
+                               width: fit.rect.width, height: fit.rect.height)
+            if stage.scale != fit.scale { stage.scale = fit.scale }
+            if stage.device != fit.rect { stage.device = fit.rect }
+        }
+        let radius: CGFloat = stage.size != nil ? Stage.radius : (framed ? 10 : 0)
 
         let strip = menuBarAllowance
         let lineWidth: CGFloat = 160
         loading.frame = NSRect(x: (bounds.width - lineWidth) / 2, y: bounds.maxY - top - 4.5, width: lineWidth, height: 3)
         // The window's own gray behind a page that hasn't drawn yet (see Tab).
         root.effectiveAppearance.performAsCurrentDrawingAppearance {
-            self.page.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+            // No tab: the ground shows (the empty page); else the window's gray behind a page that hasn't drawn.
+            self.page.layer?.backgroundColor = self.shell.selected == nil ? NSColor.clear.cgColor : NSColor.windowBackgroundColor.cgColor
         }
         // The field for finding, at the page's top right: under the top bar
         // while that is out, under the strip beside the notch in full screen.
@@ -262,6 +292,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             self.topBar.alphaValue = self.shell.topBarOut ? 1 : 0
             self.sidebar.frame = sideFrame
             self.sidebar.alphaValue = self.shell.sidebarOut ? 1 : 0
+            self.stageHost?.frame = ground
             self.page.frame = pageFrame
             self.peekView?.frame = pageFrame
             #if AGENT
@@ -269,9 +300,9 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             #endif
             self.findHost?.frame = findFrame
         }
-        page.layer?.cornerRadius = framed ? 10 : 0
+        page.layer?.cornerRadius = radius
         #if AGENT
-        agentFrame?.rootView = AgentFrame(radius: framed ? 10 : 0, tab: shell.selected)
+        agentFrame?.rootView = AgentFrame(radius: radius, tab: shell.selected)
         #endif
         if animated {
             NSAnimationContext.runAnimationGroup { context in
@@ -283,6 +314,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             change()
         }
         applySplit()
+        applyStageZoom()
         omnibox?.frame = bounds
         panelHost?.frame = bounds
         toastView?.frame = NSRect(x: 0, y: bounds.maxY - 120, width: bounds.width, height: 60)
@@ -781,6 +813,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             }
         }
         shell.selected = tab
+        // Each tab has its own frame, or none.
+        syncStage()
         if let tab {
             recent.removeAll { $0 == tab.id }
             recent.append(tab.id)
@@ -825,6 +859,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
                 if let view, self?.cover === view { self?.uncover() }
             }
         }
+        applyStageZoom()
         tab.lastSeen = Date()
         Session.touch()
         window.title = tab.name
@@ -894,6 +929,8 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     }
 
     func close(_ tab: Tab) {
+        // The popup of an extension asked to close itself (window.close()).
+        if tab === shell.popout?.tab { return closePopout() }
         // A tab of a profile that isn't shown (the agent's reach): gone from where it is parked.
         if !shell.tabs.contains(tab), let parked = shell.parked.values.first(where: { $0.tabs.contains(tab) }) {
             parked.tabs.removeAll { $0 === tab }
@@ -1095,6 +1132,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     func showPanel(_ panel: Panel) {
         if omnibox != nil { dismissOmnibox() }
         if shell.panel == panel, panelHost != nil { return closePanel() }
+        if shell.panel == .popout, panel != .popout { endPopout() }
         shell.panel = panel
         panelHost?.removeFromSuperview()
         let host = hosting(PanelView(shell: shell, window: self))
@@ -1105,6 +1143,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     }
 
     func closePanel() {
+        if shell.panel == .popout { endPopout() }
         panelHost?.removeFromSuperview()
         panelHost = nil
         shell.panel = nil
@@ -1443,6 +1482,32 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
     @objc func showHistory(_ sender: Any?) { showPanel(.history) }
     @objc func showBookmarks(_ sender: Any?) { showPanel(.bookmarks) }
     @objc func showDownloads(_ sender: Any?) { showPanel(.downloads) }
+
+    /// A download began: its list comes out under the downloads button (TopBar.swift)
+    /// and is put away again by itself once they have all finished, if the
+    /// person did not open or close it in between.
+    func downloadStarted() {
+        downloadsAutoClose?.invalidate()
+        downloadsAutoClose = nil
+        guard !shell.downloadsOpen else { return }
+        shell.downloadsOpen = true
+        downloadsShownByApp = true
+        layout(animated: true)
+    }
+
+    /// The last running download has ended.
+    func downloadsEnded() {
+        guard downloadsShownByApp, shell.downloadsOpen else { return }
+        downloadsAutoClose?.invalidate()
+        downloadsAutoClose = Timer.scheduledTimer(withTimeInterval: 6, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.downloadsShownByApp else { return }
+                self.downloadsShownByApp = false
+                self.shell.downloadsOpen = false
+                self.layout(animated: true)
+            }
+        }
+    }
     @objc func showArchive(_ sender: Any?) { showPanel(.archive) }
 
     @objc func bookmarkPage(_ sender: Any?) {
@@ -1531,7 +1596,7 @@ final class BrowserWindow: NSWindowController, NSWindowDelegate, NSMenuItemValid
             return tab?.webView != nil
         case #selector(actualSize(_:)), #selector(zoomIn(_:)), #selector(zoomOut(_:)):
             // The page's zoom is said where it is changed: "Zoom In (120%)".
-            let percent = Int(((tab?.webView?.pageZoom ?? 1) * 100).rounded())
+            let percent = Int(((tab?.webView.map { userZoom(of: $0) } ?? 1) * 100).rounded())
             let name = item.action == #selector(actualSize(_:)) ? "Actual Size" : item.action == #selector(zoomIn(_:)) ? "Zoom In" : "Zoom Out"
             item.title = percent == 100 ? name : "\(name) (\(percent)%)"
             return tab?.url != nil
