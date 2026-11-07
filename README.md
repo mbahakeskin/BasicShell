@@ -5,6 +5,8 @@ ships with the Mac. No dependencies, no telemetry, nothing sent anywhere but
 the pages you open (and, in a release build, a once-a-day look at GitHub for a
 newer version, which Settings turns off).
 
+Website: https://mbahakeskin.github.io/Backlight/ (built from `site/`, served from `docs/`: run `python3 site/build.py`, commit, push).
+
 - The page takes the whole window. Tabs live in a sidebar that comes out when
   the pointer reaches the left edge; back, forward, reload and the address
   come down from the top edge. Either can be pinned open (View menu). Or,
