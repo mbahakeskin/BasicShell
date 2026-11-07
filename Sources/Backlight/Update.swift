@@ -306,7 +306,15 @@ final class Updater: NSObject {
             mv "$BACK" "$OLD"
           fi
         fi
+        # Launch Services can still count the app that has just quit as running, and then opening the path does
+        # nothing: wait a moment, and open again until the new one is there.
+        sleep 1
         open "$OLD"
+        for TRY in 1 2 3 4 5 6 7 8; do
+          sleep 1
+          pgrep -f "$OLD/Contents/MacOS/Backlight\\$" >/dev/null && break
+          open -n "$OLD"
+        done
         """
         try text.write(to: script, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
