@@ -1,0 +1,277 @@
+<a class="skip" href="#main">Skip to the page</a>
+
+<header class="nav" id="top">
+  <div class="nav-in">
+    <a class="brand" href="#top" aria-label="BasicShell, back to the top">
+      <svg class="mark" viewBox="0 0 28 28" aria-hidden="true"><defs><linearGradient id="mkg" x1=".2" y1="0" x2=".8" y2="1"><stop offset="0" stop-color="#2d3568"/><stop offset="1" stop-color="#12162f"/></linearGradient><mask id="mkm"><rect width="28" height="28" fill="#fff"/><circle cx="16.2" cy="14.4" r="7.1" fill="#000"/></mask></defs><rect x="1" y="1" width="26" height="26" rx="8.5" fill="url(#mkg)"/><circle cx="12.6" cy="14" r="7.6" style="fill:var(--eye-light)" mask="url(#mkm)"/><circle cx="16.2" cy="14.4" r="7.1" fill="#171b3a"/><circle cx="16.2" cy="14.4" r="6.9" fill="none" stroke="#fff" stroke-opacity=".22" stroke-width=".8"/></svg>
+      <span data-name>BasicShell</span>
+    </a>
+    <nav class="nav-links" aria-label="Sections">
+      <a href="#try" data-spy="try">Try it</a>
+      <a href="#agents" data-spy="agents" class="keep">Agents</a>
+      <a href="#features" data-spy="features">Features</a>
+      <a href="#numbers" data-spy="numbers">Numbers</a>
+      <a href="#faq" data-spy="faq">Questions</a>
+      <a class="get" href="https://github.com/mbahakeskin/BasicShell/releases/latest">Download</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero" aria-labelledby="h1">
+    <canvas class="dots" id="shafts" aria-hidden="true"></canvas>
+    <canvas class="dots" id="dots" aria-hidden="true"></canvas>
+    <div class="eye" id="eye" aria-hidden="true">
+      <svg viewBox="0 0 400 400">
+        <defs>
+          <radialGradient id="eyeHalo" cx="50%" cy="50%" r="50%"><stop offset=".34" style="stop-color:var(--eye-glow);stop-opacity:.85"/><stop offset=".62" style="stop-color:var(--eye-glow);stop-opacity:.2"/><stop offset="1" style="stop-color:var(--eye-glow);stop-opacity:0"/></radialGradient>
+          <radialGradient id="eyeLight" cx="28%" cy="50%" r="80%"><stop offset="0" style="stop-color:var(--eye-hot)"/><stop offset=".5" style="stop-color:var(--eye-light)"/><stop offset="1" style="stop-color:var(--eye-edge)"/></radialGradient>
+          <linearGradient id="eyeGlass" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--eye-glass-a)"/><stop offset="1" style="stop-color:var(--eye-glass-b)"/></linearGradient>
+          <linearGradient id="eyeSheen" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".26"/><stop offset=".5" stop-color="#fff" stop-opacity=".04"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+          <linearGradient id="eyeRim" x1="0" y1="0" x2="1" y2="0"><stop offset="0" style="stop-color:var(--eye-light)"/><stop offset=".5" stop-color="#fff" stop-opacity=".5"/><stop offset="1" style="stop-color:var(--eye-light);stop-opacity:.45"/></linearGradient>
+          <filter id="eyeBlur" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="16"/></filter>
+        </defs>
+        <circle cx="200" cy="200" r="200" fill="url(#eyeHalo)"/>
+        <circle cx="188" cy="200" r="152" style="fill:var(--eye-glow)" opacity=".7" filter="url(#eyeBlur)"/>
+        <circle cx="188" cy="200" r="150" fill="url(#eyeLight)"/>
+        <g class="drift"><g id="iris">
+          <circle cx="214" cy="200" r="136" fill="url(#eyeGlass)"/>
+          <circle cx="214" cy="200" r="136" fill="url(#eyeSheen)"/>
+          <circle cx="214" cy="200" r="135" fill="none" stroke="url(#eyeRim)" stroke-width="2.6"/>
+        </g></g>
+      </svg>
+    </div>
+    <div class="hero-in">
+      <h1 id="h1">
+        <span class="l"><span>The page gets</span></span>
+        <span class="l"><span>the <span class="wide">whole</span></span></span>
+        <span class="l"><span>window.</span></span>
+      </h1>
+      <div class="hero-row">
+        <p class="hero-sub"><b data-name>BasicShell</b> is a small web browser for Mac. Tabs wait at the left edge and the address at the top, and neither takes room until you reach for it. It is written in Swift on the WebKit that ships with macOS, and your AI agent can use it too.</p>
+        <div class="cta">
+          <a class="btn" href="https://github.com/mbahakeskin/BasicShell/releases/latest">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/></svg>
+            <span>Download for Mac<small>Version @@VERSION@@ · @@SIZE@@</small></span>
+          </a>
+          <a class="btn-quiet" href="https://github.com/mbahakeskin/BasicShell">View on GitHub <span aria-hidden="true">↗</span></a>
+        </div>
+        <p class="meta">Free and open source (MIT) · macOS 27 · No account, no telemetry</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="stage-sec" id="try" aria-label="Try it">
+    <div class="stage-wrap">
+      <div class="stage-scroll">
+      <div class="laptop" id="laptop">
+        <div class="lid">
+          <div class="screen-wrap" id="screenWrap">
+            <div class="screen" id="screen">
+              <svg class="wall" id="wall" viewBox="0 0 1710 1112" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg>
+
+              <div class="menubar" id="menubar" aria-hidden="true">
+                <svg class="logo" viewBox="0 0 24 24"><path d="M16.37 12.64c-.03-2.6 2.12-3.85 2.22-3.91-1.21-1.77-3.09-2.01-3.76-2.04-1.6-.16-3.12.94-3.93.94-.81 0-2.06-.92-3.39-.89-1.74.03-3.35 1.01-4.25 2.57-1.81 3.14-.46 7.78 1.3 10.33.86 1.25 1.89 2.65 3.24 2.6 1.3-.05 1.79-.84 3.36-.84 1.57 0 2.01.84 3.38.82 1.4-.03 2.28-1.27 3.13-2.52.99-1.45 1.4-2.85 1.42-2.92-.03-.01-2.72-1.04-2.75-4.14zM13.8 4.9c.71-.86 1.19-2.06 1.06-3.25-1.02.04-2.26.68-3 1.54-.66.76-1.24 1.98-1.08 3.15 1.14.09 2.31-.58 3.02-1.44z"/></svg>
+                <span class="app">BasicShell</span><span>File</span><span>Edit</span><span>View</span><span>Tab</span><span>History</span><span>Bookmarks</span><span>Window</span><span>Help</span>
+                <div class="sp"></div>
+                <div class="sys">
+                  <svg viewBox="0 0 24 24"><path d="M2.5 9a14 14 0 0 1 19 0"/><path d="M5.5 12.5a9.5 9.5 0 0 1 13 0"/><path d="M8.7 16a5 5 0 0 1 6.6 0"/><circle cx="12" cy="19" r=".6"/></svg>
+                  <svg viewBox="0 0 24 24" style="width:24px"><rect x="2" y="7" width="17" height="10" rx="2.6"/><path d="M21.5 10.5v3"/><rect x="4" y="9" width="9" height="6" rx="1.2" fill="#fff" stroke="none"/></svg>
+                  <span id="menuClock" style="padding:0">Sat 19:08</span>
+                </div>
+              </div>
+
+              <div class="win" id="win">
+                <div class="pagehost" id="pagehost">
+                  <div class="page" id="page"><div class="page-in" id="pageIn"></div></div>
+                  <div class="page p2" id="page2" hidden><div class="page-in" id="pageIn2"></div></div>
+                  <div class="sdiv" id="sdiv" hidden aria-hidden="true"></div>
+                  <div class="sframe" id="sframe" hidden></div>
+                  <div class="reader" id="reader" aria-hidden="true"></div>
+                  <div class="reader-tools" id="readerTools" hidden></div>
+                </div>
+
+                <div class="edge l"></div><div class="edge t"></div>
+                <button class="handle l" id="handleL" aria-label="Show the sidebar" tabindex="-1"></button>
+                <button class="handle t" id="handleT" aria-label="Show the top bar" tabindex="-1"></button>
+
+                <aside class="sb glass" id="sb" aria-label="Sidebar of the demo browser"></aside>
+                <div class="tb glass" id="tb" aria-label="Top bar of the demo browser"></div>
+                <div class="dlp glass" id="dlp"></div>
+                <div class="ctx glass" id="ctx" role="menu"></div>
+                <div class="toast glass" id="toast" role="status" aria-live="polite"></div>
+              </div>
+
+              <div class="clock" id="clock">19:08</div>
+              <div class="notch" aria-hidden="true"></div>
+            </div>
+          </div>
+        </div>
+        <div class="hinge"></div>
+        <div class="base"></div>
+      </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="chips" id="chips" role="group" aria-label="Things to try">
+        <button class="chip" data-preset="edges" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v16"/><path d="M9 12h11"/><path d="m16 8 4 4-4 4"/></svg>Show the edges</button>
+        <button class="chip" data-preset="profiles" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="12" r="4"/><circle cx="16" cy="12" r="4"/></svg>Profiles</button>
+        <button class="chip" data-preset="tabs" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 6h14M9 12h10M9 18h10"/><path d="M5 12v6" opacity=".6"/></svg>Pins and groups</button>
+        <button class="chip" data-preset="split" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M12 5v14"/></svg>Split view</button>
+        <button class="chip" data-preset="reader" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.5h7l4 4V20a.5.5 0 0 1-.5.5h-10A.5.5 0 0 1 7 20z"/><path d="M10 12h5M10 16h5"/></svg>Reader</button>
+        <button class="chip" data-preset="dusk" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg>Dark pages</button>
+        <button class="chip" data-preset="save" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 11l5 5 5-5M5 20h14"/></svg>Save a video</button>
+      </div>
+      <div class="caption" aria-live="polite">
+        <p id="capText"></p>
+        <div class="hint" id="capHint"></div>
+      </div>
+      <div class="toggles">
+        <span class="profdots" id="profdots" role="group" aria-label="Profile, and with it the colour of this page"></span>
+        <span class="seg" role="group" aria-label="Window mode"><button data-mode="window" aria-pressed="true">Window</button><button data-mode="full" aria-pressed="false">Full screen</button></span>
+        <span class="seg" role="group" aria-label="Bars"><button data-layout="both" aria-pressed="true">Top and side bars</button><button data-layout="side" aria-pressed="false">Sidebar only</button></span>
+        <label><input class="sw" type="checkbox" id="swSide"> Keep sidebar open</label>
+        <label><input class="sw" type="checkbox" id="swTop"> Keep top bar open</label>
+        <label><input class="sw" type="checkbox" id="swSlow"> Slow motion</label>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="agents" aria-labelledby="ah">
+    <div class="wrap agents">
+      <div>
+        <h2 id="ah" class="reveal">Your agent can use it. <span class="n">With your say.</span></h2>
+        <p class="lede reveal">Turn it on in Settings and Claude Code, the Claude app, Antigravity or any MCP client gets 49 tools for your tabs. No account, no extension.</p>
+        <ul class="agent-points reveal">
+          <li><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12 2.4 2.4 4.6-4.8"/></svg></span><div><h3>Asked per site</h3><p>It asks once to read a site and again before it clicks or types there. A no stays a no.</p></div></li>
+          <li><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span><div><h3>Passwords stay yours</h3><p>It never sees password, card or one-time-code fields, and private tabs are never listed.</p></div></li>
+          <li><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3.5"/><path d="M9 9h6v6H9z"/></svg></span><div><h3>You can see it, and stop it</h3><p>The tab it works in is framed and marked in the sidebar, with a Stop button.</p></div></li>
+        </ul>
+      </div>
+      <div class="agent-demo reveal" id="agentDemo" aria-label="An example of an agent at work, drawn here">
+        <div class="agent-win">
+          <div class="agent-bar"><i></i><i></i><i></i><span class="url">fieldguide.example/birds/kestrel</span></div>
+          <div class="agent-body">
+            <p class="you"><b>You</b>Put my bird tabs in a group and pin the field guide.</p>
+            <ul class="log" id="agentLog">
+              <li><code>tabs</code><span>6 tabs in 2 profiles. <em>Main</em> is shown.</span></li>
+              <li><code>open</code><span>fieldguide.example/birds/kestrel in <em>Agent</em> (no sign-ins)</span></li>
+              <li><code>read_text</code><span>Kestrel article, <em>4 paragraphs, 1 video</em></span></li>
+              <li><code>find</code><span>“wingspan” in <em>At a glance</em>, 68 to 78 cm</span></li>
+              <li><code>arrange</code><span>Group 3 tabs as <em>Birds</em>, pin 1</span></li>
+              <li><code>screenshot</code><span><em>max_width 900</em>, marks on</span></li>
+            </ul>
+          </div>
+          <div class="ask"><p><b>fieldguide.example</b> wants to click and type on this site.</p><div><span>Not now</span><span>Read only</span><span class="y">Read and act</span></div></div>
+          <div class="pill"><i></i>Agent at work<b>Stop</b></div>
+        </div>
+      </div>
+    </div>
+    <div class="wrap reveal">
+      <div class="tool-cloud" aria-label="Some of the tools">
+        <span>tabs</span><span>open</span><span>read_text</span><span>read_page</span><span>find</span><span>click</span><span>type</span><span>fill_form</span><span>search</span><span>read_pages</span><span>screenshot</span><span>dialog</span><span>wait</span><span>pick</span><span>save_page</span><span>record</span><span>arrange</span><span>history</span><span>bookmarks</span><span>downloads</span><span class="dev">console</span><span class="dev">network</span><span class="dev">api</span><span class="dev">inspect</span><span class="dev">storage</span><span class="dev">performance</span><span class="dev">features</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="features" aria-labelledby="fh">
+    <div class="wrap">
+      <div class="index-head reveal">
+        <div>
+          <h2 id="fh">Small, but it <span class="w">does</span> a lot.</h2>
+          <p class="lede">All of it is in the app today. Search, or pick a part.</p>
+        </div>
+        <label class="finder"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg><span class="sr">Search the features</span><input id="finder" type="search" placeholder="Search the features" autocomplete="off"></label>
+      </div>
+      <div class="groups-nav" id="gnav" role="group" aria-label="Parts"></div>
+      <div id="findex">
+<!--FEATURES-->
+      </div>
+      <p class="none" id="none" hidden>Nothing here by that name. <button type="button" id="clearFind" style="background:none;border:0;color:var(--brand);font-weight:600;padding:0;text-decoration:underline">Show everything</button></p>
+    </div>
+  </section>
+
+  <section class="sec numbers" id="numbers" aria-labelledby="nh">
+    <div class="wrap">
+      <h2 id="nh" class="reveal">Measured on <span class="w">this</span> Mac.</h2>
+      <p class="lede reveal">A MacBook Air with the M3 chip on macOS 27, 1 November 2026. The method is below if you want to repeat it.</p>
+      <div class="bars">
+        <div class="bar-block reveal" data-bars>
+          <h3>What it takes on disk<small>The app as installed in /Applications. Safari is part of macOS and can't be removed.</small></h3>
+          <div class="bar-list">
+            <div class="bar-row"><span class="name">Chrome</span><div class="bar-track" style="--w:100.0"><span class="bar-fill"></span><span class="bar-val in-bar">1,459 MB</span></div></div>
+            <div class="bar-row"><span class="name">Arc</span><div class="bar-track" style="--w:61.7"><span class="bar-fill"></span><span class="bar-val">900 MB</span></div></div>
+            <div class="bar-row"><span class="name">Orion</span><div class="bar-track" style="--w:37.9"><span class="bar-fill"></span><span class="bar-val">554 MB</span></div></div>
+            <div class="bar-row"><span class="name">Safari</span><div class="bar-track" style="--w:2.4"><span class="bar-fill"></span><span class="bar-val">35 MB</span></div></div>
+            <div class="bar-row"><span class="name">Search</span><div class="bar-track" style="--w:0.63"><span class="bar-fill"></span><span class="bar-val">9.2 MB</span></div></div>
+            <div class="bar-row me"><span class="name" data-name>BasicShell</span><div class="bar-track" style="--w:0.31"><span class="bar-fill"></span><span class="bar-val">4.6 MB</span></div></div>
+          </div>
+        </div>
+<!--RAM-->
+        <div class="bar-block reveal" data-bars>
+          <h3>A tab you cannot see<small>Percent of one core over 12 seconds, for a page that animates and runs a timer. WebKit already slows a hidden page; freezing removes most of the rest.</small></h3>
+          <div class="bar-list" id="cpuBars">
+<!--CPU-->
+          </div>
+        </div>
+      </div>
+
+      <dl class="ledger reveal" style="margin:72px 0 0; display:grid; gap:0">
+<!--LEDGER-->
+      </dl>
+
+      <p class="method reveal"><b>Method.</b> Sizes are <code>du -sk</code> of each app in /Applications. Memory is what macOS counts for each app and its helpers, with the same five pages open in every browser: two Wikipedia articles, MDN's page on CSS, a GitHub repository and Hacker News. BasicShell ran from a fresh data folder with uBlock Origin Lite on (off in the row that says so), Chrome from a temporary profile with no extension, Safari and Search as they were. Two runs each, the mean shown. The first window is the median of six launches. Arc and Orion were not run, since they would have opened your own sessions.</p>
+    </div>
+  </section>
+
+  <section class="sec quiet" id="quiet" aria-labelledby="qh">
+    <div class="wrap">
+      <h2 id="qh" class="reveal">Quiet <span class="w">by</span> build.</h2>
+      <p class="lede reveal">It sends nothing but the pages you open and, once a day, a check for a newer version. Settings turns that off.</p>
+      <div class="quiet-grid">
+        <ul class="reveal">
+          <li><b>No telemetry</b><span>No analytics, crash reports or account.</span></li>
+          <li><b>No dependencies</b><span>Swift and the frameworks that ship with the Mac.</span></li>
+          <li><b>Updates by hand</b><span>Checked against GitHub's SHA-256 and the app's signature, and never installed without your say.</span></li>
+          <li><b>The source</b><span>MIT licence, on GitHub. Releases are built from a clean clone.</span></li>
+        </ul>
+        <div class="honest reveal">
+          <h3>What it cannot do yet</h3>
+          <ul>
+            <li><b>Passkeys.</b><span>WebKit gives them to a browser only with an entitlement Apple grants on request, tied to a paid developer account.</span></li>
+            <li><b>Chrome's own tools.</b><span>An agent here can't emulate touch or throttle the network.</span></li>
+            <li><b>Pages built only for Chrome.</b><span>It is WebKit, like Safari, so a few of those misbehave.</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="faq" aria-labelledby="qa">
+    <div class="wrap faq">
+      <h2 id="qa" class="reveal"><span class="n">Questions.</span></h2>
+      <div class="reveal">
+<!--FAQ-->
+      </div>
+    </div>
+  </section>
+
+  <section class="closing" aria-labelledby="ch">
+    <div class="wrap">
+      <h2 id="ch">Give the page <span class="w">all</span> of it.</h2>
+      <div class="cta">
+        <a class="btn" href="https://github.com/mbahakeskin/BasicShell/releases/latest">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/></svg>
+          <span>Download for Mac<small>Version @@VERSION@@ · @@SIZE@@ · macOS 27</small></span>
+        </a>
+        <a class="btn-quiet" href="https://github.com/mbahakeskin/BasicShell">Read the source <span aria-hidden="true">↗</span></a>
+      </div>
+      <footer class="foot">
+        <span><b data-name style="color:var(--ink)">BasicShell</b> @@VERSION@@, MIT licence. Parts of its page script and colour engine are adapted from <a href="https://github.com/driceroland/Search">Search</a> by Office Commun, also MIT.</span>
+        <span class="foot-links"><a href="https://github.com/mbahakeskin/BasicShell">GitHub</a><a href="https://github.com/mbahakeskin/BasicShell/releases">Releases</a><a href="https://github.com/mbahakeskin/BasicShell/blob/main/LICENSE">Licence</a><a href="#top">Back to top</a></span>
+      </footer>
+    </div>
+  </section>
+</main>
+<noscript><div class="wrap"><p>The model browser needs JavaScript. The download link and the text work without it.</p></div></noscript>

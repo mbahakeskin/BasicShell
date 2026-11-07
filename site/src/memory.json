@@ -1,0 +1,51 @@
+{
+ "empty": {
+  "BasicShell": {
+   "mb": 72.0,
+   "procs": 6.0
+  },
+  "Chrome": {
+   "mb": 339.0,
+   "procs": 16.0
+  }
+ },
+ "five": {
+  "BasicShell": {
+   "mb": 651.5,
+   "procs": 11.5
+  },
+  "BasicShell, blocker off": {
+   "mb": 572.0,
+   "procs": 11.0
+  },
+  "BasicShell, tabs unloaded": {
+   "mb": 164,
+   "procs": 7
+  },
+  "Chrome": {
+   "mb": 648.0,
+   "procs": 15.5
+  },
+  "Safari": {
+   "mb": 498.5,
+   "procs": 19.5
+  },
+  "Search": {
+   "mb": 615.0,
+   "procs": 10.5
+  }
+ },
+ "split": {
+  "BasicShell": {
+   "pages": 514.0,
+   "shell": 61.333333333333336,
+   "rest": 52.666666666666664
+  },
+  "Chrome": {
+   "pages": 383.0,
+   "shell": 108.0,
+   "rest": 131.0
+  }
+ },
+ "split_note": "The five pages as the browser holds them, split by what holds them. The pages are most of it in both. BasicShell's own process is smaller than Chrome's, its page processes are larger."
+}

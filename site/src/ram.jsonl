@@ -1,0 +1,8 @@
+{"procs": 6, "mb": 73, "cpu_pct": -3.13, "wakeups_s": 0.0, "app": "BasicShell", "tabs": 0, "run": 1}
+{"procs": 16, "mb": 340, "cpu_pct": -0.62, "wakeups_s": 0.1, "app": "Chrome", "tabs": 0, "run": 1}
+{"procs": 12, "mb": 679, "cpu_pct": 1.03, "wakeups_s": 3.1, "app": "BasicShell", "tabs": 5, "run": 1}
+{"procs": 18, "mb": 665, "cpu_pct": 1.63, "wakeups_s": 0.2, "app": "Chrome", "tabs": 5, "run": 1}
+{"procs": 6, "mb": 71, "cpu_pct": -2.94, "wakeups_s": 0.1, "app": "BasicShell", "tabs": 0, "run": 2}
+{"procs": 16, "mb": 338, "cpu_pct": 0.3, "wakeups_s": 0.1, "app": "Chrome", "tabs": 0, "run": 2}
+{"procs": 11, "mb": 624, "cpu_pct": 1.0, "wakeups_s": 2.3, "app": "BasicShell", "tabs": 5, "run": 2}
+{"procs": 13, "mb": 631, "cpu_pct": 1.34, "wakeups_s": 0.4, "app": "Chrome", "tabs": 5, "run": 2}
